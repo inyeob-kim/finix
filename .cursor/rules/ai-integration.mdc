@@ -1,0 +1,56 @@
+---
+alwaysApply: true
+---
+# AI Integration Rules
+
+## 1. LLM Responsibility
+
+LLM MUST be used ONLY for:
+
+* Intent parsing
+* Scenario generation
+* Scenario refinement
+
+LLM MUST NOT be used for:
+
+* API request generation
+* Critical logic execution
+
+---
+
+## 2. Deterministic Layers
+
+* Test case generation MUST be template-based
+* Execution MUST be deterministic
+
+---
+
+## 3. Prompt Design
+
+* Prompts must be versioned
+* Prompts must be reusable
+
+---
+
+## 4. Validation
+
+* LLM output MUST be validated before use
+
+---
+
+## 5. Fallback Strategy
+
+* If LLM fails, system must degrade gracefully
+
+---
+
+## 6. Observability
+
+* Log all LLM inputs and outputs
+
+---
+
+## 7. Cost Control
+
+* Avoid unnecessary LLM calls
+* Cache results where possible

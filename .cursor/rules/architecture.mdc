@@ -1,0 +1,73 @@
+---
+alwaysApply: true
+---
+
+# Architecture Rules
+
+## 1. Layered Architecture (Mandatory)
+
+The system MUST follow a strict layered architecture:
+
+Frontend:
+
+* UI (View)
+* State / Store
+* API Client
+
+Backend:
+
+* Router (API Layer)
+* Service (Business Logic)
+* Repository (Data Access)
+
+---
+
+## 2. Separation of Concerns
+
+Each layer MUST have a single responsibility:
+
+* UI: rendering and user interaction ONLY
+* Service: business logic ONLY
+* Repository: data access ONLY
+
+Cross-layer logic is strictly forbidden.
+
+---
+
+## 3. Data Flow
+
+Frontend:
+UI → API Client → Backend
+
+Backend:
+Router → Service → Repository
+
+Reverse calls are NOT allowed.
+
+---
+
+## 4. No Business Logic in Controllers
+
+* Frontend components MUST NOT contain business logic
+* Backend routers MUST NOT contain business logic
+
+---
+
+## 5. Stateless Design (Default)
+
+* Services should be stateless unless explicitly required
+* Avoid hidden shared state
+
+---
+
+## 6. Extensibility First
+
+* New services (e.g. WITHDRAW, DEPOSIT) must be addable without modifying existing logic
+* Prefer configuration (metadata, templates) over hardcoding
+
+---
+
+## 7. Fail Fast
+
+* Validate inputs at the boundary (API layer)
+* Throw explicit errors

@@ -1,0 +1,12 @@
+service_code: "AC011"
+service_name: "계좌해지"
+source_version: "cbs-release-2026.05.07"
+rules:
+  - rule_id: "AC011-POS-001"
+    description: "정상 계좌는 해지가 성공한다"
+    expect:
+      outcome: "success"
+      http_status: 200
+    minimal_input:
+      close_reason: "USER_REQUEST"
+

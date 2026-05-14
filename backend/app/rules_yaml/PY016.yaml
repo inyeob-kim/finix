@@ -1,0 +1,44 @@
+service_code: "PY016"
+service_name: "Request bank salary payment"
+source_version: "cbs-release-2026.05.07"
+rules:
+  - rule_id: "PY016-NEG-001"
+    rule_type: "error"
+    title: "필수값 누락(pymntDt)"
+    description: "pymntDt는 필수값이며 누락/NULL이면 입력검증 에러로 거절해야 한다."
+    expect:
+      outcome: "error"
+      http_status: 400
+      error_code: "AAPCME0006"
+      error_args: ["@pymntDt"]
+    minimal_input:
+      pymntDt: null
+      pymntRmkCntnt: "급여이체"
+      bsicAtchmntFileId: "file_basic_001"
+      dtlAtchmntFileId: "file_detail_001"
+    assertions:
+      - path: "$.error_code"
+        op: "equals"
+        value: "AAPCME0006"
+      - path: "$.error_args[0]"
+        op: "equals"
+        value: "@pymntDt"
+    tags: ["validation", "required"]
+
+  - rule_id: "PY016-NEG-010"
+    rule_type: "business"
+    title: "업무규칙 위반(pymntDt <= txDate)"
+    description: "지급일(pymntDt)은 거래일(txDate)보다 커야 한다."
+    expect:
+      outcome: "error"
+      http_status: 400
+      error_code: "AAPCME0007"
+    minimal_input:
+      pymntDt: "20000101"
+      pymntRmkCntnt: "급여이체"
+    assertions:
+      - path: "$.error_code"
+        op: "equals"
+        value: "AAPCME0007"
+    tags: ["business", "date", "range"]
+

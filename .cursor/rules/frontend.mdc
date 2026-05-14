@@ -1,0 +1,74 @@
+---
+alwaysApply: true
+---
+
+# Frontend Rules
+
+## 1. Component Responsibility
+
+Components MUST:
+
+* Handle UI rendering ONLY
+* Handle user interaction ONLY
+
+Components MUST NOT:
+
+* Contain business logic
+* Transform domain data
+* Call APIs directly (except through API layer)
+
+---
+
+## 2. API Calls
+
+All API calls MUST go through a dedicated API client layer.
+
+Example:
+
+* api/scenarioApi.ts
+* api/testcaseApi.ts
+
+Direct fetch/axios inside components is forbidden.
+
+---
+
+## 3. State Management
+
+* Global state MUST be handled via a store (e.g. Zustand)
+* Local UI state is allowed inside components
+
+---
+
+## 4. Scenario Flow UI
+
+* Scenario must be represented as a pure data structure
+* UI should only render based on data
+
+---
+
+## 5. Reusability
+
+* Components must be small and reusable
+* No component should exceed 300 lines
+
+---
+
+## 6. No Side Effects in Render
+
+* No async logic inside render
+* Use hooks (useEffect) properly
+
+---
+
+## 7. Error Handling
+
+* UI must gracefully handle API errors
+* Never crash the UI
+
+---
+
+## 8. Naming Convention
+
+* Components: PascalCase
+* Hooks: useSomething
+* Files: kebab-case or camelCase consistently

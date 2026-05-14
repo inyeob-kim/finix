@@ -1,0 +1,87 @@
+---
+alwaysApply: true
+---
+
+# Backend Rules (FastAPI)
+
+## 1. Router Responsibility
+
+Routers MUST:
+
+* Handle request/response ONLY
+* Perform input validation
+* Call services
+
+Routers MUST NOT:
+
+* Contain business logic
+* Access database directly
+
+---
+
+## 2. Service Layer
+
+Services MUST:
+
+* Contain ALL business logic
+* Be reusable and composable
+
+Services MUST NOT:
+
+* Handle HTTP concerns
+* Depend on FastAPI
+
+---
+
+## 3. Repository Layer
+
+Repositories MUST:
+
+* Handle data access ONLY
+
+Repositories MUST NOT:
+
+* Contain business logic
+
+---
+
+## 4. Dependency Direction
+
+Router → Service → Repository
+
+Reverse dependencies are forbidden.
+
+---
+
+## 5. Function Size
+
+* Functions must be small and focused
+* Max 50 lines recommended
+
+---
+
+## 6. Error Handling
+
+* Raise domain-specific exceptions
+* Do not return raw exceptions
+
+---
+
+## 7. Async First
+
+* Use async/await for IO operations
+* Avoid blocking calls
+
+---
+
+## 8. DTO / Schema
+
+* Use Pydantic models for request/response
+* Never expose internal models directly
+
+---
+
+## 9. Logging
+
+* All service-level actions must be logged
+* Execution results must be persisted

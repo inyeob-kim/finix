@@ -1,0 +1,10 @@
+Alembic migrations live in this folder.
+
+Quickstart (MySQL):
+- Set `DATABASE_URL_SYNC` in `backend/.env` to a `mysql+pymysql://...` URL
+- Run: `alembic upgrade head`
+
+Note:
+- The application runtime uses async SQLAlchemy (`DATABASE_URL`, e.g. `mysql+asyncmy://...`).
+- Alembic uses a sync driver URL for migrations (`DATABASE_URL_SYNC`).
+

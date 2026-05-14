@@ -1,0 +1,65 @@
+---
+alwaysApply: true
+---
+
+# Coding Rules
+
+## 1. Single Responsibility Principle
+
+Each function MUST do ONE thing only.
+
+---
+
+## 2. Naming
+
+* Use clear, descriptive names
+* Avoid abbreviations unless standard
+
+Bad:
+
+* doStuff()
+
+Good:
+
+* generate_withdraw_scenario()
+
+---
+
+## 3. No Magic Values
+
+* Use constants or config
+* Avoid hardcoded values
+
+---
+
+## 4. Pure Functions (Preferred)
+
+* Functions should not have side effects unless necessary
+
+---
+
+## 5. Early Return
+
+* Avoid deep nesting
+* Use early return pattern
+
+---
+
+## 6. Testability
+
+* Code must be easily testable
+* Avoid tight coupling
+
+---
+
+## 7. Comments
+
+* Explain WHY, not WHAT
+* Avoid redundant comments
+
+---
+
+## 8. Consistency
+
+* Follow same patterns across the project
+* Do not invent new patterns per file

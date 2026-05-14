@@ -1,0 +1,24 @@
+service_code: "CU018"
+service_name: "고객사망등록"
+source_version: "cbs-release-2026.05.07"
+rules:
+  - rule_id: "CU018-NEG-001"
+    description: "customerId is mandatory"
+    expect:
+      outcome: "error"
+      http_status: 400
+      error_code: "AAPCME0006"
+      error_args: ["@customerId"]
+    minimal_input:
+      customerId: null
+      deathDate: "2026-05-01"
+
+  - rule_id: "CU018-POS-001"
+    description: "Valid request succeeds"
+    expect:
+      outcome: "success"
+      http_status: 200
+    minimal_input:
+      customerId: "C00000001"
+      deathDate: "2026-05-01"
+

@@ -1,0 +1,24 @@
+service_code: "CM060"
+service_name: "정기예금 가입"
+source_version: "cbs-release-2026.05.07"
+rules:
+  - rule_id: "CM060-NEG-001"
+    description: "term is mandatory"
+    expect:
+      outcome: "error"
+      http_status: 400
+      error_code: "AAPCME0006"
+      error_args: ["@term"]
+    minimal_input:
+      term: null
+      amount: 1000000
+
+  - rule_id: "CM060-POS-001"
+    description: "Valid 가입 succeeds"
+    expect:
+      outcome: "success"
+      http_status: 200
+    minimal_input:
+      term: 12
+      amount: 1000000
+
