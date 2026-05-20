@@ -44,6 +44,64 @@ def _norm_timeout(raw: str) -> int:
         return 0
 
 
+def extract_raw_catalog_dicts(payload: object) -> list[dict]:
+    """Support both list JSON and wrapped-object JSON shapes (shared with upload import)."""
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    if isinstance(payload, dict):
+        collected: list[dict] = []
+        for value in payload.values():
+            if isinstance(value, list):
+                collected.extend(x for x in value if isinstance(x, dict))
+            elif isinstance(value, dict):
+                collected.append(value)
+        if collected:
+            return collected
+    return []
+
+
+def raw_rows_to_cbs_records(raw_rows: list[dict]) -> list[CbsServiceRecord]:
+    """Map CBS-style dict rows to normalized records; skips invalid rows."""
+    rows: list[CbsServiceRecord] = []
+    for row in raw_rows:
+        method = _norm_method((row.get("HTTP_METHOD_NM") or row.get("http_method") or ""))
+        uri = (
+            row.get("SRVC_URI_CNTNT")
+            or row.get("uri")
+            or row.get("endpoint_uri")
+            or ""
+        ).strip()
+        if not method or not uri or uri == "required_uri":
+            continue
+        code = (row.get("SRVC_CD") or row.get("service_code") or "").strip()
+        if not code:
+            continue
+        rows.append(
+            CbsServiceRecord(
+                service_code=code,
+                service_name=(row.get("SRVC_NM") or row.get("service_name") or "").strip(),
+                service_class_name=(
+                    row.get("SRVC_CLASS_NM")
+                    or row.get("service_class_name")
+                    or row.get("component_code")
+                    or ""
+                ).strip(),
+                operation_name=(row.get("OPRTN_NM") or row.get("operation_name") or "").strip(),
+                http_method=method,
+                uri=uri,
+                in_dto=(
+                    row.get("IN_DTO_NM") or row.get("in_dto") or row.get("input_dto_name") or ""
+                ).strip(),
+                out_dto=(
+                    row.get("OUT_DTO_NM") or row.get("out_dto") or row.get("output_dto_name") or ""
+                ).strip(),
+                tx_yn=(row.get("TX_YN") or row.get("tx_yn") or "").strip(),
+                timeout_ss=_norm_timeout(row.get("TIMEOUT_SS") or row.get("timeout_ss") or ""),
+            )
+        )
+    return rows
+
+
 class CbsServiceCatalogRepository:
     """Repository that loads and searches `cbs_srvc.json`."""
 
@@ -74,45 +132,8 @@ class CbsServiceCatalogRepository:
         """Parse service records from JSON payload."""
         with self._json_path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
-        raw_rows = self._extract_raw_rows(payload)
-        rows: list[CbsServiceRecord] = []
-        for row in raw_rows:
-            method = _norm_method((row.get("HTTP_METHOD_NM") or row.get("http_method") or ""))
-            uri = (row.get("SRVC_URI_CNTNT") or row.get("uri") or "").strip()
-            if not method or not uri or uri == "required_uri":
-                continue
-            rows.append(
-                CbsServiceRecord(
-                    service_code=(row.get("SRVC_CD") or row.get("service_code") or "").strip(),
-                    service_name=(row.get("SRVC_NM") or row.get("service_name") or "").strip(),
-                    service_class_name=(
-                        row.get("SRVC_CLASS_NM") or row.get("service_class_name") or ""
-                    ).strip(),
-                    operation_name=(row.get("OPRTN_NM") or row.get("operation_name") or "").strip(),
-                    http_method=method,
-                    uri=uri,
-                    in_dto=(row.get("IN_DTO_NM") or row.get("in_dto") or "").strip(),
-                    out_dto=(row.get("OUT_DTO_NM") or row.get("out_dto") or "").strip(),
-                    tx_yn=(row.get("TX_YN") or row.get("tx_yn") or "").strip(),
-                    timeout_ss=_norm_timeout(row.get("TIMEOUT_SS") or row.get("timeout_ss") or ""),
-                )
-            )
-        return rows
-
-    def _extract_raw_rows(self, payload: object) -> list[dict]:
-        """Support both list JSON and wrapped-object JSON shapes."""
-        if isinstance(payload, list):
-            return [x for x in payload if isinstance(x, dict)]
-        if isinstance(payload, dict):
-            collected: list[dict] = []
-            for value in payload.values():
-                if isinstance(value, list):
-                    collected.extend(x for x in value if isinstance(x, dict))
-                elif isinstance(value, dict):
-                    collected.append(value)
-            if collected:
-                return collected
-        return []
+        raw_rows = extract_raw_catalog_dicts(payload)
+        return raw_rows_to_cbs_records(raw_rows)
 
     async def search_by_prompt(self, prompt: str, *, limit: int = 5) -> list[CbsServiceRecord]:
         """

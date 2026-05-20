@@ -19,6 +19,10 @@ class ScenarioStepRead(BaseModel):
     action: str
     result: Literal["success", "error"]
     reason: str | None = None
+    service_code: str | None = Field(
+        default=None,
+        description="SRVC_CD when known; preferred over parsing ``reason``.",
+    )
 
 
 class ScenarioRead(BaseModel):
@@ -49,10 +53,13 @@ class ScenarioPatchV1(BaseModel):
     steps: list[ScenarioStepRead] | None = None
 
 
-class ScenarioRefineRequest(BaseModel):
-    """User instruction for AI-assisted scenario refinement."""
+class ScenarioAttachTestCasesRequest(BaseModel):
+    """Map pool test cases onto a scenario in step order."""
 
-    instruction: str = Field(..., min_length=1, max_length=2000)
+    per_step: list[list[int]] = Field(
+        ...,
+        description="Index i matches scenario step i; inner list is testcase ids in run order.",
+    )
 
 
 class ScenarioListRead(BaseModel):
@@ -63,29 +70,6 @@ class ScenarioListRead(BaseModel):
     prompt: str | None
     is_saved: bool
     created_at: datetime
-
-
-class ScenarioGenerateRequest(BaseModel):
-    """Payload for legacy scenario generation."""
-
-    title: str = Field(..., min_length=1, max_length=255)
-    prompt: str | None = Field(
-        default=None,
-        description="Optional natural language input used by the generator.",
-    )
-
-
-class ScenarioResponse(BaseModel):
-    """Legacy scenario response (extended fields for newer clients)."""
-
-    id: int
-    title: str
-    description: str | None
-    content: str | None
-    created_at: datetime
-    prompt: str | None = None
-    steps: list[ScenarioStepRead] = Field(default_factory=list)
-    is_saved: bool = False
 
 
 def scenario_entity_to_read(entity: Scenario) -> ScenarioRead:
@@ -108,21 +92,6 @@ def scenario_entity_to_read(entity: Scenario) -> ScenarioRead:
         steps=steps_out,
         is_saved=bool(entity.is_saved),
         created_at=entity.created_at,
-    )
-
-
-def scenario_entity_to_legacy_response(entity: Scenario) -> ScenarioResponse:
-    """Map ORM scenario to legacy response shape."""
-    read = scenario_entity_to_read(entity)
-    return ScenarioResponse(
-        id=read.id,
-        title=read.title,
-        description=read.description,
-        content=read.content,
-        created_at=read.created_at,
-        prompt=read.prompt,
-        steps=read.steps,
-        is_saved=read.is_saved,
     )
 
 

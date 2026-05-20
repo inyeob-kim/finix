@@ -38,32 +38,6 @@ class TestCasePatchV1(BaseModel):
     step_index: int | None = None
 
 
-class TestCaseGenerateRequest(BaseModel):
-    """Payload for legacy single test case generation."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    scenario_id: int | None = Field(
-        default=None,
-        description="Optional scenario to associate generated steps with.",
-    )
-    objective: str | None = Field(
-        default=None,
-        description="Optional high-level objective for step synthesis.",
-    )
-
-
-class TestCaseResponse(BaseModel):
-    """Legacy test case response."""
-
-    id: int
-    scenario_id: int | None
-    name: str
-    steps: str | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 def testcase_entity_to_read(entity: TestCase) -> TestCaseRead:
     """Map ORM test case to API read model."""
     return TestCaseRead(

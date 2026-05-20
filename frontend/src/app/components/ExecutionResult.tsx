@@ -11,6 +11,7 @@ import { getExecution } from "@/api/executionApi";
 import { ApiError } from "@/api/client";
 import type { ExecutionDetailDto, ExecutionStepDto } from "@/api/types";
 import { PageShell } from "./PageShell";
+import { FinixLoadingPage } from "./ui/finix-loading";
 
 interface RowView {
   step: string;
@@ -91,11 +92,7 @@ export function ExecutionResult() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-full bg-secondary flex items-center justify-center text-muted-foreground">
-        결과를 불러오는 중…
-      </div>
-    );
+    return <FinixLoadingPage label="결과를 불러오는 중…" />;
   }
 
   if (error || !detail) {

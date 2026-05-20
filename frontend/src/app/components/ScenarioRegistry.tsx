@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   GripVertical,
   Wand2,
-  Loader2,
   Play,
   Sparkles,
   BarChart3,
@@ -25,6 +24,10 @@ import {
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { createScenario, patchScenario } from "../../api/scenarioApi";
+import {
+  FINIX_LARGE_MODAL_CONTENT,
+  FINIX_LARGE_MODAL_MAX_WIDTH,
+} from "@/lib/finixModalLayout";
 import { PageShell } from "./PageShell";
 import {
   Table,
@@ -49,14 +52,16 @@ import {
   FinixUnderlineTextarea,
 } from "./ui/finix-form";
 import { FinixPrimaryButton, FinixPrimaryLink } from "./ui/finix-button";
+import { FinixLoading } from "./ui/finix-loading";
 import { useAuthStore } from "../auth/authStore";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "./ui/resizable";
-import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
-import { SERVICE_CATALOG, SERVICE_ITEM_TYPE } from "./scenarioRegistry/constants";
+import { SERVICE_ITEM_TYPE } from "./scenarioRegistry/constants";
+import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
+import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import type {
   RegistryStatus,
   ScenarioRegistryFolder,
@@ -81,27 +86,25 @@ import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
 import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
 import { ConfirmPopover } from "./scenarioRegistry/components/ConfirmPopover";
+import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { listTestCasesByServiceCode } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
+import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
 
 function mapPersistedTestcaseToRef(
   row: TestCaseReadDto,
   serviceCode: string,
   serviceName: string,
 ): ScenarioRuleTestcaseRef {
-  const prefix = `${serviceCode} `;
-  let ruleId: string | undefined;
-  if (row.name.startsWith(prefix)) {
-    const rest = row.name.slice(prefix.length).trim();
-    const firstSpace = rest.indexOf(" ");
-    ruleId = firstSpace > 0 ? rest.slice(0, firstSpace) : rest || undefined;
-  }
+  const parsed = parseMaterializedTestcaseName(row.name, serviceCode);
   return {
     id: `tc-${row.id}`,
     serviceCode,
     serviceName,
-    ruleId,
+    ruleId: parsed.ruleId,
+    ruleType: parsed.ruleType,
     title: row.name,
+    description: parsed.shortLabel,
     backendTestcaseId: row.id,
     scenarioId: row.scenario_id,
   };
@@ -126,14 +129,13 @@ export function ScenarioRegistry() {
 
   // form state
   const [title, setTitle] = useState("");
-  const [serviceQuery, setServiceQuery] = useState("");
+  const [servicePickerCode, setServicePickerCode] = useState("");
   const [description, setDescription] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [status, setStatus] = useState<RegistryStatus>("draft");
   const [folderId, setFolderId] = useState<string>("");
   const [serviceDrafts, setServiceDrafts] = useState<ServiceDraft[]>([]);
-  const [serviceSearchOpen, setServiceSearchOpen] = useState(false);
-  const [serviceSearchIndex, setServiceSearchIndex] = useState(0);
+  const [activeServiceCode, setActiveServiceCode] = useState<string | null>(null);
   const [scenarioWizardStep, setScenarioWizardStep] = useState<1 | 2>(1);
   const [rulePickLoading, setRulePickLoading] = useState(false);
   const [allYamlRuleRefs, setAllYamlRuleRefs] = useState<ScenarioRuleTestcaseRef[]>(
@@ -143,6 +145,12 @@ export function ScenarioRegistry() {
     ScenarioRuleTestcaseRef[]
   >([]);
   const [hydrated, setHydrated] = useState(false);
+
+  const {
+    options: catalogOptions,
+    loading: catalogLoading,
+    error: catalogError,
+  } = useServiceCatalogPicker({ enabled: open });
 
   const [ioDialog, setIoDialog] = useState<"export" | "import" | null>(null);
   const [ioText, setIoText] = useState("");
@@ -225,10 +233,24 @@ export function ScenarioRegistry() {
     [selectedRulePicks],
   );
 
-  const leftRulePool = useMemo(
-    () => allYamlRuleRefs.filter((r) => !selectedRuleIdSet.has(r.id)),
-    [allYamlRuleRefs, selectedRuleIdSet],
-  );
+  const leftRulePool = useMemo(() => {
+    let pool = allYamlRuleRefs.filter((r) => !selectedRuleIdSet.has(r.id));
+    if (activeServiceCode) {
+      pool = pool.filter((r) => r.serviceCode === activeServiceCode);
+    }
+    return pool;
+  }, [allYamlRuleRefs, selectedRuleIdSet, activeServiceCode]);
+
+  useEffect(() => {
+    if (serviceDrafts.length === 0) {
+      setActiveServiceCode(null);
+      return;
+    }
+    setActiveServiceCode((current) => {
+      if (current && serviceDrafts.some((s) => s.code === current)) return current;
+      return serviceDrafts[0]?.code ?? null;
+    });
+  }, [serviceDrafts]);
 
   useEffect(() => {
     if (!open || scenarioWizardStep !== 1) return;
@@ -275,6 +297,47 @@ export function ScenarioRegistry() {
 
   const removeRuleFromSelected = (id: string) => {
     setSelectedRulePicks((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  const addAllRulesToSelected = () => {
+    setSelectedRulePicks((prev) => {
+      const seen = new Set(prev.map((x) => x.id));
+      const next = [...prev];
+      for (const row of leftRulePool) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        next.push(row);
+      }
+      return next;
+    });
+  };
+
+  const removeAllRulesFromSelected = () => {
+    setSelectedRulePicks([]);
+  };
+
+  const selectServiceInSequence = (code: string) => {
+    const normalized = code.trim();
+    if (!normalized) return;
+    if (!serviceDrafts.some((s) => s.code === normalized)) return;
+    setActiveServiceCode(normalized);
+    setServicePickerCode("");
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  };
+
+  const handleServiceCatalogPick = (code: string) => {
+    if (!code) return;
+    const opt = catalogOptions.find((o) => o.code === code);
+    if (!opt) return;
+    if (serviceDrafts.some((p) => p.code === code)) {
+      selectServiceInSequence(code);
+      return;
+    }
+    addService({ code: opt.code, name: opt.name });
+    setActiveServiceCode(code);
+    setServicePickerCode("");
   };
 
   const parseDragRuleId = (e: DragEvent): string | null => {
@@ -396,12 +459,13 @@ export function ScenarioRegistry() {
   const resetForm = () => {
     setEditingId(null);
     setTitle("");
-    setServiceQuery("");
+    setServicePickerCode("");
     setDescription("");
     setTagsText("");
     setStatus("draft");
     setFolderId(selectedFolderId ?? folders[0]?.id ?? "");
     setServiceDrafts([]);
+    setActiveServiceCode(null);
     setScenarioWizardStep(1);
     setRulePickLoading(false);
     setAllYamlRuleRefs([]);
@@ -419,18 +483,18 @@ export function ScenarioRegistry() {
     if (!item) return;
     setEditingId(id);
     setTitle(item.title);
-    setServiceQuery("");
+    setServicePickerCode("");
     setDescription(item.description);
     setTagsText(item.tags.join(", "));
     setStatus(item.status);
     setFolderId(item.folderId);
-    setServiceDrafts(
-      (item.serviceSequence ?? []).map((s) => ({
-        id: newId(),
-        code: s.code,
-        name: s.name,
-      })),
-    );
+    const drafts = (item.serviceSequence ?? []).map((s) => ({
+      id: newId(),
+      code: s.code,
+      name: s.name,
+    }));
+    setServiceDrafts(drafts);
+    setActiveServiceCode(drafts[0]?.code ?? null);
     setSelectedRulePicks(
       item.selectedRuleTestcases?.length
         ? [...item.selectedRuleTestcases]
@@ -697,42 +761,45 @@ export function ScenarioRegistry() {
     setError(null);
   };
 
-  const matchedServices = useMemo(() => {
-    const q = serviceQuery.trim().toLowerCase();
-    if (!q) return SERVICE_CATALOG.slice(0, 20);
-    return SERVICE_CATALOG.filter(
-      (s) =>
-        s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q),
-    ).slice(0, 20);
-  }, [serviceQuery]);
-
-  useEffect(() => {
-    const openNow = serviceQuery.trim().length > 0 && matchedServices.length > 0;
-    setServiceSearchOpen(openNow);
-    if (openNow) {
-      setServiceSearchIndex(0);
-    }
-  }, [serviceQuery, matchedServices.length]);
-
   const addService = (svc: ServiceCatalogItem) => {
     setServiceDrafts((prev) => {
       if (prev.some((p) => p.code === svc.code)) return prev;
       return [...prev, { id: newId(), code: svc.code, name: svc.name }];
     });
-    setServiceQuery("");
+    setActiveServiceCode(svc.code);
+    setServicePickerCode("");
   };
 
   const moveService = (dragIndex: number, hoverIndex: number) => {
+    if (dragIndex === hoverIndex) return;
     setServiceDrafts((prev) => {
+      if (
+        dragIndex < 0 ||
+        hoverIndex < 0 ||
+        dragIndex >= prev.length ||
+        hoverIndex >= prev.length
+      ) {
+        return prev;
+      }
       const next = [...prev];
       const [removed] = next.splice(dragIndex, 1);
+      if (!removed) return prev;
       next.splice(hoverIndex, 0, removed);
       return next;
     });
   };
 
   const removeService = (id: string) => {
-    setServiceDrafts((prev) => prev.filter((s) => s.id !== id));
+    setServiceDrafts((prev) => {
+      const removed = prev.find((s) => s.id === id);
+      const next = prev.filter((s) => s.id !== id);
+      if (removed) {
+        setActiveServiceCode((active) =>
+          active === removed.code ? (next[0]?.code ?? null) : active,
+        );
+      }
+      return next;
+    });
   };
 
   return (
@@ -1408,129 +1475,62 @@ export function ScenarioRegistry() {
           if (!v) resetForm();
         }}
       >
-        <DialogContent className="w-full max-h-[92vh] overflow-hidden flex flex-col sm:max-w-[min(56rem,calc(100vw-2rem))] gap-0 p-0 rounded-sm">
+        <DialogContent className={`${FINIX_LARGE_MODAL_CONTENT} rounded-sm`}>
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
-            <DialogTitle className="pr-10">
+            <DialogTitle className="pr-10 text-lg font-semibold">
               {editingId ? "시나리오 편집" : "시나리오 등록"}
               <span className="block text-xs font-normal text-muted-foreground mt-1">
                 {scenarioWizardStep === 1
-                  ? "1/2 서비스 검색 · 적재된 테스트 케이스 조립"
+                  ? "1/2 서비스 · 테스트 케이스 조립"
                   : "2/2 제목·상태·컬렉션·설명"}
               </span>
             </DialogTitle>
           </DialogHeader>
 
-          <div className="px-6 py-4 flex-1 min-h-0 overflow-y-auto">
+          <div
+            className={`px-6 py-4 flex-1 min-h-0 ${
+              scenarioWizardStep === 1
+                ? "flex flex-col overflow-hidden"
+                : "overflow-y-auto"
+            }`}
+          >
             {scenarioWizardStep === 1 ? (
-              <div className="space-y-6">
+              <div className="flex flex-col gap-5 flex-1 min-h-0">
+                {catalogError ? (
+                  <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2 shrink-0">
+                    {catalogError}
+                  </div>
+                ) : null}
                 <FinixField
-                  label="서비스 시퀀스(드래그로 순서 변경)"
-                  helperText="서비스를 추가하고, 그립을 드래그해 순서를 바꾸세요."
+                  label="서비스 추가"
+                  helperText="코드 또는 이름으로 검색 후 선택 (시퀀스에 추가됩니다)"
+                >
+                  <ServiceCatalogCombobox
+                    options={catalogOptions}
+                    value={servicePickerCode}
+                    onValueChange={handleServiceCatalogPick}
+                    loading={catalogLoading}
+                    disabled={catalogOptions.length === 0}
+                  />
+                </FinixField>
+
+                <FinixField
+                  label="서비스 시퀀스"
+                  helperText="클릭하면 해당 서비스 테스트케이스 후보만 표시됩니다. 제거는 휴지통만 사용하세요."
+                  className="shrink-0"
                 >
                   <DndProvider backend={HTML5Backend}>
-                    <div className="space-y-3">
-                      <Popover
-                        open={serviceSearchOpen}
-                        onOpenChange={(v) => setServiceSearchOpen(v)}
-                      >
-                        <PopoverAnchor asChild>
-                          <div className="relative">
-                            <FinixUnderlineInput
-                              value={serviceQuery}
-                              onChange={(e) => setServiceQuery(e.target.value)}
-                              onFocus={() => {
-                                if (
-                                  serviceQuery.trim() &&
-                                  matchedServices.length > 0
-                                ) {
-                                  setServiceSearchOpen(true);
-                                }
-                              }}
-                              placeholder="서비스 검색 (예: PY016 / 계좌해지)"
-                              className="pr-3"
-                              onKeyDown={(e) => {
-                                if (e.key === "ArrowDown") {
-                                  e.preventDefault();
-                                  if (matchedServices.length === 0) return;
-                                  setServiceSearchIndex((prev) =>
-                                    Math.min(
-                                      matchedServices.length - 1,
-                                      prev + 1,
-                                    ),
-                                  );
-                                  return;
-                                }
-                                if (e.key === "ArrowUp") {
-                                  e.preventDefault();
-                                  if (matchedServices.length === 0) return;
-                                  setServiceSearchIndex((prev) =>
-                                    Math.max(0, prev - 1),
-                                  );
-                                  return;
-                                }
-                                if (e.key === "Enter") {
-                                  const picked =
-                                    matchedServices[serviceSearchIndex] ??
-                                    matchedServices[0];
-                                  if (picked) {
-                                    e.preventDefault();
-                                    addService(picked);
-                                  }
-                                }
-                                if (e.key === "Escape") {
-                                  setServiceQuery("");
-                                  setServiceSearchOpen(false);
-                                }
-                              }}
-                            />
-                          </div>
-                        </PopoverAnchor>
-                        <PopoverContent
-                          align="start"
-                          className="w-[min(720px,calc(100vw-3rem))] p-0 rounded-sm border border-border shadow-lg"
-                          onOpenAutoFocus={(e) => e.preventDefault()}
-                          onCloseAutoFocus={(e) => e.preventDefault()}
-                        >
-                          <div className="max-h-[280px] overflow-y-auto">
-                            {matchedServices.map((s) => {
-                              const selected = serviceDrafts.some(
-                                (x) => x.code === s.code,
-                              );
-                              const idx = matchedServices.findIndex(
-                                (m) => m.code === s.code,
-                              );
-                              const isActive = idx === serviceSearchIndex;
-                              return (
-                                <button
-                                  key={s.code}
-                                  type="button"
-                                  onClick={() => addService(s)}
-                                  className={[
-                                    "w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-3",
-                                    "border-b border-border last:border-b-0",
-                                    isActive ? "bg-muted/70" : "",
-                                    selected
-                                      ? "bg-muted text-foreground"
-                                      : "hover:bg-muted/60 text-muted-foreground hover:text-foreground",
-                                  ].join(" ")}
-                                >
-                                  <span className="font-mono text-xs">
-                                    {s.code}
-                                  </span>
-                                  <span className="flex-1 truncate">{s.name}</span>
-                                  <span className="text-xs">
-                                    {selected ? "추가됨" : "추가"}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-
+                    <div
+                      className="space-y-2 max-h-[min(140px,18vh)] overflow-y-auto"
+                      onPointerDown={() => {
+                        if (document.activeElement instanceof HTMLElement) {
+                          document.activeElement.blur();
+                        }
+                      }}
+                    >
                       {serviceDrafts.length === 0 ? (
-                        <div className="rounded-sm border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground text-center">
-                          서비스가 없습니다. 위에서 검색 후 추가하세요.
+                        <div className="rounded-sm border border-dashed border-border bg-muted/10 px-4 py-4 text-sm text-muted-foreground text-center">
+                          서비스를 검색해 추가하세요.
                         </div>
                       ) : (
                         serviceDrafts.map((s, idx) => (
@@ -1540,6 +1540,8 @@ export function ScenarioRegistry() {
                             index={idx}
                             move={moveService}
                             remove={removeService}
+                            isActive={s.code === activeServiceCode}
+                            onSelect={selectServiceInSequence}
                           />
                         ))
                       )}
@@ -1547,149 +1549,18 @@ export function ScenarioRegistry() {
                   </DndProvider>
                 </FinixField>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[220px]">
-                  <div
-                    className="rounded-sm border border-border bg-card/40 flex flex-col min-h-[200px]"
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const id = parseDragRuleId(e);
-                      if (id) removeRuleFromSelected(id);
-                    }}
-                  >
-                    <div className="px-3 py-2 border-b border-border bg-muted/30 text-xs font-semibold text-muted-foreground">
-                      테스트 케이스 후보 (DB 적재)
-                    </div>
-                    <div className="flex-1 overflow-y-auto max-h-[min(40vh,320px)] p-2">
-                      {rulePickLoading ? (
-                        <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          목록 불러오는 중…
-                        </div>
-                      ) : leftRulePool.length === 0 ? (
-                        <div className="text-sm text-muted-foreground px-2 py-6 text-center">
-                          {serviceDrafts.length === 0
-                            ? "먼저 서비스를 추가하세요."
-                            : "해당 서비스에 적재된 테스트 케이스가 없거나 API를 불러올 수 없습니다."}
-                        </div>
-                      ) : (
-                        <ul className="space-y-1">
-                          {leftRulePool.map((r) => (
-                            <li key={r.id}>
-                              <button
-                                type="button"
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData(
-                                    "application/json",
-                                    JSON.stringify({ id: r.id }),
-                                  );
-                                  e.dataTransfer.effectAllowed = "move";
-                                }}
-                                onClick={() => addRuleToSelected(r)}
-                                className="w-full text-left rounded-sm border border-transparent hover:border-border hover:bg-muted/50 px-2 py-2 text-xs"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="font-mono text-[11px] text-primary shrink-0">
-                                    {r.serviceCode}
-                                  </span>
-                                  {r.ruleType ? (
-                                    <span className="text-[10px] uppercase text-muted-foreground shrink-0">
-                                      {r.ruleType}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-                                  {r.title}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                                  {r.ruleId?.trim()
-                                    ? r.ruleId
-                                    : r.backendTestcaseId != null
-                                      ? `id=${r.backendTestcaseId}`
-                                      : "—"}
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-                      클릭하거나 오른쪽으로 드래그해 포함할 테스트를 고르세요.
-                    </p>
-                  </div>
-
-                  <div
-                    className="rounded-sm border border-dashed border-primary/25 bg-primary/[0.03] flex flex-col min-h-[200px]"
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const id = parseDragRuleId(e);
-                      const row =
-                        leftRulePool.find((x) => x.id === id) ??
-                        allYamlRuleRefs.find((x) => x.id === id);
-                      if (row) addRuleToSelected(row);
-                    }}
-                  >
-                    <div className="px-3 py-2 border-b border-border bg-muted/30 text-xs font-semibold text-muted-foreground">
-                      시나리오에 포함 ({selectedRulePicks.length})
-                    </div>
-                    <div className="flex-1 overflow-y-auto max-h-[min(40vh,320px)] p-2">
-                      {selectedRulePicks.length === 0 ? (
-                        <div className="text-sm text-muted-foreground px-2 py-6 text-center">
-                          왼쪽에서 항목을 클릭하거나 여기로 드래그하세요.
-                        </div>
-                      ) : (
-                        <ul className="space-y-1">
-                          {selectedRulePicks.map((r) => (
-                            <li key={r.id}>
-                              <button
-                                type="button"
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData(
-                                    "application/json",
-                                    JSON.stringify({ id: r.id }),
-                                  );
-                                  e.dataTransfer.effectAllowed = "move";
-                                }}
-                                onClick={() => removeRuleFromSelected(r.id)}
-                                className="w-full text-left rounded-sm border border-border bg-background px-2 py-2 text-xs hover:bg-muted/40"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="font-mono text-[11px] text-primary shrink-0">
-                                    {r.serviceCode}
-                                  </span>
-                                  <ChevronLeft className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
-                                </div>
-                                <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-                                  {r.title}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                                  {r.ruleId?.trim()
-                                    ? r.ruleId
-                                    : r.backendTestcaseId != null
-                                      ? `id=${r.backendTestcaseId}`
-                                      : "—"}
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-                      클릭하면 왼쪽으로 되돌립니다. 왼쪽 패널로 드래그해도 됩니다.
-                    </p>
-                  </div>
-                </div>
+                <ScenarioTestcaseTransfer
+                  leftRulePool={leftRulePool}
+                  selectedRulePicks={selectedRulePicks}
+                  rulePickLoading={rulePickLoading}
+                  hasServices={serviceDrafts.length > 0}
+                  activeServiceCode={activeServiceCode}
+                  onAdd={addRuleToSelected}
+                  onRemove={removeRuleFromSelected}
+                  onAddAll={addAllRulesToSelected}
+                  onRemoveAll={removeAllRulesFromSelected}
+                  parseDragRuleId={parseDragRuleId}
+                />
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1883,7 +1754,9 @@ export function ScenarioRegistry() {
           }
         }}
       >
-        <DialogContent className="w-full max-h-[92vh] overflow-y-auto sm:max-w-[min(56rem,calc(100vw-2rem))] rounded-sm">
+        <DialogContent
+          className={`w-full max-h-[92vh] overflow-y-auto ${FINIX_LARGE_MODAL_MAX_WIDTH} rounded-sm`}
+        >
           <DialogHeader>
             <DialogTitle className="pr-10">
               {ioDialog === "export" ? "Export (JSON)" : "Import (JSON)"}

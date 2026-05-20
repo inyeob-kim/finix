@@ -28,7 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { FINIX_LARGE_MODAL_MAX_WIDTH } from "@/lib/finixModalLayout";
 import { PageShell } from "./PageShell";
+import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
 
 type RegistryScenarioPayload = {
   title: string;
@@ -352,11 +354,7 @@ export function TestCase() {
   };
 
   if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center bg-secondary text-muted-foreground">
-        불러오는 중…
-      </div>
-    );
+    return <FinixLoadingPage label="불러오는 중…" />;
   }
 
   return (
@@ -561,9 +559,13 @@ export function TestCase() {
                   <FinixPrimaryButton
                     onClick={() => void handleGenerate()}
                     disabled={generating || yamlLoading || yamlPreviews.length === 0}
-                    className="px-6 h-10 rounded-sm"
+                    className="px-6 h-10 rounded-sm gap-2"
                   >
-                    <Wand2 className="w-4 h-4" />
+                    {generating ? (
+                      <FinixLoading size="sm" inline />
+                    ) : (
+                      <Wand2 className="w-4 h-4" />
+                    )}
                     {generating ? "생성 중…" : "테스트케이스 생성"}
                   </FinixPrimaryButton>
                 </div>
@@ -660,7 +662,9 @@ export function TestCase() {
               if (!open) setRawOpenFor(null);
             }}
           >
-            <DialogContent className="w-full max-h-[92vh] overflow-hidden flex flex-col sm:max-w-[min(56rem,calc(100vw-2rem))] gap-0 p-0">
+            <DialogContent
+              className={`w-full max-h-[92vh] overflow-hidden flex flex-col ${FINIX_LARGE_MODAL_MAX_WIDTH} gap-0 p-0`}
+            >
               <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
                 <div className="flex flex-wrap items-center gap-2 pr-10">
                   <DialogTitle className="text-lg leading-snug font-semibold">

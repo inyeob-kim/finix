@@ -6,22 +6,65 @@ import json
 import re
 from typing import Any
 
+import httpx
+
+from app.core.config import get_settings
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.integrations.llm_client import LlmClient
 from app.prompts.service_rules_from_source_prompt import (
-    build_system_prompt_from_source,
+    build_repair_user_prompt,
     build_user_prompt_from_source,
+    build_yaml_ai_cached_system_prompt_from_source,
 )
 from app.prompts.service_rules_yaml_prompt import (
     ServiceMetaForRules,
-    build_system_prompt,
     build_user_prompt,
+    build_yaml_ai_cached_system_prompt,
 )
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
-from app.services.service_rules_service import ServiceRulesService
+from app.services.service_rules_service import ServiceRulesService, validate_and_prepare_yaml
+from app.utils.rule_input_omm_skeleton import build_input_skeleton_for_generation
 
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\n|\n```$", re.MULTILINE)
+_YAML_GENERATION_TEMPERATURE = 0.1
+_MAX_YAML_REPAIR_RETRIES = 2
+
+
+def _llm_failure(exc: BaseException) -> InvalidInputError:
+    """Map LLM transport/API failures to a client-visible 400 domain error."""
+    if isinstance(exc, InvalidInputError):
+        return exc
+    if isinstance(exc, httpx.TimeoutException):
+        return InvalidInputError(
+            "LLM 응답 시간이 초과되었습니다. 소스 길이를 줄이거나 "
+            "backend/.env 의 LLM_TIMEOUT_SECONDS(기본 600)를 늘린 뒤 "
+            "서버를 재시작해 주세요."
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        detail = ""
+        if exc.response is not None:
+            detail = _anthropic_or_http_body(exc.response)
+        return InvalidInputError(
+            f"LLM API 오류 (HTTP {exc.response.status_code if exc.response else '?'}): "
+            f"{detail or str(exc)}"
+        )
+    if isinstance(exc, RuntimeError):
+        return InvalidInputError(str(exc))
+    return InvalidInputError(f"LLM 호출 실패: {type(exc).__name__}: {exc}")
+
+
+def _anthropic_or_http_body(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+        err = body.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message")
+            if isinstance(msg, str) and msg.strip():
+                return msg.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return (response.text or "")[:400]
 
 
 def _strip_fences(text: str) -> str:
@@ -62,6 +105,47 @@ class ServiceRulesAiService:
         self._catalog_repo = catalog_repo
         self._rules = rules_service
 
+    async def _generate_validated_yaml_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        input_skeleton: dict[str, Any] | None = None,
+    ) -> str:
+        """Generate YAML via LLM with validation and up to two self-repair retries."""
+        last_error = "unknown validation error"
+        yaml_text = ""
+        for attempt in range(_MAX_YAML_REPAIR_RETRIES + 1):
+            prompt = (
+                user_prompt
+                if attempt == 0
+                else build_repair_user_prompt(
+                    validation_error=last_error,
+                    invalid_yaml=yaml_text,
+                )
+            )
+            try:
+                raw = await self._llm.complete_text(
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    temperature=_YAML_GENERATION_TEMPERATURE,
+                    cache_system_prompt=get_settings().llm_prompt_cache_enabled,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise _llm_failure(exc) from exc
+            yaml_text = _strip_fences(raw)
+            try:
+                canonical, _ = validate_and_prepare_yaml(
+                    yaml_text,
+                    input_skeleton=input_skeleton,
+                )
+                return canonical
+            except InvalidInputError as e:
+                last_error = str(e)
+        raise InvalidInputError(
+            f"YAML 검증에 실패했습니다 (재시도 {_MAX_YAML_REPAIR_RETRIES}회): {last_error}"
+        )
+
     async def generate_draft(
         self,
         *,
@@ -94,17 +178,24 @@ class ServiceRulesAiService:
             if active is not None:
                 existing_yaml = active.yaml_text
 
-        system_prompt = build_system_prompt()
+        system_prompt = build_yaml_ai_cached_system_prompt()
         user_prompt = build_user_prompt(
             service=meta,
             objective=objective,
             existing_active_yaml=existing_yaml,
         )
 
-        raw = await self._llm.complete_text(system_prompt=system_prompt, user_prompt=user_prompt)
-        yaml_text = _strip_fences(raw)
+        yaml_text = await self._generate_validated_yaml_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            input_skeleton=build_input_skeleton_for_generation(
+                in_dto=in_dto,
+                java_source=None,
+                raw_catalog_json=svc.raw_json,
+                existing_yaml=existing_yaml,
+            ),
+        )
 
-        # Persist as draft (validates schema + coverage policy).
         return await self._rules.create_draft(
             service_code=code,
             yaml_text=yaml_text,
@@ -146,18 +237,23 @@ class ServiceRulesAiService:
             out_dto=out_dto,
         )
 
-        system_prompt = build_system_prompt_from_source()
+        system_prompt = build_yaml_ai_cached_system_prompt_from_source()
         user_prompt = build_user_prompt_from_source(
             service=meta,
             source_code=raw_src,
             hints=hints,
         )
 
-        raw = await self._llm.complete_text(
+        yaml_text = await self._generate_validated_yaml_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            input_skeleton=build_input_skeleton_for_generation(
+                in_dto=in_dto,
+                java_source=raw_src,
+                raw_catalog_json=svc.raw_json,
+                existing_yaml=None,
+            ),
         )
-        yaml_text = _strip_fences(raw)
 
         label = (source_version or "").strip() or "source-scan"
         return await self._rules.create_draft(
@@ -166,4 +262,3 @@ class ServiceRulesAiService:
             source_version=label,
             created_by=created_by,
         )
-

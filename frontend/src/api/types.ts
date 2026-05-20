@@ -30,12 +30,19 @@ export interface ServiceCatalogItemReadDto {
   updated_at: string | null;
 }
 
+export interface ServiceCatalogImportResultDto {
+  source: string;
+  source_version: string | null;
+  upserted: number;
+}
+
 /** Active or draft service rule bundle (v1). */
 export interface ServiceRuleBundleReadDto {
   id: number;
   service_code: string;
   service_name_snapshot: string | null;
   status: string;
+  is_active?: boolean;
   version: number;
   source_version: string | null;
   checksum: string;

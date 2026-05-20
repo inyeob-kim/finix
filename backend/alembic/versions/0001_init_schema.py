@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=True),
         sa.Column("prompt", sa.Text(), nullable=True),
         sa.Column("steps_json", sa.Text(), nullable=True),
-        sa.Column("is_saved", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_saved", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

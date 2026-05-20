@@ -3,13 +3,13 @@ import { Root } from "./components/Root";
 import { Home } from "./components/Home";
 import { Scenario } from "./components/Scenario";
 import { TestCase } from "./components/TestCase";
-import { TestCaseManage } from "./components/TestCaseManage";
 import { ExecutionResult } from "./components/ExecutionResult";
 import { History } from "./components/History";
 import { RulesMeta } from "./components/RulesMeta";
 import { Login } from "./components/Login";
 import { RequireAuth } from "./components/RequireAuth";
 import { ScenarioRegistry } from "./components/ScenarioRegistry";
+import { ManualChat } from "./components/ManualChat";
 
 export const router = createBrowserRouter([
   {
@@ -31,15 +31,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "saved",
-        element: <Navigate to="/test-cases" replace />,
+        element: <Navigate to="/rules" replace />,
       },
       {
         path: "test-cases",
-        element: (
-          <RequireAuth>
-            <TestCaseManage />
-          </RequireAuth>
-        ),
+        element: <Navigate to="/rules" replace />,
       },
       {
         path: "rules",
@@ -54,6 +50,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <ScenarioRegistry />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "manual",
+        element: (
+          <RequireAuth>
+            <ManualChat />
           </RequireAuth>
         ),
       },

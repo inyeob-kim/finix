@@ -12,26 +12,6 @@ from app.models.execution_step_result import ExecutionStepResult
 from app.utils.json_text import loads_json
 
 
-class ExecutionRunRequest(BaseModel):
-    """Payload to trigger a test execution."""
-
-    testcase_id: int = Field(..., ge=1)
-    runner_name: str | None = Field(
-        default=None,
-        description="Optional registry name; defaults to first available runner.",
-    )
-
-
-class ExecutionRunResponse(BaseModel):
-    """Outcome of a legacy single-testcase execution request."""
-
-    execution_id: int
-    testcase_id: int
-    status: str
-    message: str | None
-    started_at: datetime
-
-
 class ExecutionCreateV1(BaseModel):
     """Start a multi-step execution for all cases under a scenario."""
 

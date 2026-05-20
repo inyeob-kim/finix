@@ -14,6 +14,9 @@ from app.models import (  # noqa: F401,E402
     execution_step_result,
     registered_service,
     scenario,
+    service_catalog_item,
+    service_rule_bundle,
+    service_rule_pointer,
     testcase,
 )
 
@@ -30,19 +33,27 @@ def _resolve_url() -> str:
     Prefer DATABASE_URL_SYNC (sync driver) when set.
     Fallback to DATABASE_URL but try to de-async it for Alembic.
     """
-    url = (os.getenv("DATABASE_URL_SYNC") or "").strip()
-    if url:
-        return url
+    try:
+        from app.core.config import get_settings
 
-    url = (os.getenv("DATABASE_URL") or "").strip()
+        settings = get_settings()
+        url = (settings.database_url_sync or "").strip()
+        if url:
+            return url
+        url = (settings.database_url or "").strip()
+    except Exception:
+        url = (os.getenv("DATABASE_URL_SYNC") or os.getenv("DATABASE_URL") or "").strip()
+
     if not url:
         # Keep a safe default (SQLite file), same as app settings.
-        return "sqlite:///./fcc_test_automation.db"
+        return "sqlite:///./finix_db.db"
 
     # If user passed an async URL, try to switch it to a sync driver.
     url = url.replace("sqlite+aiosqlite:///", "sqlite:///")
     url = url.replace("mysql+asyncmy://", "mysql+pymysql://")
     url = url.replace("mysql+aiomysql://", "mysql+pymysql://")
+    url = url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+    url = url.replace("postgres+asyncpg://", "postgresql+psycopg://")
     return url
 
 

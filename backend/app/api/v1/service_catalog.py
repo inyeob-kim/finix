@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, Query
 
 from app.core.deps import get_service_catalog_service
 from app.schemas.service_catalog_schema import (
@@ -30,25 +32,12 @@ def _to_read(entity) -> ServiceCatalogItemRead:
 @router.get("", response_model=list[ServiceCatalogItemRead], summary="List service catalog")
 async def list_service_catalog(
     query: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
     service: ServiceCatalogService = Depends(get_service_catalog_service),
 ) -> list[ServiceCatalogItemRead]:
     rows = await service.list(query=query, limit=limit, offset=offset)
     return [_to_read(r) for r in rows]
-
-
-@router.get(
-    "/{service_code}",
-    response_model=ServiceCatalogItemRead | None,
-    summary="Get one service by code",
-)
-async def get_service_catalog_item(
-    service_code: str,
-    service: ServiceCatalogService = Depends(get_service_catalog_service),
-) -> ServiceCatalogItemRead | None:
-    row = await service.get(service_code)
-    return _to_read(row) if row else None
 
 
 @router.post(
@@ -62,3 +51,29 @@ async def import_service_catalog(
     result = await service.import_from_cbs_json()
     return ServiceCatalogImportResult(**result)
 
+
+@router.post(
+    "/import-json",
+    response_model=ServiceCatalogImportResult,
+    summary="Import service catalog from JSON body (UI)",
+)
+async def import_service_catalog_json(
+    payload: Any = Body(...),
+    service: ServiceCatalogService = Depends(get_service_catalog_service),
+) -> ServiceCatalogImportResult:
+    """Accept CBS-shaped JSON (array or wrapper object) from browser upload/paste."""
+    result = await service.import_from_json_payload(payload)
+    return ServiceCatalogImportResult(**result)
+
+
+@router.get(
+    "/{service_code}",
+    response_model=ServiceCatalogItemRead | None,
+    summary="Get one service by code",
+)
+async def get_service_catalog_item(
+    service_code: str,
+    service: ServiceCatalogService = Depends(get_service_catalog_service),
+) -> ServiceCatalogItemRead | None:
+    row = await service.get(service_code)
+    return _to_read(row) if row else None

@@ -1,5 +1,7 @@
 """Async data access for scenarios, test cases, and legacy execution logs."""
 
+from typing import Any
+
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,8 @@ from app.models.execution_log import ExecutionLog
 from app.models.scenario import Scenario
 from app.models.service_rule_bundle import ServiceRuleBundle
 from app.models.testcase import TestCase
+
+_UNSET = object()
 
 
 class MetadataRepository:
@@ -183,6 +187,24 @@ class MetadataRepository:
         )
         return result.rowcount or 0
 
+    async def delete_testcases_pool_for_service(self, service_code: str) -> int:
+        """Remove pool test cases (no scenario) for one service code."""
+        code = (service_code or "").strip()
+        if not code:
+            return 0
+        prefix = f"{code} "
+        bundle_id_subq = select(ServiceRuleBundle.id).where(ServiceRuleBundle.service_code == code)
+        result = await self._session.execute(
+            delete(TestCase).where(
+                TestCase.scenario_id.is_(None),
+                or_(
+                    TestCase.name.startswith(prefix),
+                    TestCase.rule_bundle_id.in_(bundle_id_subq),
+                ),
+            )
+        )
+        return result.rowcount or 0
+
     async def update_testcase_fields(
         self,
         testcase_id: int,
@@ -195,6 +217,7 @@ class MetadataRepository:
         expected_body_json: str | None = None,
         step_index: int | None = None,
         steps: str | None = None,
+        scenario_id: Any = _UNSET,
     ) -> TestCase | None:
         """Patch fields on a test case."""
         entity = await self.get_testcase_by_id(testcase_id)
@@ -216,6 +239,8 @@ class MetadataRepository:
             entity.step_index = step_index
         if steps is not None:
             entity.steps = steps
+        if scenario_id is not _UNSET:
+            entity.scenario_id = scenario_id  # type: ignore[assignment]
         await self._session.flush()
         await self._session.refresh(entity)
         return entity

@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router";
 import {
   Sparkles,
   ArrowRight,
-  Loader2,
   SlidersHorizontal,
 } from "lucide-react";
 import { createScenario } from "@/api/scenarioApi";
@@ -14,6 +13,7 @@ import {
   FinixUnderlineTextarea,
 } from "./ui/finix-form";
 import { FinixPrimaryButton } from "./ui/finix-button";
+import { FinixLoading } from "./ui/finix-loading";
 import { PageShell } from "./PageShell";
 
 export function Home() {
@@ -115,7 +115,7 @@ export function Home() {
         >
           {loading ? (
             <>
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <FinixLoading size="sm" inline />
               <span>생성 중…</span>
             </>
           ) : (

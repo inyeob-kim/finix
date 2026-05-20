@@ -3,7 +3,7 @@
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -14,8 +14,10 @@ from app.repositories.execution_repo import ExecutionRepository
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
+from app.repositories.manual_chunk_repo import ManualChunkRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 from app.services.execution_service import ExecutionService
+from app.services.manual_rag_service import ManualRagService
 from app.services.scenario_service import ScenarioService
 from app.services.service_catalog_service import ServiceCatalogService
 from app.services.service_rules_ai_service import ServiceRulesAiService
@@ -58,6 +60,13 @@ async def get_service_rules_repository(
     yield ServiceRulesRepository(session)
 
 
+async def get_manual_chunk_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[ManualChunkRepository, None]:
+    """Yield manual RAG chunk repository."""
+    yield ManualChunkRepository(session)
+
+
 @lru_cache
 def get_cbs_service_catalog_repository() -> CbsServiceCatalogRepository:
     """Return shared JSON catalog repository instance."""
@@ -74,8 +83,11 @@ def get_llm_client() -> LlmClient | None:
     return LlmClient(
         api_key=settings.llm_api_key.get_secret_value(),
         model=settings.llm_model,
+        provider=settings.llm_provider,
         base_url=settings.llm_base_url,
         temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        timeout_seconds=settings.llm_timeout_seconds,
     )
 
 
@@ -138,11 +150,31 @@ def get_service_rules_ai_service(
 ) -> ServiceRulesAiService:
     """Build ServiceRulesAiService. Requires LLM key configured."""
     if llm is None:
-        raise RuntimeError("LLM is not configured (LLM_API_KEY missing).")
+        raise HTTPException(
+            status_code=503,
+            detail="LLM이 설정되지 않았습니다. backend/.env 에 LLM_API_KEY를 설정하세요.",
+        )
     return ServiceRulesAiService(
         llm=llm,
         catalog_repo=catalog_repo,
         rules_service=rules_service,
+    )
+
+
+def get_manual_rag_service(
+    repo: ManualChunkRepository = Depends(get_manual_chunk_repository),
+    llm: LlmClient | None = Depends(get_llm_client),
+) -> ManualRagService:
+    """Build ManualRagService. Requires LLM key for embeddings and chat."""
+    if llm is None:
+        raise RuntimeError("LLM is not configured (LLM_API_KEY missing).")
+    settings = get_settings()
+    return ManualRagService(
+        repo=repo,
+        llm=llm,
+        manual_path=settings.manual_md_path,
+        manual_docs_dir=settings.manual_docs_dir,
+        embedding_model=settings.llm_embedding_model,
     )
 
 

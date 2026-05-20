@@ -1,14 +1,3 @@
-"""Pydantic request/response schemas."""
+"""Pydantic request/response schemas (import submodules explicitly)."""
 
-from app.schemas.execution_schema import ExecutionRunRequest, ExecutionRunResponse
-from app.schemas.scenario_schema import ScenarioGenerateRequest, ScenarioResponse
-from app.schemas.testcase_schema import TestCaseGenerateRequest, TestCaseResponse
-
-__all__ = [
-    "ExecutionRunRequest",
-    "ExecutionRunResponse",
-    "ScenarioGenerateRequest",
-    "ScenarioResponse",
-    "TestCaseGenerateRequest",
-    "TestCaseResponse",
-]
+__all__: list[str] = []

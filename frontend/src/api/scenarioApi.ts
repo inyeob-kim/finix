@@ -32,13 +32,3 @@ export async function patchScenario(
     body: JSON.stringify(body),
   });
 }
-
-export async function refineScenario(
-  scenarioId: number,
-  instruction: string,
-): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(`${PREFIX}/${scenarioId}/refine`, {
-    method: "POST",
-    body: JSON.stringify({ instruction }),
-  });
-}

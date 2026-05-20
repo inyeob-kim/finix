@@ -8,19 +8,15 @@ import {
   Trash2,
   Sparkles,
   FlaskConical,
-  Loader2,
 } from "lucide-react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import type { ScenarioStepDto } from "@/api/types";
-import {
-  getScenario,
-  patchScenario,
-  refineScenario,
-} from "@/api/scenarioApi";
+import { getScenario, patchScenario } from "@/api/scenarioApi";
 import { generateTestCases } from "@/api/testcaseApi";
 import { ApiError } from "@/api/client";
 import { FinixPrimaryButton } from "./ui/finix-button";
+import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
 import { PageShell } from "./PageShell";
 
 interface Step {
@@ -235,27 +231,6 @@ export function Scenario() {
     setSteps((prev) => [...prev, newStepLabel(prev.length + 1)]);
   };
 
-  const handleRefine = async () => {
-    const instruction = window.prompt(
-      "시나리오에 반영할 지시를 입력하세요.",
-    );
-    if (!instruction?.trim() || !Number.isFinite(scenarioId)) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const data = await refineScenario(scenarioId, instruction.trim());
-      setSteps(data.steps?.length ? data.steps.map(dtoToStep) : []);
-    } catch (e) {
-      setError(
-        e instanceof ApiError ? e.message : "수정 요청에 실패했습니다.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleGenerateTests = async () => {
     if (!Number.isFinite(scenarioId) || !steps.length) {
       setError("저장할 단계가 없습니다.");
@@ -279,11 +254,7 @@ export function Scenario() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-full bg-secondary flex items-center justify-center p-8 text-muted-foreground">
-        시나리오를 불러오는 중…
-      </div>
-    );
+    return <FinixLoadingPage label="시나리오를 불러오는 중…" />;
   }
 
   return (
@@ -300,7 +271,7 @@ export function Scenario() {
               생성 기준: {promptLabel || "—"}
             </div>
             <div className="text-xs text-muted-foreground">
-              드래그로 순서 변경 · 삭제/추가 · AI 수정
+              드래그로 순서 변경 · 삭제/추가
             </div>
           </div>
 
@@ -332,15 +303,6 @@ export function Scenario() {
               <Plus className="w-4 h-4" />
               단계 추가
             </button>
-            <button
-              type="button"
-              onClick={() => void handleRefine()}
-              disabled={busy}
-              className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm disabled:opacity-50"
-            >
-              <Sparkles className="w-4 h-4" />
-              AI로 시나리오 수정
-            </button>
           </div>
 
           <FinixPrimaryButton
@@ -350,7 +312,7 @@ export function Scenario() {
           >
             {isGeneratingTests ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <FinixLoading size="sm" inline />
                 <span>생성 중…</span>
               </>
             ) : (

@@ -5,11 +5,11 @@ from pydantic import BaseModel
 
 from app.core.deps import get_scenario_service, get_testcase_service
 from app.schemas.scenario_schema import (
+    ScenarioAttachTestCasesRequest,
     ScenarioCreateV1,
     ScenarioListRead,
     ScenarioPatchV1,
     ScenarioRead,
-    ScenarioRefineRequest,
     scenario_entity_to_read,
 )
 from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
@@ -80,8 +80,6 @@ class TestCaseGenerateRequest(BaseModel):
     response_model=list[TestCaseRead],
     summary="Generate test cases from scenario steps",
 )
-
-
 async def generate_test_cases_for_scenario(
     scenario_id: int,
     payload: TestCaseGenerateRequest = TestCaseGenerateRequest(),
@@ -90,6 +88,24 @@ async def generate_test_cases_for_scenario(
     """Materialize template-based API tests from stored scenario steps."""
     rows = await testcase_service.generate_all_for_scenario(
         scenario_id, instruction=payload.instruction
+    )
+    return [testcase_entity_to_read(r) for r in rows]
+
+
+@router.post(
+    "/{scenario_id}/attach-test-cases",
+    response_model=list[TestCaseRead],
+    summary="Attach pool test cases to scenario steps",
+)
+async def attach_test_cases_to_scenario(
+    scenario_id: int,
+    payload: ScenarioAttachTestCasesRequest,
+    testcase_service: TestCaseService = Depends(get_testcase_service),
+) -> list[TestCaseRead]:
+    """Assign existing testcase rows to this scenario (per-step groups, global order)."""
+    rows = await testcase_service.attach_pool_to_scenario(
+        scenario_id,
+        per_step=payload.per_step,
     )
     return [testcase_entity_to_read(r) for r in rows]
 
@@ -120,20 +136,6 @@ async def patch_scenario_v1(
         title=patch.get("title"),
         prompt=patch.get("prompt"),
         steps=steps_dump,
-    )
-    return scenario_entity_to_read(entity)
-
-
-@router.post("/{scenario_id}/refine", response_model=ScenarioRead, summary="Refine scenario")
-async def refine_scenario_v1(
-    scenario_id: int,
-    payload: ScenarioRefineRequest,
-    service: ScenarioService = Depends(get_scenario_service),
-) -> ScenarioRead:
-    """Append a refinement step from user instruction (stub, no external LLM)."""
-    entity = await service.refine_with_instruction(
-        scenario_id,
-        instruction=payload.instruction,
     )
     return scenario_entity_to_read(entity)
 

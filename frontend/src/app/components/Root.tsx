@@ -1,13 +1,13 @@
 import finixLogo from "@/assets/finix_logo.jpg";
 import {
   ChevronLeft,
+  BookOpen,
   Clock,
   FolderKanban,
   Home,
-  ListChecks,
+  Layers,
   LogIn,
   LogOut,
-  Settings,
   User,
 } from "lucide-react";
 import { useState } from "react";
@@ -23,9 +23,9 @@ export function Root() {
   const navItems = [
     { icon: Home, label: "AI 시나리오 생성", path: "/" },
     { icon: FolderKanban, label: "시나리오 관리", path: "/scenario-registry" },
-    { icon: ListChecks, label: "테스트케이스 관리", path: "/test-cases" },
+    { icon: Layers, label: "규칙/메타 관리", path: "/rules" },
     { icon: Clock, label: "테스트 이력", path: "/history" },
-    { icon: Settings, label: "규칙/메타 관리", path: "/rules" },
+    { icon: BookOpen, label: "매뉴얼", path: "/manual" },
   ];
 
   return (
@@ -55,10 +55,7 @@ export function Root() {
         <nav className="flex-1 p-4 space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive =
-              item.path === "/test-cases"
-                ? location.pathname === "/test-cases"
-                : location.pathname === item.path;
+            const isActive = location.pathname === item.path;
             return (
               <Link
                 key={item.path}
@@ -129,7 +126,13 @@ export function Root() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto bg-secondary">
+      <main
+        className={`flex-1 bg-secondary ${
+          location.pathname === "/manual"
+            ? "overflow-hidden flex flex-col min-h-0"
+            : "overflow-auto"
+        }`}
+      >
         <Outlet />
       </main>
     </div>

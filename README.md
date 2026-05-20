@@ -13,7 +13,7 @@
 
 **백엔드**는 FastAPI, **프론트엔드**는 Vite + React입니다. 상세 요청/응답 스키마는 서버를 띄운 뒤 **Swagger UI**에서 확인할 수 있습니다.
 
-- 대화형 문서: `http://127.0.0.1:8000/docs`  
+- 대화형 문서: `http://127.0.0.1:8000/docs`
 - ReDoc: `http://127.0.0.1:8000/redoc`
 
 ---
@@ -121,7 +121,7 @@
 
 | 변수 | 설명 |
 |------|------|
-| `DATABASE_URL` | 비동기 SQLAlchemy URL (미설정 시 SQLite: `backend/fcc_test_automation.db`) |
+| `DATABASE_URL` | 비동기 SQLAlchemy URL (미설정 시 SQLite: `backend/finix_db.db`) |
 | `DATABASE_URL_SYNC` | Alembic 등 동기 마이그레이션용 URL (MySQL 등 사용 시) |
 | `CORS_ORIGINS` | 허용 오리진 목록 (기본에 Vite 개발 포트 포함) |
 | `LLM_API_KEY` | AI 규칙 생성 엔드포인트에 필요 |

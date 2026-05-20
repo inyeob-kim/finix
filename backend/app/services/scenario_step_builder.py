@@ -51,23 +51,3 @@ def build_steps_from_prompt(prompt: str) -> list[dict[str, Any]]:
     else:
         steps.append(_step(3, "출금", "success", "정상 출금"))
     return steps
-
-
-def refine_steps_with_instruction(
-    steps: list[dict[str, Any]],
-    instruction: str,
-) -> list[dict[str, Any]]:
-    """Append a synthetic refinement step derived from user instruction."""
-    trimmed = instruction.strip()[:500]
-    out = list(steps)
-    out.append(
-        _step(
-            len(out) + 1,
-            f"(AI 수정) {trimmed}",
-            "success",
-            "사용자 지시에 따른 추가 단계",
-        ),
-    )
-    for i, row in enumerate(out, start=1):
-        row["number"] = i
-    return out

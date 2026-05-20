@@ -27,7 +27,6 @@ from app.repositories.cbs_service_catalog_repo import (
 )
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
-from app.services.scenario_step_builder import build_steps_from_prompt, refine_steps_with_instruction
 from app.utils.helpers import build_placeholder_body
 from app.utils.json_text import dumps_json, loads_json
 
@@ -330,6 +329,7 @@ class ScenarioService:
                 {
                     "id": f"step_{idx}_{uuid.uuid4().hex[:6]}",
                     "number": idx,
+                    "service_code": service_code,
                     # UI 표시용: 서비스명(기존 service_code 대신).
                     "action": service_name,
                     "result": self._result_from_test_type(item.intent.test_type),
@@ -391,23 +391,6 @@ class ScenarioService:
             title=title,
             prompt=prompt,
             steps_json=steps_json,
-        )
-        if entity is None:
-            raise EntityNotFoundError("Scenario", scenario_id)
-        return entity
-
-    async def refine_with_instruction(
-        self,
-        scenario_id: int,
-        *,
-        instruction: str,
-    ) -> Scenario:
-        current = await self.get_scenario(scenario_id)
-        current_steps: list[dict[str, Any]] = loads_json(current.steps_json, [])
-        merged = refine_steps_with_instruction(current_steps, instruction)
-        entity = await self._metadata.update_scenario_fields(
-            scenario_id,
-            steps_json=dumps_json(merged),
         )
         if entity is None:
             raise EntityNotFoundError("Scenario", scenario_id)

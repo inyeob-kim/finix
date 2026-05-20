@@ -62,6 +62,11 @@ class ServiceRulesRepository:
         await self._session.refresh(bundle)
         return bundle
 
+    async def flush_bundle(self, bundle: ServiceRuleBundle) -> ServiceRuleBundle:
+        await self._session.flush()
+        await self._session.refresh(bundle)
+        return bundle
+
     async def get_pointer(self, service_code: str) -> ServiceRulePointer | None:
         code = (service_code or "").strip()
         if not code:
@@ -95,6 +100,47 @@ class ServiceRulesRepository:
         await self._session.flush()
         await self._session.refresh(ptr)
         return ptr
+
+    async def list_all_bundles(
+        self,
+        *,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[ServiceRuleBundle]:
+        stmt = (
+            select(ServiceRuleBundle)
+            .order_by(
+                ServiceRuleBundle.service_code.asc(),
+                ServiceRuleBundle.version.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
+    async def list_all_pointers(self) -> list[ServiceRulePointer]:
+        return list((await self._session.execute(select(ServiceRulePointer))).scalars().all())
+
+    async def count_distinct_services(self) -> int:
+        res = await self._session.execute(
+            select(func.count(func.distinct(ServiceRuleBundle.service_code)))
+        )
+        return int(res.scalar_one() or 0)
+
+    async def delete_bundle(self, bundle_id: int) -> bool:
+        bundle = await self.get_bundle(bundle_id)
+        if bundle is None:
+            return False
+        ptr = await self.get_pointer(bundle.service_code)
+        if ptr is not None:
+            if ptr.active_bundle_id == bundle_id:
+                ptr.active_bundle_id = None
+            if ptr.approved_bundle_id == bundle_id:
+                ptr.approved_bundle_id = None
+            await self._session.flush()
+        await self._session.delete(bundle)
+        await self._session.flush()
+        return True
 
     async def get_active_bundle(self, service_code: str) -> ServiceRuleBundle | None:
         code = (service_code or "").strip()

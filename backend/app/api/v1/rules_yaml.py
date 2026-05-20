@@ -79,7 +79,7 @@ async def get_rules_yaml(
         )
     rule_ids: list[str] = []
     for r in bundle.rules:
-        rid = r.get("rule_id")
+        rid = r.get("case_id") or r.get("rule_id")
         if isinstance(rid, str) and rid.strip():
             rule_ids.append(rid.strip())
     return ServiceRulePreview(

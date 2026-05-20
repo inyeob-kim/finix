@@ -12,7 +12,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 def _default_sqlite_url() -> str:
     """Resolve SQLite file under ``backend/`` regardless of process cwd."""
-    db_path = _BACKEND_ROOT / "fcc_test_automation.db"
+    db_path = _BACKEND_ROOT / "finix_db.db"
     return f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
 
@@ -64,6 +64,37 @@ class Settings(BaseSettings):
         ge=0.0,
         le=2.0,
         description="Sampling temperature for chat completions where applicable.",
+    )
+    llm_max_tokens: int = Field(
+        default=16_384,
+        ge=256,
+        le=200_000,
+        description="Max output tokens for Anthropic Messages API (and future providers).",
+    )
+    llm_timeout_seconds: float = Field(
+        default=600.0,
+        ge=30.0,
+        le=3600.0,
+        description="HTTP read timeout for LLM chat completions (long YAML generation).",
+    )
+    llm_prompt_cache_enabled: bool = Field(
+        default=True,
+        description=(
+            "When true, YAML AI calls mark the static system+template block for "
+            "provider prompt caching (Anthropic cache_control; OpenAI prefix reuse)."
+        ),
+    )
+    llm_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Embedding model for manual RAG chunk indexing.",
+    )
+    manual_md_path: str = Field(
+        default=str(_BACKEND_ROOT.parent / "docs" / "FINIX_MANUAL.md"),
+        description="Main FINIX manual markdown (index + overview).",
+    )
+    manual_docs_dir: str = Field(
+        default=str(_BACKEND_ROOT.parent / "docs" / "manual"),
+        description="Directory of chapter markdown files merged into RAG index.",
     )
 
 

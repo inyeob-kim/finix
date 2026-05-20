@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_service_rules_ai_service, get_service_rules_service
+from app.core.exceptions import InvalidInputError
 from app.schemas.service_rules_schema import (
     ServiceRuleBundleRead,
     ServiceRuleDraftCreate,
+    ServiceRuleDraftUpdate,
     ServiceRuleGenerateDraftRequest,
     ServiceRuleGenerateFromSourceRequest,
+    ServiceRuleRegistryItemRead,
+    ServiceRuleRegistryListResponse,
     ServiceRuleRollbackRequest,
+    ServiceRuleValidateYamlRequest,
+    ServiceRuleValidateYamlResponse,
 )
 from app.services.service_rules_ai_service import ServiceRulesAiService
 from app.services.service_rules_service import ServiceRulesService
@@ -20,7 +26,13 @@ from app.services.service_rules_service import ServiceRulesService
 router = APIRouter(prefix="/service-rules")
 
 
-def _to_read(entity, *, include_yaml: bool = False, include_rules: bool = False) -> ServiceRuleBundleRead:
+def _to_read(
+    entity,
+    *,
+    include_yaml: bool = False,
+    include_rules: bool = False,
+    is_active: bool = False,
+) -> ServiceRuleBundleRead:
     rules_obj = None
     if include_rules and getattr(entity, "rules_json", None):
         try:
@@ -32,6 +44,7 @@ def _to_read(entity, *, include_yaml: bool = False, include_rules: bool = False)
         service_code=entity.service_code,
         service_name_snapshot=entity.service_name_snapshot,
         status=entity.status,
+        is_active=is_active,
         version=entity.version,
         source_version=entity.source_version,
         checksum=entity.checksum,
@@ -44,6 +57,82 @@ def _to_read(entity, *, include_yaml: bool = False, include_rules: bool = False)
 
 
 @router.get(
+    "/registry",
+    response_model=ServiceRuleRegistryListResponse,
+    summary="List rule bundles aggregated per service (Rules/Meta UI)",
+)
+async def list_rules_registry(
+    service: ServiceRulesService = Depends(get_service_rules_service),
+    query: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="active, draft, or approved"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> ServiceRuleRegistryListResponse:
+    rows, total = await service.list_registry(
+        query=query,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        ServiceRuleRegistryItemRead(
+            service_code=r.service_code,
+            service_name=r.service_name,
+            source_version=r.source_version,
+            status=r.status,
+            rules=r.rules,
+            bundle_id=r.bundle_id,
+            bundle_version=r.bundle_version,
+            last_updated_at=r.last_updated_at,
+            last_updated_by=r.last_updated_by,
+            is_active=r.is_active,
+            version_count=r.version_count,
+            active_bundle_version=r.active_bundle_version,
+            draft_bundle_version=r.draft_bundle_version,
+            has_approved=r.has_approved,
+        )
+        for r in rows
+    ]
+    return ServiceRuleRegistryListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.delete(
+    "/{service_code}/bundles/{bundle_id}",
+    status_code=204,
+    summary="Delete a rules bundle",
+)
+async def delete_rules_bundle(
+    service_code: str,
+    bundle_id: int,
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> None:
+    await service.delete_bundle(service_code=service_code, bundle_id=bundle_id)
+
+
+@router.get(
+    "/{service_code}/bundles/{bundle_id}",
+    response_model=ServiceRuleBundleRead,
+    summary="Get one rules bundle by id (includes yaml)",
+)
+async def get_rules_bundle(
+    service_code: str,
+    bundle_id: int,
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleBundleRead:
+    bundle = await service.get_bundle(bundle_id)
+    if bundle.service_code != (service_code or "").strip():
+        raise InvalidInputError("service_code mismatch")
+    active = await service.get_active(service_code)
+    is_active = active is not None and active.id == bundle.id
+    return _to_read(bundle, include_yaml=True, include_rules=True, is_active=is_active)
+
+
+@router.get(
     "/{service_code}",
     response_model=ServiceRuleBundleRead | None,
     summary="Get active rules bundle for service",
@@ -53,7 +142,11 @@ async def get_active_rules(
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead | None:
     bundle = await service.get_active(service_code)
-    return _to_read(bundle, include_yaml=True, include_rules=True) if bundle else None
+    return (
+        _to_read(bundle, include_yaml=True, include_rules=True, is_active=True)
+        if bundle
+        else None
+    )
 
 
 @router.get(
@@ -65,14 +158,34 @@ async def list_versions(
     service_code: str,
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> list[ServiceRuleBundleRead]:
-    rows = await service.list_versions(service_code)
-    return [_to_read(r) for r in rows]
+    rows = await service.list_versions_with_active_flag(service_code)
+    return [_to_read(r, is_active=is_active) for r, is_active in rows]
+
+
+@router.post(
+    "/{service_code}/validate-yaml",
+    response_model=ServiceRuleValidateYamlResponse,
+    summary="Validate rules YAML without saving",
+)
+async def validate_yaml(
+    service_code: str,
+    payload: ServiceRuleValidateYamlRequest,
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleValidateYamlResponse:
+    """Check YAML shape and rule constraints; does not write to the database."""
+    _ = (service_code or "").strip()
+    parsed = service.validate_yaml_text(yaml_text=payload.yaml_text)
+    rules = parsed.get("rules") or []
+    rule_count = len(rules) if isinstance(rules, list) else 0
+    sn = parsed.get("service_name")
+    service_name = str(sn).strip() if isinstance(sn, str) else None
+    return ServiceRuleValidateYamlResponse(service_name=service_name, rule_count=rule_count)
 
 
 @router.post(
     "/{service_code}",
     response_model=ServiceRuleBundleRead,
-    summary="Create draft rules bundle",
+    summary="Create new draft rules bundle (new version)",
 )
 async def create_draft(
     service_code: str,
@@ -81,6 +194,27 @@ async def create_draft(
 ) -> ServiceRuleBundleRead:
     bundle = await service.create_draft(
         service_code=service_code,
+        yaml_text=payload.yaml_text,
+        source_version=payload.source_version,
+        created_by=payload.created_by,
+    )
+    return _to_read(bundle, include_yaml=True, include_rules=True)
+
+
+@router.put(
+    "/{service_code}/bundles/{bundle_id}",
+    response_model=ServiceRuleBundleRead,
+    summary="Update existing draft bundle in place (same version)",
+)
+async def update_draft(
+    service_code: str,
+    bundle_id: int,
+    payload: ServiceRuleDraftUpdate,
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleBundleRead:
+    bundle = await service.update_draft(
+        service_code=service_code,
+        bundle_id=bundle_id,
         yaml_text=payload.yaml_text,
         source_version=payload.source_version,
         created_by=payload.created_by,

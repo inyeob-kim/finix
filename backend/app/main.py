@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -61,7 +62,16 @@ def create_app() -> FastAPI:
     @app.exception_handler(DomainError)
     async def handle_domain(_request: Request, exc: DomainError) -> JSONResponse:
         """Map other domain errors to HTTP 400."""
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        message = getattr(exc, "message", None) or str(exc)
+        return JSONResponse(status_code=400, content={"detail": message})
+
+    @app.exception_handler(httpx.HTTPError)
+    async def handle_httpx(_request: Request, exc: httpx.HTTPError) -> JSONResponse:
+        """Surface upstream LLM/network failures instead of opaque 500."""
+        return JSONResponse(
+            status_code=502,
+            content={"detail": f"외부 LLM API 연결 오류: {exc}"},
+        )
 
     return app
 
