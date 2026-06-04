@@ -19,7 +19,7 @@ export const router = createBrowserRouter([
       { index: true, Component: Home },
       { path: "scenario/:scenarioId", Component: Scenario },
       { path: "test-case/:scenarioId", Component: TestCase },
-      { path: "test-case", Component: TestCase },
+      { path: "test-case", element: <Navigate to="/scenario-registry" replace /> },
       { path: "execution-result/:executionId", Component: ExecutionResult },
       {
         path: "history",

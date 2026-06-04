@@ -44,8 +44,8 @@ service_name: Example
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: t
-    description: d
+    title: Missing customer ID returns validation error
+    description: The service rejects the request when customer ID is missing because identification is required.
     input: {}
     expect:
       outcome: error
@@ -61,8 +61,8 @@ rules:
       snippet: "throw new BizApplicationException(\\"E001\\")"
   - case_id: PY016-N-001
     rule_type: N
-    title: t
-    description: d
+    title: Successful transfer returns transaction date on response
+    description: After acceptance, the service returns transaction date so the channel can confirm posting time.
     input: {}
     expect:
       outcome: success

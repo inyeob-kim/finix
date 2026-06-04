@@ -7,8 +7,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.domain.postman_collection_config import PostmanCollectionConfig
+from app.domain.scenario_bindings import ExtractSpec, InjectSpec, OverrideSpec
 from app.models.scenario import Scenario
 from app.utils.json_text import dumps_json, loads_json
+from app.utils.scenario_steps_document import dump_steps_document, parse_steps_document
 
 
 class ScenarioStepRead(BaseModel):
@@ -23,6 +26,18 @@ class ScenarioStepRead(BaseModel):
         default=None,
         description="SRVC_CD when known; preferred over parsing ``reason``.",
     )
+    extracts: list[ExtractSpec] = Field(
+        default_factory=list,
+        description="After this step runs, copy fields from response body into scenario context.",
+    )
+    injects: list[InjectSpec] = Field(
+        default_factory=list,
+        description="Before this step runs, merge context variables into request body.",
+    )
+    overrides: list[OverrideSpec] = Field(
+        default_factory=list,
+        description="Before this step runs, set fixed literal values on request body fields.",
+    )
 
 
 class ScenarioRead(BaseModel):
@@ -34,6 +49,7 @@ class ScenarioRead(BaseModel):
     content: str | None
     prompt: str | None
     steps: list[ScenarioStepRead]
+    postman: PostmanCollectionConfig | None = None
     is_saved: bool
     created_at: datetime
 
@@ -74,7 +90,7 @@ class ScenarioListRead(BaseModel):
 
 def scenario_entity_to_read(entity: Scenario) -> ScenarioRead:
     """Map ORM scenario to API read model."""
-    raw_steps: list[Any] = loads_json(entity.steps_json, [])
+    raw_steps, postman = parse_steps_document(entity.steps_json)
     steps_out: list[ScenarioStepRead] = []
     for item in raw_steps:
         if not isinstance(item, dict):
@@ -90,11 +106,15 @@ def scenario_entity_to_read(entity: Scenario) -> ScenarioRead:
         content=entity.content,
         prompt=entity.prompt,
         steps=steps_out,
+        postman=postman,
         is_saved=bool(entity.is_saved),
         created_at=entity.created_at,
     )
 
 
-def steps_to_json(steps: list[ScenarioStepRead]) -> str:
-    """Serialize validated steps for persistence."""
-    return dumps_json([s.model_dump() for s in steps])
+def steps_to_json(
+    steps: list[ScenarioStepRead],
+    postman: PostmanCollectionConfig | None = None,
+) -> str:
+    """Serialize validated steps (and optional Postman config) for persistence."""
+    return dump_steps_document([s.model_dump() for s in steps], postman)

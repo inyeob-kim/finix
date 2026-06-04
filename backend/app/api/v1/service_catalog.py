@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, Query
 
 from app.core.deps import get_service_catalog_service
 from app.schemas.service_catalog_schema import (
+    ServiceCatalogDtoSkeletonsRead,
     ServiceCatalogImportResult,
     ServiceCatalogItemRead,
 )
@@ -64,6 +65,20 @@ async def import_service_catalog_json(
     """Accept CBS-shaped JSON (array or wrapper object) from browser upload/paste."""
     result = await service.import_from_json_payload(payload)
     return ServiceCatalogImportResult(**result)
+
+
+@router.get(
+    "/{service_code}/dto-skeletons",
+    response_model=ServiceCatalogDtoSkeletonsRead,
+    summary="Get input/output OMM skeletons from CBS catalog",
+)
+async def get_service_dto_skeletons(
+    service_code: str,
+    service: ServiceCatalogService = Depends(get_service_catalog_service),
+) -> ServiceCatalogDtoSkeletonsRead:
+    """Field tree for request (inject) and response (extract) path pickers."""
+    data = await service.get_dto_skeletons(service_code)
+    return ServiceCatalogDtoSkeletonsRead(**data)
 
 
 @router.get(

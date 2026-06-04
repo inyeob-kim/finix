@@ -5,6 +5,12 @@ export type ServiceCatalogItem = {
   name: string;
 };
 
+import type {
+  StepBindingsByServiceCode,
+  StepBindingsByStepKey,
+} from "@/lib/scenarioBindings";
+import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
+
 /** One persisted HTTP test case or legacy YAML rule pick (scenario assembly). */
 export type ScenarioRuleTestcaseRef = {
   id: string;
@@ -39,6 +45,14 @@ export type ScenarioRegistryItem = {
   serviceSequence: ServiceCatalogItem[];
   /** Persisted test cases (or legacy YAML rule picks) chosen in the wizard. */
   selectedRuleTestcases?: ScenarioRuleTestcaseRef[];
+  /** Per-testcase-step extract/inject (keys = pick id, step 1 order). */
+  stepBindingsByStepKey?: StepBindingsByStepKey;
+  /** Postman collection variables (baseUrl + start vars). */
+  postmanConfig?: ScenarioPostmanConfig;
+  /** @deprecated Legacy service-code keys; migrated on load. */
+  stepBindingsByCode?: StepBindingsByServiceCode;
+  /** Set after first DB persist/export; reused to avoid duplicate scenarios. */
+  backendScenarioId?: number;
   createdAt: string;
   updatedAt: string;
   updatedBy: string;

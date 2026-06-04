@@ -16,6 +16,10 @@ from app.repositories.cbs_service_catalog_repo import (
     raw_rows_to_cbs_records,
 )
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
+from app.utils.rule_input_omm_skeleton import (
+    _parse_catalog_fields_value,
+    skeleton_from_catalog_row,
+)
 
 
 def _file_sha256(path: Path) -> str:
@@ -99,4 +103,36 @@ class ServiceCatalogService:
 
     async def get(self, service_code: str) -> ServiceCatalogItem | None:
         return await self._repo.get_by_service_code(service_code)
+
+    async def get_dto_skeletons(self, service_code: str) -> dict:
+        """
+        Input/output OMM field skeletons from ``cbs_srvc.json`` (not DB-trimmed row).
+
+        ``output_fields`` may be null when Out DTO metadata is missing in source DB.
+        """
+        row = await self._cbs.get_raw_row_by_service_code(service_code)
+        if row is None:
+            return {
+                "service_code": service_code,
+                "found": False,
+                "input_skeleton": {},
+                "output_skeleton": {},
+                "input_field_count": 0,
+                "output_field_count": 0,
+                "output_dto_name": None,
+            }
+        in_fields = _parse_catalog_fields_value(row.get("input_fields"))
+        out_fields = _parse_catalog_fields_value(row.get("output_fields"))
+        input_sk = skeleton_from_catalog_row(row, kind="input")
+        output_sk = skeleton_from_catalog_row(row, kind="output")
+        return {
+            "service_code": service_code,
+            "found": True,
+            "input_dto_name": row.get("input_dto_name") or row.get("IN_DTO_NM"),
+            "output_dto_name": row.get("output_dto_name") or row.get("OUT_DTO_NM"),
+            "input_skeleton": input_sk,
+            "output_skeleton": output_sk,
+            "input_field_count": len(in_fields),
+            "output_field_count": len(out_fields),
+        }
 

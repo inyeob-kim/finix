@@ -1,32 +1,33 @@
+import { ApiError } from "@/api/client";
+import {
+    listTestCasesByServiceCode,
+    materializeTestCasesForService,
+} from "@/api/testcaseApi";
+import type { TestCaseReadDto } from "@/api/types";
+import {
+    ChevronDown,
+    ChevronRight,
+    ExternalLink,
+    RefreshCw,
+    Sparkles,
+} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  RefreshCw,
-  Sparkles,
-} from "lucide-react";
-import {
-  listTestCasesByServiceCode,
-  materializeTestCasesForService,
-} from "@/api/testcaseApi";
-import { ApiError } from "@/api/client";
-import type { TestCaseReadDto } from "@/api/types";
+import { TestCaseIoPreview } from "../TestCaseIoPreview";
 import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixLoading } from "../ui/finix-loading";
-import { TestCaseIoPreview } from "../TestCaseIoPreview";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
 } from "../ui/table";
 
-const BTN_SECONDARY =
-  "inline-flex items-center justify-center gap-2 h-9 px-3 rounded-sm border border-border bg-background text-sm font-medium hover:bg-muted hover:border-primary/30 transition-colors disabled:opacity-50 disabled:pointer-events-none";
+/** Icon-only — matches YamlRulesEditPanel YAML 복사. */
+const YAML_TOOLBAR_BTN_ICON =
+  "h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50";
 
 type RulesMetaTestCasesPanelProps = {
   serviceCode: string;
@@ -105,8 +106,8 @@ export function RulesMetaTestCasesPanel({
   const busy = disabled || generateLoading;
 
   return (
-    <div className="flex flex-col gap-4 min-h-0 h-full">
-      <p className="text-xs sm:text-sm text-muted-foreground shrink-0">
+    <div className="flex flex-col gap-3 min-h-0 h-full">
+      <p className="text-xs sm:text-sm text-muted-foreground shrink-0 leading-snug">
         이 서비스의 <span className="font-medium text-foreground">활성 YAML 규칙</span>
         에서 HTTP 테스트케이스를 생성·조회합니다. YAML을 저장·활성화한 뒤 생성하세요.
       </p>
@@ -117,55 +118,60 @@ export function RulesMetaTestCasesPanel({
         </div>
       ) : null}
 
-      <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-4 shrink-0">
-        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={replaceExisting}
-            onChange={(e) => setReplaceExisting(e.target.checked)}
-            disabled={busy}
-            className="rounded border-border"
-          />
-          기존 서비스 풀 테스트케이스를 삭제한 뒤 다시 생성
-        </label>
+      <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2 shrink-0">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+          <label className="flex min-w-0 items-start gap-2 text-xs text-muted-foreground cursor-pointer select-none lg:max-w-[min(100%,22rem)] lg:shrink lg:pt-1.5">
+            <input
+              type="checkbox"
+              checked={replaceExisting}
+              onChange={(e) => setReplaceExisting(e.target.checked)}
+              disabled={busy}
+              className="mt-0.5 rounded border-border shrink-0"
+            />
+            <span className="leading-snug">
+              기존 서비스 풀 테스트케이스를 삭제한 뒤 다시 생성
+            </span>
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
+            <span className="text-xs text-muted-foreground min-w-0 truncate max-sm:basis-full max-sm:text-left">
+              {code ? `${serviceLabel} · ${rows.length}건` : "—"}
+            </span>
+            <FinixPrimaryButton
+              type="button"
+              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0"
+              disabled={busy || !code}
+              onClick={() => void handleGenerate()}
+            >
+              {generateLoading ? (
+                <FinixLoading size="sm" inline />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              YAML에서 생성
+            </FinixPrimaryButton>
+            <button
+              type="button"
+              className={YAML_TOOLBAR_BTN_ICON}
+              disabled={listLoading || !code || disabled}
+              title="목록 새로고침"
+              aria-label="목록 새로고침"
+              onClick={() => void loadTestCases()}
+            >
+              {listLoading ? (
+                <FinixLoading size="sm" inline />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
 
         {generateNotice ? (
-          <div className="rounded-sm border border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 text-sm px-3 py-2">
+          <div className="rounded-sm border border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 text-xs px-2.5 py-1.5 leading-snug">
             {generateNotice}
           </div>
         ) : null}
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-          <FinixPrimaryButton
-            type="button"
-            className="h-9 px-4 w-auto gap-2 shrink-0"
-            disabled={busy || !code}
-            onClick={() => void handleGenerate()}
-          >
-            {generateLoading ? (
-              <FinixLoading size="sm" inline />
-            ) : (
-              <Sparkles className="w-4 h-4" />
-            )}
-            YAML에서 생성
-          </FinixPrimaryButton>
-          <button
-            type="button"
-            className={BTN_SECONDARY}
-            disabled={listLoading || !code || disabled}
-            onClick={() => void loadTestCases()}
-          >
-            {listLoading ? (
-              <FinixLoading size="sm" inline />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            목록 새로고침
-          </button>
-          <span className="text-xs text-muted-foreground ml-auto min-w-0 truncate">
-            {code ? `${serviceLabel} · ${rows.length}건` : "—"}
-          </span>
-        </div>
       </div>
 
       <div className="rounded-sm border border-border overflow-hidden flex-1 min-h-0 flex flex-col">

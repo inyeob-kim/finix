@@ -180,6 +180,22 @@ class MetadataRepository:
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
+    async def find_pool_testcase_twin(
+        self,
+        *,
+        name: str,
+        rule_bundle_id: int | None,
+    ) -> TestCase | None:
+        """Return a pool template (no scenario) matching name and optional rule bundle."""
+        stmt = select(TestCase).where(
+            TestCase.scenario_id.is_(None),
+            TestCase.name == name,
+        )
+        if rule_bundle_id is not None:
+            stmt = stmt.where(TestCase.rule_bundle_id == rule_bundle_id)
+        stmt = stmt.order_by(TestCase.id.asc()).limit(1)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
     async def delete_testcases_for_scenario(self, scenario_id: int) -> int:
         """Remove all test cases linked to a scenario. Returns deleted count."""
         result = await self._session.execute(

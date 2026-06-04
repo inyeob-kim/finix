@@ -203,6 +203,25 @@ export function ExecutionResult() {
                           {JSON.stringify(result.actual, null, 2)}
                         </code>
                       </pre>
+                      {typeof result.actual === "object" &&
+                      result.actual !== null &&
+                      "resolved_request_body" in result.actual ? (
+                        <div className="mt-2 space-y-1">
+                          <div className="text-[11px] font-medium text-muted-foreground">
+                            실행 시 요청 body
+                          </div>
+                          <pre className="bg-primary/5 border border-primary/20 rounded-sm p-2 text-xs overflow-x-auto">
+                            <code>
+                              {JSON.stringify(
+                                (result.actual as { resolved_request_body?: unknown })
+                                  .resolved_request_body,
+                                null,
+                                2,
+                              )}
+                            </code>
+                          </pre>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>

@@ -206,40 +206,78 @@ def build_skeleton_from_java_source(
         vis.discard(name)
 
 
+def _parse_catalog_fields_value(raw_fields: Any) -> list[dict[str, Any]]:
+    if raw_fields is None:
+        return []
+    if isinstance(raw_fields, str) and raw_fields.strip():
+        try:
+            raw_fields = json.loads(raw_fields)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    if not isinstance(raw_fields, list):
+        return []
+    return [x for x in raw_fields if isinstance(x, dict)]
+
+
+def skeleton_from_fields_list(raw_fields: Any) -> dict[str, Any]:
+    """Build { field: null | {} } from catalog ``input_fields`` / ``output_fields`` list."""
+    out: dict[str, Any] = {}
+    for item in _parse_catalog_fields_value(raw_fields):
+        fname = item.get("field_name") or item.get("FIELD_NAME")
+        if not (isinstance(fname, str) and fname.strip()):
+            continue
+        key = fname.strip()
+        nested = item.get("nested_dto_class_name") or item.get("NESTED_DTO_CLASS_NAME")
+        list_flag = str(item.get("list_flag") or item.get("LIST_DTO_YN") or "").upper()
+        if isinstance(nested, str) and nested.strip():
+            out[key] = [{}] if list_flag == "Y" else {}
+        else:
+            out[key] = [] if list_flag == "Y" else None
+    return out
+
+
+def skeleton_from_catalog_row(
+    row: dict[str, Any] | None,
+    *,
+    kind: str = "input",
+) -> dict[str, Any]:
+    """Build skeleton from one CBS catalog row dict (``input_fields`` or ``output_fields``)."""
+    if not row:
+        return {}
+    key = "output_fields" if kind == "output" else "input_fields"
+    return skeleton_from_fields_list(row.get(key))
+
+
 def skeleton_from_catalog_raw_json(raw_json: str | None) -> dict[str, Any]:
-    """Build { field: null | {} } from service catalog ``input_fields`` when present."""
+    """Build input skeleton from JSON string holding a catalog row or ``input_fields`` only."""
     if not raw_json or not raw_json.strip():
         return {}
     try:
         payload = json.loads(raw_json)
     except (json.JSONDecodeError, TypeError):
         return {}
-    if not isinstance(payload, dict):
+    if isinstance(payload, dict):
+        if "input_fields" in payload or "output_fields" in payload:
+            return skeleton_from_catalog_row(payload, kind="input")
         return {}
+    if isinstance(payload, list):
+        return skeleton_from_fields_list(payload)
+    return {}
 
-    raw_fields = payload.get("input_fields")
-    if isinstance(raw_fields, str) and raw_fields.strip():
-        try:
-            raw_fields = json.loads(raw_fields)
-        except (json.JSONDecodeError, TypeError):
-            raw_fields = None
-    if not isinstance(raw_fields, list):
+
+def skeleton_output_from_catalog_raw_json(raw_json: str | None) -> dict[str, Any]:
+    """Build output skeleton from JSON string holding a catalog row."""
+    if not raw_json or not raw_json.strip():
         return {}
-
-    out: dict[str, Any] = {}
-    for item in raw_fields:
-        if not isinstance(item, dict):
-            continue
-        fname = item.get("field_name") or item.get("FIELD_NAME")
-        if not (isinstance(fname, str) and fname.strip()):
-            continue
-        key = fname.strip()
-        nested = item.get("nested_dto_class_name") or item.get("NESTED_DTO_CLASS_NAME")
-        if isinstance(nested, str) and nested.strip():
-            out[key] = {}
-        else:
-            out[key] = None
-    return out
+    try:
+        payload = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if isinstance(payload, dict):
+        return skeleton_from_catalog_row(payload, kind="output")
+    if isinstance(payload, list):
+        return skeleton_from_fields_list(payload)
+    return {}
 
 
 def _deep_union_two(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:

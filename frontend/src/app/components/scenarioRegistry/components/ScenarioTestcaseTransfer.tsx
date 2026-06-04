@@ -49,7 +49,11 @@ function TestcasePickRow({
       >
         <div className="flex items-start justify-between gap-2">
           <span className="font-mono text-[11px] text-primary shrink-0">
-            {row.serviceCode}
+            {row.ruleId?.trim()
+              ? row.ruleId
+              : row.backendTestcaseId != null
+                ? `#${row.backendTestcaseId}`
+                : row.serviceCode}
           </span>
           {variant === "selected" ? (
             <ChevronLeft className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
@@ -63,11 +67,7 @@ function TestcasePickRow({
           {row.title}
         </div>
         <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-          {row.ruleId?.trim()
-            ? row.ruleId
-            : row.backendTestcaseId != null
-              ? `id=${row.backendTestcaseId}`
-              : "—"}
+          {row.serviceCode}
         </div>
       </button>
     </li>

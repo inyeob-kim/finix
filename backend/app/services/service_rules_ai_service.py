@@ -255,7 +255,7 @@ class ServiceRulesAiService:
             ),
         )
 
-        label = (source_version or "").strip() or "source-scan"
+        label = (source_version or "").strip() or None
         return await self._rules.create_draft(
             service_code=code,
             yaml_text=yaml_text,

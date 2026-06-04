@@ -132,23 +132,6 @@ export function YamlRulesEditPanel({
     >
       {!focusEdit ? (
         <>
-          <div className="rounded-sm border border-primary/20 bg-primary/[0.04] px-3 py-2.5 text-[11px] text-muted-foreground space-y-1.5 shrink-0">
-            <p>
-              <span className="font-semibold text-orange-700 dark:text-orange-400">
-                input
-              </span>
-              : 요청 본문 ·{" "}
-              <span className="font-semibold text-blue-700 dark:text-blue-400">
-                expect
-              </span>
-              (E → error_code, N → validation_target) ·{" "}
-              <span className="font-semibold text-violet-700 dark:text-violet-400">
-                case_id / rule_type (E|N)
-              </span>
-              : 식별 · tags: input, business
-            </p>
-          </div>
-
           <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="inline-flex rounded-sm border border-border bg-muted/30 p-0.5">
               <button

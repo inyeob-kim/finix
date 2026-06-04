@@ -1,4 +1,10 @@
 from app.core.exceptions import InvalidInputError
+
+_GOOD_TITLE = "Missing customer ID returns validation error"
+_GOOD_DESC = (
+    "The service rejects the request when customer ID is missing "
+    "because identification is required."
+)
 from app.services.service_rules_service import (
     autofill_missing_assertions,
     normalize_duplicate_case_ids,
@@ -12,8 +18,8 @@ def _case_rule(
     case_id: str,
     rule_type: str,
     *,
-    title: str = "title",
-    description: str = "description",
+    title: str = "Missing customer ID returns validation error",
+    description: str = "The service rejects the request when customer ID is missing because identification is required.",
     assertions: str | None = None,
     error_code: str = "ERR001",
     outcome: str = "error",
@@ -80,8 +86,8 @@ def test_validate_and_prepare_yaml_normalizes_duplicate_case_ids():
     yaml_text = f"""
 service_code: PY016
 rules:
-{_case_rule("PY016-E-001", "E", title="a")}
-{_case_rule("PY016-E-001", "E", title="b")}
+{_case_rule("PY016-E-001", "E", title="Missing payment date prevents transfer")}
+{_case_rule("PY016-E-001", "E", title="Invalid account number is rejected")}
 {_case_rule("PY016-N-001", "N", tags='["business"]')}
 """
     canonical, payload = validate_and_prepare_yaml(yaml_text)
@@ -141,8 +147,8 @@ service_code: PY016
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: a
-    description: d
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
     input:
       custId: null
     expect:
@@ -166,8 +172,8 @@ service_code: PY016
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: a
-    description: d
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
     input: {{}}
     expect:
       outcome: error
@@ -214,8 +220,8 @@ service_code: PY016
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: a
-    description: d
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
     input: {{}}
     expect:
       outcome: error
@@ -245,8 +251,8 @@ service_code: PY016
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: a
-    description: d
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
     input: {{}}
     expect:
       outcome: error
@@ -339,8 +345,8 @@ dto:
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: Validation failure
-    description: Source documents error without HTTP mapping.
+    title: Missing customer identifier returns business error
+    description: Source documents error without HTTP mapping; rejection is driven by domain validation.
     input:
       custId: null
     expect:
@@ -353,8 +359,8 @@ rules:
       snippet: "throw new BizApplicationException(\\"E1\\")"
   - case_id: PY016-N-001
     rule_type: N
-    title: Success path
-    description: Happy path without HTTP code in spec.
+    title: Customer inquiry returns identifier on successful processing
+    description: Happy path without HTTP code in spec; response includes core identifiers for the channel.
     input:
       custId: "C1"
     expect:
@@ -373,7 +379,7 @@ rules:
 
 
 def test_validate_rejects_non_integer_http_status_when_present():
-    yaml_text = """
+    yaml_text = f"""
 service_code: PY016
 service_name: Example
 source_version: "test"
@@ -385,9 +391,9 @@ dto:
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: t
-    description: d
-    input: {}
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
+    input: {{}}
     expect:
       outcome: error
       http_status: not-a-number
@@ -402,9 +408,9 @@ rules:
       snippet: "x"
   - case_id: PY016-N-001
     rule_type: N
-    title: t2
-    description: d2
-    input: {}
+    title: Account balance inquiry returns available balance
+    description: Normal path verifies balance field is returned for a valid account request.
+    input: {{}}
     expect:
       outcome: success
       http_status: 200

@@ -18,6 +18,8 @@ type ServiceCatalogComboboxProps = {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
+  /** Focus the search input (e.g. when a parent dialog opens). */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 };
 
 export function ServiceCatalogCombobox({
@@ -28,6 +30,7 @@ export function ServiceCatalogCombobox({
   disabled = false,
   placeholder = "서비스 코드 또는 이름 검색 (예: PY016)",
   className,
+  inputRef,
 }: ServiceCatalogComboboxProps) {
   const selected = useMemo(
     () => options.find((o) => o.code === value) ?? null,
@@ -113,14 +116,6 @@ export function ServiceCatalogCombobox({
     }
   };
 
-  if (loading) {
-    return (
-      <div className={cn("flex items-center gap-2 py-2", className)}>
-        <FinixLoading size="sm" label="목록 불러오는 중…" inline />
-      </div>
-    );
-  }
-
   return (
     <Popover
       open={showList}
@@ -131,10 +126,15 @@ export function ServiceCatalogCombobox({
       <PopoverAnchor asChild>
         <div className={cn("relative", className)} onKeyDownCapture={handleListKeyDown}>
           <FinixUnderlineInput
+            ref={inputRef}
             value={displayValue}
-            disabled={disabled || options.length === 0}
+            disabled={disabled || options.length === 0 || loading}
             placeholder={
-              options.length === 0 ? "등록된 서비스 없음" : placeholder
+              loading
+                ? "목록 불러오는 중…"
+                : options.length === 0
+                  ? "등록된 서비스 없음"
+                  : placeholder
             }
             className="pr-8"
             autoComplete="off"
@@ -157,6 +157,11 @@ export function ServiceCatalogCombobox({
               }, 150);
             }}
           />
+          {loading ? (
+            <span className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none">
+              <FinixLoading size="sm" inline />
+            </span>
+          ) : null}
           <ChevronsUpDown
             className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden

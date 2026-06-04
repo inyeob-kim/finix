@@ -46,6 +46,18 @@ class RowIn {
     assert sk["rows"][0] == {"code": None, "qty": None}
 
 
+def test_skeleton_from_catalog_output_fields():
+    raw = (
+        '{"output_fields": [{"field_name": "acctNbr", "nested_dto_class_name": null}, '
+        '{"field_name": "items", "list_flag": "Y", "nested_dto_class_name": "SubOut"}]}'
+    )
+    from app.utils.rule_input_omm_skeleton import skeleton_output_from_catalog_raw_json
+
+    sk = skeleton_output_from_catalog_raw_json(raw)
+    assert sk["acctNbr"] is None
+    assert sk["items"] == [{}]
+
+
 def test_skeleton_from_catalog_input_fields():
     raw = '{"input_fields": [{"field_name": "foo", "nested_dto_class_name": null}, {"field_name": "bar", "nested_dto_class_name": "X"}]}'
     sk = skeleton_from_catalog_raw_json(raw)

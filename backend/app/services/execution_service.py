@@ -10,6 +10,7 @@ from app.repositories.execution_repo import ExecutionRepository
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.services.execution_simulator import simulate_response
+from app.services.scenario_run_resolver import resolve_scenario_run
 from app.utils.json_text import dumps_json, loads_json
 
 logger = get_logger(__name__)
@@ -94,29 +95,46 @@ class ExecutionService:
             status="running",
             summary_json=None,
         )
+        preview = resolve_scenario_run(
+            testcases,
+            steps_json=scenario.steps_json,
+            simulate_response=lambda tc, body: simulate_response(tc, request_body=body),
+        )
         passed = 0
         failed = 0
-        for idx, tc in enumerate(testcases):
-            actual_status, actual_body = simulate_response(tc)
+        for row in preview.steps:
+            tc = next((t for t in testcases if t.id == row.testcase_id), None)
+            if tc is None:
+                continue
+            actual_status = row.actual_status if row.actual_status is not None else tc.expected_status
+            actual_body = row.actual_body
             exp_status = tc.expected_status
             ok = actual_status == exp_status
-            if ok:
+            err_parts: list[str] = list(row.inject_warnings)
+            if not ok:
+                err_parts.append(f"예상 HTTP {exp_status}, 실제 {actual_status}")
+            err = "; ".join(err_parts) if err_parts else None
+            if ok and not row.inject_warnings:
                 passed += 1
-                err = None
             else:
                 failed += 1
-                err = f"예상 HTTP {exp_status}, 실제 {actual_status}"
             expected_payload = {
                 "status": exp_status,
                 "body": loads_json(tc.expected_body_json, {}),
             }
-            actual_payload = {"status": actual_status, "body": actual_body}
+            actual_payload = {
+                "status": actual_status,
+                "body": actual_body,
+                "context": preview.context_after,
+                "template_request_body": row.template_request_body,
+                "resolved_request_body": row.resolved_request_body,
+            }
             await self._execution.add_step_result(
                 execution_run_id=run.id,
-                step_index=tc.step_index if tc.step_index is not None else idx,
+                step_index=row.step_index,
                 step_label=tc.name,
                 testcase_id=tc.id,
-                status="passed" if ok else "failed",
+                status="passed" if ok and not row.inject_warnings else "failed",
                 expected_json=dumps_json(expected_payload),
                 actual_json=dumps_json(actual_payload),
                 error_message=err,
@@ -146,3 +164,4 @@ class ExecutionService:
     async def list_runs_page(self, *, limit: int, offset: int) -> tuple[list[ExecutionRun], int]:
         """Paginate execution history."""
         return await self._execution.list_runs(limit=limit, offset=offset)
+

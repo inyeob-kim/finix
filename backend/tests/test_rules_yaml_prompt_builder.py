@@ -13,6 +13,7 @@ from app.prompts.service_rules_yaml_prompt import (
     build_user_prompt,
     build_yaml_ai_cached_system_prompt,
 )
+from app.prompts.title_description_guidance import TITLE_AND_DESCRIPTION_GUIDANCE
 
 
 def test_system_prompt_contains_hard_requirements():
@@ -26,6 +27,8 @@ def test_system_prompt_contains_hard_requirements():
     assert "rule_id" not in s or "instead of rule_id" in s
     assert "Generalization Rules for All Services" in s
     assert "http_status" in s
+    assert "Title and description quality" in s
+    assert TITLE_AND_DESCRIPTION_GUIDANCE.splitlines()[0] in s
 
 
 def test_system_prompt_from_source_requires_source_evidence():
@@ -44,9 +47,12 @@ def test_system_prompt_from_source_requires_source_evidence():
     assert "directly executable" in s
     assert "Enum.getValue()" in s
     assert "BUSINESS-ORIENTED CASE EXTRACTION RULES" in s
-    assert "in.getXXX()" in s
+    assert "Title and description quality" in s
+    assert "BUSINESS COVERAGE TARGETS" in s
     assert "Returning null or skipping optional processing is NOT an error" in s
     assert "Consolidate overly granular" in s or "getBean" in s
+    assert "Case significance" in s
+    assert "15–20" not in s
 
 
 def test_cached_system_prompt_includes_template_for_objective_flow():
@@ -118,3 +124,5 @@ def test_template_includes_en_case_schema():
     assert "validation_target" in YAML_TEMPLATE_EXAMPLE
     assert "rule_type: \"E\"" in YAML_TEMPLATE_EXAMPLE
     assert "rule_type: \"N\"" in YAML_TEMPLATE_EXAMPLE
+    assert "Missing payment date prevents salary transfer request" in YAML_TEMPLATE_EXAMPLE
+    assert "Business rule enforcement" not in YAML_TEMPLATE_EXAMPLE

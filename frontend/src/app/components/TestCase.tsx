@@ -11,13 +11,29 @@ import {
 import {
   downloadPostmanCollection,
   generateTestCases,
-  getTestCase,
   listTestCases,
 } from "@/api/testcaseApi";
-import { createScenario, getScenario, patchScenario } from "@/api/scenarioApi";
+import {
+  getScenario,
+  resolveScenarioPreview,
+} from "@/api/scenarioApi";
+import { downloadSavedScenarioPostman } from "@/lib/registryScenarioExport";
+import { defaultSinglePostmanDownloadName } from "@/lib/postmanExportDownload";
+import {
+  emptyPostmanConfig,
+  ensurePostmanConfig,
+  postmanConfigFromApi,
+} from "@/lib/scenarioPostmanVariables";
+import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
+import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { runScenarioExecution } from "@/api/executionApi";
 import { ApiError } from "@/api/client";
-import type { ScenarioStepDto, TestCaseReadDto } from "@/api/types";
+import type {
+  ScenarioResolvePreviewDto,
+  ScenarioStepDto,
+  TestCaseReadDto,
+} from "@/api/types";
+import { ScenarioRequestBodyPanel } from "./scenario/ScenarioRequestBodyPanel";
 import { previewRulesYaml, type ServiceRulePreviewDto } from "@/api/rulesYamlApi";
 import { FinixPrimaryButton } from "./ui/finix-button";
 import { FinixField, FinixUnderlineTextarea } from "./ui/finix-form";
@@ -25,63 +41,13 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
 import { FINIX_LARGE_MODAL_MAX_WIDTH } from "@/lib/finixModalLayout";
 import { PageShell } from "./PageShell";
 import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
-
-type RegistryScenarioPayload = {
-  title: string;
-  description?: string;
-  tags?: string[];
-  serviceSequence: Array<{ code: string; name: string }>;
-  /** DB test case ids chosen in the scenario registry (preferred over YAML-only picks). */
-  testcaseSelections?: Array<{
-    id: number;
-    scenarioId: number | null;
-    name: string;
-    serviceCode: string;
-  }>;
-  /** When set (legacy), YAML previews are filtered to these rules only. */
-  ruleSelections?: Array<{
-    serviceCode: string;
-    ruleId: string;
-    title?: string;
-  }>;
-};
-
-function filterPreviewByRuleSelections(
-  preview: ServiceRulePreviewDto,
-  selections: NonNullable<RegistryScenarioPayload["ruleSelections"]>,
-): ServiceRulePreviewDto {
-  const wantIds = new Set(
-    selections
-      .filter((s) => s.serviceCode === preview.service_code)
-      .map((s) => s.ruleId.trim())
-      .filter(Boolean),
-  );
-  if (wantIds.size === 0) return preview;
-  const raw = { ...(preview.raw ?? {}) };
-  const rules = Array.isArray(raw.rules) ? raw.rules : [];
-  const filtered = rules.filter((r) => {
-    if (!r || typeof r !== "object") return false;
-    const rid = (r as { rule_id?: unknown }).rule_id;
-    return typeof rid === "string" && wantIds.has(rid.trim());
-  });
-  raw.rules = filtered;
-  const rule_ids = filtered
-    .map((r) => String((r as { rule_id?: string }).rule_id ?? "").trim())
-    .filter(Boolean);
-  return {
-    ...preview,
-    rule_count: filtered.length,
-    rule_ids,
-    raw,
-    exists: preview.exists || filtered.length > 0,
-  };
-}
 
 export function TestCase() {
   const { scenarioId: scenarioIdParam } = useParams();
@@ -90,10 +56,6 @@ export function TestCase() {
   const scenarioId = Number(scenarioIdParam);
   const from =
     (location.state as { from?: string } | null)?.from ?? "/scenario-registry";
-  const registryPayload =
-    (location.state as { registry?: RegistryScenarioPayload } | null)?.registry ??
-    null;
-  const isRegistryMode = !Number.isFinite(scenarioId) && registryPayload != null;
 
   const [testCases, setTestCases] = useState<TestCaseReadDto[]>([]);
   const [selectedStep, setSelectedStep] = useState(0);
@@ -105,9 +67,25 @@ export function TestCase() {
   const [yamlLoading, setYamlLoading] = useState(false);
   const [yamlPreviews, setYamlPreviews] = useState<ServiceRulePreviewDto[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [resolvePreview, setResolvePreview] =
+    useState<ScenarioResolvePreviewDto | null>(null);
+  const [resolveLoading, setResolveLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [rawOpenFor, setRawOpenFor] = useState<ServiceRulePreviewDto | null>(
     null,
+  );
+  const [postmanExportOpen, setPostmanExportOpen] = useState(false);
+  const [postmanExportDraft, setPostmanExportDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [postmanExportFilename, setPostmanExportFilename] = useState("");
+  const [postmanExportLoading, setPostmanExportLoading] = useState(false);
+  const [postmanExportError, setPostmanExportError] = useState<string | null>(
+    null,
+  );
+
+  const postmanExportDefaultFilename = useMemo(
+    () => defaultSinglePostmanDownloadName(scenarioTitle || "scenario"),
+    [scenarioTitle],
   );
 
   const extractService = (
@@ -139,7 +117,7 @@ export function TestCase() {
   };
 
   useEffect(() => {
-    if (!Number.isFinite(scenarioId) && !isRegistryMode) {
+    if (!Number.isFinite(scenarioId)) {
       setError("잘못된 주소입니다.");
       setLoading(false);
       return;
@@ -149,14 +127,21 @@ export function TestCase() {
       setLoading(true);
       setError(null);
       try {
-        if (isRegistryMode && registryPayload) {
-          setTestCases([]);
-          setSelectedStep(0);
-          setScenarioTitle(registryPayload.title ?? "");
+        const cases = await listTestCases(scenarioId);
+        if (cancelled) {
+          return;
+        }
+        setTestCases(cases);
+        setSelectedStep(0);
+        if (cases.length === 0) {
           setYamlLoading(true);
-          const unique = [
-            ...new Set((registryPayload.serviceSequence ?? []).map((s) => s.code)),
-          ];
+          const scenario = await getScenario(scenarioId);
+          if (cancelled) return;
+          setScenarioTitle(scenario.title ?? "");
+          const services = (scenario.steps ?? [])
+            .map(extractService)
+            .filter((x): x is { code: string; name: string } => Boolean(x));
+          const unique = [...new Set(services.map((s) => s.code))];
           const previews = await Promise.all(
             unique.map(async (code) => {
               try {
@@ -176,70 +161,9 @@ export function TestCase() {
             }),
           );
           if (cancelled) return;
-          const tcSel = registryPayload.testcaseSelections;
-          if (tcSel && tcSel.length > 0) {
-            const loaded = await Promise.all(
-              tcSel.map(async (t) => {
-                try {
-                  return await getTestCase(t.id);
-                } catch {
-                  return null;
-                }
-              }),
-            );
-            const ok = loaded.filter((x): x is TestCaseReadDto => x != null);
-            if (!cancelled) {
-              setTestCases(ok);
-              setSelectedStep(0);
-            }
-            setYamlPreviews(previews);
-          } else {
-            const sel = registryPayload.ruleSelections;
-            const next =
-              sel && sel.length > 0
-                ? previews.map((p) => filterPreviewByRuleSelections(p, sel))
-                : previews;
-            setYamlPreviews(next);
-          }
+          setYamlPreviews(previews);
         } else {
-          const cases = await listTestCases(scenarioId);
-          if (cancelled) {
-            return;
-          }
-          setTestCases(cases);
-          setSelectedStep(0);
-          if (cases.length === 0) {
-            setYamlLoading(true);
-            const scenario = await getScenario(scenarioId);
-            if (cancelled) return;
-            setScenarioTitle(scenario.title ?? "");
-            const services = (scenario.steps ?? [])
-              .map(extractService)
-              .filter((x): x is { code: string; name: string } => Boolean(x));
-            const unique = [...new Set(services.map((s) => s.code))];
-            const previews = await Promise.all(
-              unique.map(async (code) => {
-                try {
-                  return await previewRulesYaml(code);
-                } catch {
-                  return {
-                    service_code: code,
-                    service_name: null,
-                    source_version: null,
-                    exists: false,
-                    filename: `${code}.yaml`,
-                    rule_count: 0,
-                    rule_ids: [],
-                    raw: {},
-                  } satisfies ServiceRulePreviewDto;
-                }
-              }),
-            );
-            if (cancelled) return;
-            setYamlPreviews(previews);
-          } else {
-            setYamlPreviews([]);
-          }
+          setYamlPreviews([]);
         }
       } catch (e) {
         if (!cancelled) {
@@ -257,13 +181,43 @@ export function TestCase() {
     return () => {
       cancelled = true;
     };
-  }, [scenarioId, isRegistryMode, registryPayload]);
+  }, [scenarioId]);
 
   const safeIndex = Math.min(
     selectedStep,
     Math.max(0, testCases.length - 1),
   );
   const currentTest = testCases[safeIndex];
+
+  const resolvedRowForCurrent = useMemo(() => {
+    if (!currentTest || !resolvePreview) return null;
+    return (
+      resolvePreview.steps.find((s) => s.testcase_id === currentTest.id) ??
+      null
+    );
+  }, [currentTest, resolvePreview]);
+
+  useEffect(() => {
+    if (!Number.isFinite(scenarioId) || testCases.length === 0) {
+      setResolvePreview(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setResolveLoading(true);
+      try {
+        const data = await resolveScenarioPreview(scenarioId, true);
+        if (!cancelled) setResolvePreview(data);
+      } catch {
+        if (!cancelled) setResolvePreview(null);
+      } finally {
+        if (!cancelled) setResolveLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scenarioId, testCases]);
 
   const totalRules = useMemo(() => {
     return yamlPreviews.reduce((acc, p) => acc + (p.rule_count ?? 0), 0);
@@ -273,46 +227,20 @@ export function TestCase() {
     return yamlPreviews.filter((p) => !p.exists).length;
   }, [yamlPreviews]);
 
-  const handleGenerate = async () => {
-    if (!Number.isFinite(scenarioId) && !isRegistryMode) return;
+  const handleRegenerateFromYaml = async () => {
+    if (!Number.isFinite(scenarioId)) return;
     setGenerating(true);
     setError(null);
     try {
-      if (isRegistryMode && registryPayload) {
-        // Create runtime scenario *only when user confirms generation*.
-        const createdScenario = await createScenario({
-          prompt: registryPayload.title,
-          title: registryPayload.title,
-        });
-        await patchScenario(createdScenario.id, {
-          title: registryPayload.title,
-          steps: (registryPayload.serviceSequence ?? []).map((s, idx) => ({
-            id: crypto.randomUUID(),
-            number: idx + 1,
-            action: s.name,
-            result: "success",
-            reason: `code=${s.code}`,
-          })),
-        });
-        const created = await generateTestCases(
-          createdScenario.id,
-          instruction.trim() || null,
-        );
-        setTestCases(created);
-        setSelectedStep(0);
-        // Replace URL so subsequent actions work with scenarioId.
-        navigate(`/test-case/${createdScenario.id}`, { replace: true });
-      } else {
-        const created = await generateTestCases(
-          scenarioId,
-          instruction.trim() || null,
-        );
-        setTestCases(created);
-        setSelectedStep(0);
-      }
+      const created = await generateTestCases(
+        scenarioId,
+        instruction.trim() || null,
+      );
+      setTestCases(created);
+      setSelectedStep(0);
     } catch (e) {
       setError(
-        e instanceof ApiError ? e.message : "테스트 케이스 생성에 실패했습니다.",
+        e instanceof ApiError ? e.message : "YAML 재생성에 실패했습니다.",
       );
     } finally {
       setGenerating(false);
@@ -345,11 +273,69 @@ export function TestCase() {
       return;
     }
     try {
-      await downloadPostmanCollection(currentTest.id);
+      if (Number.isFinite(scenarioId)) {
+        await downloadPostmanCollection(currentTest.id, {
+          mode: "resolved",
+          scenarioId,
+        });
+      } else {
+        await downloadPostmanCollection(currentTest.id, { mode: "template" });
+      }
     } catch (e) {
       setError(
         e instanceof ApiError ? e.message : "내보내기에 실패했습니다.",
       );
+    }
+  };
+
+  const openScenarioPostmanExport = async () => {
+    if (!Number.isFinite(scenarioId)) return;
+    setPostmanExportError(null);
+    setPostmanExportFilename("");
+    try {
+      const scenario = await getScenario(scenarioId);
+      setScenarioTitle(scenario.title ?? "");
+      setPostmanExportDraft(
+        ensurePostmanConfig(postmanConfigFromApi(scenario.postman)),
+      );
+      setPostmanExportOpen(true);
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : "Postman 설정을 불러오지 못했습니다.",
+      );
+    }
+  };
+
+  const closeScenarioPostmanExport = () => {
+    if (postmanExportLoading) return;
+    setPostmanExportOpen(false);
+    setPostmanExportError(null);
+  };
+
+  const confirmScenarioPostmanExport = async () => {
+    if (!Number.isFinite(scenarioId)) return;
+    setPostmanExportLoading(true);
+    setPostmanExportError(null);
+    setError(null);
+    try {
+      await downloadSavedScenarioPostman({
+        scenarioId,
+        title: scenarioTitle || `scenario-${scenarioId}`,
+        postmanConfig: postmanExportDraft,
+        downloadName: postmanExportFilename,
+      });
+      setPostmanExportOpen(false);
+    } catch (e) {
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : "Postman 컬렉션 export에 실패했습니다.";
+      setPostmanExportError(message);
+      setError(message);
+    } finally {
+      setPostmanExportLoading(false);
     }
   };
 
@@ -436,7 +422,7 @@ export function TestCase() {
               <div>
                 <h2>테스트 케이스 생성</h2>
                 <p className="text-muted-foreground">
-                  시나리오: {scenarioTitle || `#${scenarioId}`}
+                  시나리오: {scenarioTitle || "—"}
                 </p>
               </div>
 
@@ -555,9 +541,9 @@ export function TestCase() {
                   />
                 </FinixField>
 
-                <div className="pt-2 flex items-center justify-end">
+                <div className="pt-2 flex items-center justify-end gap-2">
                   <FinixPrimaryButton
-                    onClick={() => void handleGenerate()}
+                    onClick={() => void handleRegenerateFromYaml()}
                     disabled={generating || yamlLoading || yamlPreviews.length === 0}
                     className="px-6 h-10 rounded-sm gap-2"
                   >
@@ -566,7 +552,7 @@ export function TestCase() {
                     ) : (
                       <Wand2 className="w-4 h-4" />
                     )}
-                    {generating ? "생성 중…" : "테스트케이스 생성"}
+                    {generating ? "재생성 중…" : "YAML에서 재생성"}
                   </FinixPrimaryButton>
                 </div>
               </div>
@@ -577,12 +563,27 @@ export function TestCase() {
                 <div>
                   <h2>테스트 케이스 #{safeIndex + 1}</h2>
                   <p className="text-muted-foreground">{currentTest.name}</p>
+                  {resolveLoading ? (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      연결 미리보기 갱신 중…
+                    </p>
+                  ) : null}
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-wrap">
+                  {Number.isFinite(scenarioId) ? (
+                    <button
+                      type="button"
+                      onClick={() => void openScenarioPostmanExport()}
+                      className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm text-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      시나리오 Postman
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void handleExportPostman()}
-                    className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm"
+                    className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm text-sm"
                   >
                     <Download className="w-4 h-4" />
                     포스트맨으로 내보내기
@@ -610,16 +611,12 @@ export function TestCase() {
                     </code>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">
-                      요청 데이터
-                    </label>
-                    <pre className="bg-secondary border border-border rounded-sm p-4 text-sm overflow-x-auto">
-                      <code>
-                        {JSON.stringify(currentTest.request_body, null, 2)}
-                      </code>
-                    </pre>
-                  </div>
+                  <ScenarioRequestBodyPanel
+                    templateBody={currentTest.request_body}
+                    resolvedRow={resolvedRowForCurrent}
+                    contextAfter={resolvePreview?.context_after ?? null}
+                    injectWarnings={resolvePreview?.global_warnings}
+                  />
                 </div>
               </div>
 
@@ -655,6 +652,78 @@ export function TestCase() {
               </div>
             </>
           )}
+
+          <Dialog
+            open={postmanExportOpen}
+            onOpenChange={(open) => {
+              if (!open) closeScenarioPostmanExport();
+            }}
+          >
+            <DialogContent className="w-full max-w-md rounded-sm">
+              <DialogHeader>
+                <DialogTitle className="pr-10">Postman 컬렉션 다운로드</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-1">
+                    <span>{scenarioTitle || `#${scenarioId}`}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      변수 연결·body 고정값이 포함된 Postman 컬렉션입니다.
+                    </span>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+
+              {!postmanExportLoading ? (
+                <ScenarioPostmanExportDialogForm
+                  postmanConfig={postmanExportDraft}
+                  onPostmanConfigChange={setPostmanExportDraft}
+                  filename={postmanExportFilename}
+                  onFilenameChange={setPostmanExportFilename}
+                  defaultFilename={postmanExportDefaultFilename}
+                  baseUrlHint="baseUrl은 이번 export에만 적용되며, 저장 후 다음 다운로드에도 유지됩니다."
+                />
+              ) : null}
+
+              {postmanExportLoading ? (
+                <div className="py-6">
+                  <FinixLoading
+                    size="md"
+                    center
+                    label="Postman 파일 생성 중…"
+                  />
+                </div>
+              ) : postmanExportError ? (
+                <p className="text-sm text-destructive">{postmanExportError}</p>
+              ) : null}
+
+              <DialogFooter className="gap-2 sm:gap-2">
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
+                  onClick={closeScenarioPostmanExport}
+                  disabled={postmanExportLoading}
+                >
+                  취소
+                </button>
+                <FinixPrimaryButton
+                  onClick={() => void confirmScenarioPostmanExport()}
+                  disabled={postmanExportLoading}
+                  className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
+                >
+                  {postmanExportLoading ? (
+                    <>
+                      <FinixLoading size="sm" inline />
+                      생성 중…
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      다운로드
+                    </>
+                  )}
+                </FinixPrimaryButton>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog
             open={rawOpenFor != null}

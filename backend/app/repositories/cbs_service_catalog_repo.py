@@ -111,6 +111,7 @@ class CbsServiceCatalogRepository:
         self._loaded = False
         self._lock = asyncio.Lock()
         self._rows: list[CbsServiceRecord] = []
+        self._raw_by_code: dict[str, dict] = {}
 
     async def _ensure_loaded(self) -> None:
         """Load and normalize JSON rows once using background thread IO."""
@@ -133,7 +134,20 @@ class CbsServiceCatalogRepository:
         with self._json_path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
         raw_rows = extract_raw_catalog_dicts(payload)
+        self._raw_by_code = {}
+        for row in raw_rows:
+            code = (row.get("SRVC_CD") or row.get("service_code") or "").strip()
+            if code:
+                self._raw_by_code[code] = row
         return raw_rows_to_cbs_records(raw_rows)
+
+    async def get_raw_row_by_service_code(self, service_code: str) -> dict | None:
+        """Return full CBS JSON row (includes input_fields / output_fields)."""
+        await self._ensure_loaded()
+        code = (service_code or "").strip()
+        if not code:
+            return None
+        return self._raw_by_code.get(code)
 
     async def search_by_prompt(self, prompt: str, *, limit: int = 5) -> list[CbsServiceRecord]:
         """

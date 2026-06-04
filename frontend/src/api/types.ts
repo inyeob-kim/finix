@@ -1,11 +1,39 @@
 /** API JSON shapes aligned with backend ``/api/v1`` responses (minimal fields used by UI). */
 
+export interface ScenarioBindingExtractDto {
+  var: string;
+  json_path: string;
+}
+
+export interface ScenarioBindingInjectDto {
+  var: string;
+  json_path: string;
+}
+
+export interface ScenarioBindingOverrideDto {
+  json_path: string;
+  value: unknown;
+}
+
 export interface ScenarioStepDto {
   id: string;
   number: number;
   action: string;
   result: "success" | "error";
   reason?: string | null;
+  service_code?: string | null;
+  extracts?: ScenarioBindingExtractDto[];
+  injects?: ScenarioBindingInjectDto[];
+  overrides?: ScenarioBindingOverrideDto[];
+}
+
+export interface PostmanCollectionConfigDto {
+  base_url?: string;
+  start_vars?: Array<{
+    key: string;
+    value?: string;
+    description?: string | null;
+  }>;
 }
 
 export interface ScenarioReadDto {
@@ -15,6 +43,7 @@ export interface ScenarioReadDto {
   content: string | null;
   prompt: string | null;
   steps: ScenarioStepDto[];
+  postman?: PostmanCollectionConfigDto | null;
   is_saved: boolean;
   created_at: string;
 }
@@ -28,6 +57,17 @@ export interface ServiceCatalogItemReadDto {
   source_version: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface ServiceCatalogDtoSkeletonsDto {
+  service_code: string;
+  found: boolean;
+  input_dto_name: string | null;
+  output_dto_name: string | null;
+  input_skeleton: Record<string, unknown>;
+  output_skeleton: Record<string, unknown>;
+  input_field_count: number;
+  output_field_count: number;
 }
 
 export interface ServiceCatalogImportResultDto {
@@ -51,6 +91,52 @@ export interface ServiceRuleBundleReadDto {
   updated_at: string | null;
   yaml_text?: string | null;
   rules?: Record<string, unknown> | null;
+}
+
+export interface ResolvedTestCaseStepDto {
+  testcase_id: number;
+  step_index: number;
+  name: string;
+  method: string | null;
+  endpoint: string | null;
+  template_request_body: Record<string, unknown>;
+  resolved_request_body: Record<string, unknown>;
+  inject_warnings: string[];
+  expected_status: number | null;
+  expected_response_body: Record<string, unknown>;
+  simulated_response_body: Record<string, unknown> | null;
+}
+
+export interface ScenarioResolvePreviewDto {
+  steps: ResolvedTestCaseStepDto[];
+  context_after: Record<string, unknown>;
+  global_warnings: string[];
+}
+
+export interface SuggestedBindingLinkDto {
+  from_service_index: number;
+  to_service_index: number;
+  from_service_code: string;
+  to_service_code: string;
+  response_path: string;
+  request_path: string;
+  var: string;
+  confidence: "high" | "medium" | "low";
+  reason?: string | null;
+}
+
+export interface StepBindingsBlockDto {
+  service_code: string;
+  extracts: ScenarioBindingExtractDto[];
+  injects: ScenarioBindingInjectDto[];
+}
+
+export interface ScenarioBindingsSuggestDto {
+  source: "llm" | "heuristic" | "hybrid";
+  summary: string;
+  links: SuggestedBindingLinkDto[];
+  bindings_by_service: Record<string, StepBindingsBlockDto>;
+  link_count: number;
 }
 
 export interface TestCaseReadDto {

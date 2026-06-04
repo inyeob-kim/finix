@@ -11,6 +11,8 @@ from app.prompts.service_rules_yaml_prompt import (
     ServiceMetaForRules,
     schema_hard_requirements,
 )
+from app.prompts.case_significance_guidance import CASE_SIGNIFICANCE_GUIDANCE
+from app.prompts.title_description_guidance import TITLE_AND_DESCRIPTION_GUIDANCE
 
 BUSINESS_ORIENTED_EXTRACTION_GLOBAL = """\
 BUSINESS-ORIENTED EXTRACTION (applies to every Java/Kotlin service class)
@@ -35,7 +37,8 @@ external service failure). Do NOT invent error codes or HTTP layers not evidence
 3) Consolidate overly granular rules
 Do NOT create one rule per setter or trivial step. Merge related assignments that realize ONE
 business outcome (e.g. one approval call, one transaction creation, one domain action) into a
-single rule with a cohesive title, description, and validation_target.
+single rule with a cohesive business-oriented title, a distinct description (why + what),
+and validation_target.
 
 4) HTTP status (expect.http_status)
 If the source or an attached spec does NOT state an HTTP status, set expect.http_status to null
@@ -48,13 +51,12 @@ assertions: []
 
 6) Prioritize business-relevant topics
 Favor: input validation, required fields, lookups and lookup failures, status transitions,
-transaction/approval flows, defaults with business effect, business exceptions, meaningful output
-assembly, end-to-end user-visible outcomes.
+transaction/approval flows, defaults with business effect, business exceptions, end-to-end
+user-visible outcomes. Simple mechanical output mapping alone is NOT a topic.
 
 7) Reduce noise and duplication
-Merge repetitive or overlapping logic. Target on the order of 15–20 high-value rules for a
-typical medium service rather than dozens of low-level technical micro-rules (larger orchestration
-services may need more).
+Merge repetitive or overlapping logic. There is NO quota — prefer fewer strong cases over
+padding with setter-level or output-assembly-only rules.
 
 8) Output quality
 Each rule should state: what business behavior, under which condition, what outcome or error,
@@ -92,6 +94,10 @@ Source interpretation:
   a testable outcome; otherwise omit micro-rules.
 - Consolidate multiple out.setXXX lines that populate one business result into one N case when
   assertions can describe that outcome together.
+
+title and description (all cases):
+- title: scannable business outcome (condition + expected behavior); never generic or field-only.
+- description: why the case exists and what the service should do; do not repeat the title verbatim.
 
 validation_target (for rule_type=N):
 - MUST be a clear business statement (what success means for the customer/domain).
@@ -132,11 +138,6 @@ Implicit failures:
   cases with error_code ONLY if the source or comments supply a code or you can quote the throw
   site; otherwise prefer N with validation_target describing the risk, or omit.
 
-Case volume:
-- Aim for ~15–20 strong rules on a medium service; complex orchestration may require more.
-- Fewer than 4 cases usually means missing obvious business rules — add them.
-- Dozens of trivial setter-only rules are unacceptable — merge them.
-
 Completeness self-check (before final output):
 1. Every business exception path with a code in source → E case?
 2. Every documented validation → E or N as appropriate?
@@ -144,15 +145,15 @@ Completeness self-check (before final output):
 4. No rules left that only mirror Spring/DI/logging?
 5. http_status null unless explicitly known?
 6. Assertions non-generic and non-duplicated across unrelated rules (or empty if unsure)?
+7. No case exists only for simple output assembly or not_null filler?
 """
 
 
 BUSINESS_COVERAGE_TARGETS = """\
-BUSINESS COVERAGE TARGETS (not line-by-line completeness)
+BUSINESS COVERAGE TARGETS (significance over volume)
 
-- Simple service: aim for at least ~5 meaningful business rules.
-- Medium service: often ~10–20 consolidated rules.
-- Large orchestration: more as needed, still avoiding implementation noise.
+- No minimum or target case count. Include only business-justified rules.
+- Simple service: often 3–6 strong cases; medium orchestration may need more — never pad with noise.
 
 Error cases (E):
 - Emit E ONLY when the source throws a business/validation exception or documents a failure
@@ -179,6 +180,8 @@ def build_system_prompt_from_source() -> str:
         "- Use assertions: [] when no confident assertion exists; otherwise assert specific outcomes.\n\n"
         f"{schema_hard_requirements()}\n"
         "- Do NOT invent cases that are not directly supported by the pasted source code.\n\n"
+        f"{TITLE_AND_DESCRIPTION_GUIDANCE}\n\n"
+        f"{CASE_SIGNIFICANCE_GUIDANCE}\n\n"
         f"{BUSINESS_ORIENTED_EXTRACTION_GLOBAL}\n\n"
         f"{SOURCE_INTERPRETATION_AND_QUALITY_GUIDANCE}\n\n"
         f"{BUSINESS_ORIENTED_CASE_EXTRACTION_RULES}\n\n"
@@ -238,6 +241,10 @@ def build_repair_user_prompt(*, validation_error: str, invalid_yaml: str) -> str
         "Invalid YAML:\n"
         f"{invalid_yaml.rstrip()}\n\n"
         "Correct the YAML while preserving all valid cases.\n"
+        "If validation failed on title/description: rewrite with business-oriented, specific "
+        "wording (condition + outcome); avoid generic titles and raw DTO field names.\n"
+        "If validation failed on case significance: remove or merge low-value Normal cases "
+        "(simple output assembly, not_null-only filler); keep distinct business scenarios only.\n"
         "Use case_id (not rule_id), input (not minimal_input), rule_type E or N only.\n"
         "Do NOT include severity.\n"
         "Error cases must have expect.error_code; Normal cases must have expect.validation_target.\n"

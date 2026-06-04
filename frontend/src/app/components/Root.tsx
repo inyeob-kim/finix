@@ -1,7 +1,7 @@
-import finixLogo from "@/assets/finix_logo.jpg";
+import finixLogo from "@/assets/finix_logo_white.png";
 import {
-  ChevronLeft,
   BookOpen,
+  ChevronLeft,
   Clock,
   FolderKanban,
   Home,
@@ -37,17 +37,21 @@ export function Root() {
         }`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 p-6 border-b border-sidebar-border">
-          <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+        <div
+          className={`flex items-center border-b border-sidebar-border ${
+            collapsed ? "justify-center p-4" : "gap-2 px-4 py-5"
+          }`}
+        >
+          <div className="size-8 shrink-0 overflow-hidden rounded-sm">
             <img
               src={finixLogo}
               alt="FINIX"
-              className="w-7 h-7 object-contain"
+              className="size-full object-contain object-center scale-[1.55]"
               draggable={false}
             />
           </div>
           {!collapsed && (
-            <h1 className="text-lg tracking-tight">FINIX</h1>
+            <h1 className="text-lg tracking-tight shrink-0">FINIX</h1>
           )}
         </div>
 

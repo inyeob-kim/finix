@@ -50,44 +50,50 @@ export function ServiceRow({
       ref={rowRef}
       data-service-row
       className={cn(
-        "border rounded-sm flex items-stretch transition-colors",
+        "w-[148px] shrink-0 border rounded-sm flex flex-col transition-colors",
         isActive
           ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30"
           : "border-border bg-background/60",
         isDragging && "opacity-60",
       )}
     >
-      <div
-        ref={gripRef}
-        className="flex items-center px-2 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
-        title="드래그로 순서 변경"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <GripVertical className="w-4 h-4" />
+      <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-border/60 shrink-0">
+        <div
+          ref={gripRef}
+          className="p-0.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
+          title="드래그로 순서 변경"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+        <span className="font-mono text-[11px] text-primary truncate flex-1 min-w-0">
+          {svc.code}
+        </span>
+        <button
+          type="button"
+          className="p-1 rounded-sm hover:bg-muted text-muted-foreground hover:text-destructive transition-colors shrink-0"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            remove(svc.id);
+          }}
+          title="시퀀스에서 제거"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
       <button
         type="button"
-        className="flex-1 min-w-0 text-left px-2 py-3 hover:bg-muted/40 transition-colors rounded-sm"
+        className="flex-1 min-h-[2.5rem] text-left px-2 py-2 hover:bg-muted/40 transition-colors rounded-b-sm"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onSelect?.(svc.code);
         }}
       >
-        <div className="text-sm font-medium truncate">{svc.name}</div>
-        <div className="text-xs font-mono text-muted-foreground">{svc.code}</div>
-      </button>
-      <button
-        type="button"
-        className="self-center p-2 mx-1 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-destructive transition-colors shrink-0"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          remove(svc.id);
-        }}
-        title="시퀀스에서 제거"
-      >
-        <Trash2 className="w-4 h-4" />
+        <div className="text-xs font-medium line-clamp-2 leading-snug" title={svc.name}>
+          {svc.name}
+        </div>
       </button>
     </div>
   );

@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from app.prompts.case_significance_guidance import CASE_SIGNIFICANCE_GUIDANCE
+from app.prompts.title_description_guidance import TITLE_AND_DESCRIPTION_GUIDANCE
+
 
 @dataclass(slots=True)
 class ServiceMetaForRules:
@@ -57,8 +60,15 @@ Additional guidance for assertions:
   output fields.
 - When enum.getValue() is used and the concrete literal is not visible in the source, prefer
   assertions such as not_null instead of guessing the exact value.
-- Every out.setXXX(...) statement in the output assembly method should be considered a candidate
-  for validation assertions."""
+- Do NOT create a separate case for each out.setXXX line. Assert output fields inside ONE
+  consolidated Normal case for the main business success path only when that path is itself
+  business-meaningful (see Case significance rules).
+
+Scenario chaining metadata (optional, per rule — scenario assembly may auto-infer when omitted):
+- extract: { auto: true } — response fields that may feed later steps (IDs, keys, tokens, refs).
+- use: { auto: true } — request fields that should receive values from prior step responses.
+- Do NOT hardcode service-specific names; use only when the case clearly produces or consumes a
+  reusable identifier. Static input values remain in input:; extract/use auto guides Postman chaining."""
 
 
 GENERALIZATION_RULES_FOR_ALL_SERVICES = """\
@@ -77,19 +87,17 @@ Assertion Safety Rules:
   non-literal assertions instead.
 - Prefer assertions based on observable response fields over assumptions about hidden internal state.
 
-Output DTO Coverage Rules:
-- Every out.setXXX(...) statement in the output assembly method should be treated as a candidate
-  for validation assertions.
-- If multiple important output fields are assigned, generate one or more normal cases to validate them.
-- Typical examples include transaction date/time, sequence number, account balance, identifiers,
-  propagated input values, and status fields.
+Output and success-path rules:
+- Mechanical out.set / in.get → out field copy WITHOUT a distinct business branch is NOT its own case.
+- When a success path is business-meaningful, use ONE Normal case and assert the fields that prove
+  that outcome (transaction id, contract number, balance, schedule list, etc.).
+- Add another Normal case only when the source shows a different business outcome or branch
+  (not another block of setters for the same outcome).
 
 Internal Processing Rules:
-- Field mappings such as basicInfo.setXXX(in.getXXX()) represent meaningful implementation behavior
-  and should be considered for normal cases when they affect observable results.
-- Default value assignments using conditional expressions should generate dedicated normal cases.
-- Conditional method calls (for example notification sending, history creation, fee processing,
-  or approval logic) should generate normal cases when they represent distinct business behavior.
+- Field mappings and defaults merit a case only when tied to a documented business rule or branch.
+- Conditional method calls (notification, approval, fee, status change) → cases only for distinct
+  business behavior evidenced in source — not for optional logging or wiring.
 
 Non-Observable Effects:
 - If an internal action cannot be directly verified through the response payload, do not fabricate
@@ -116,8 +124,8 @@ dto:
 rules:
   - case_id: "PY016-E-001"
     rule_type: "E"
-    title: "Validation of required customer information"
-    description: "The service rejects requests when customer information is invalid."
+    title: "Missing payment date prevents salary transfer request"
+    description: "The service rejects the request when payment date is absent because scheduling and settlement require a valid payment date."
     input:
       custId: null
       regList:
@@ -136,8 +144,8 @@ rules:
       snippet: "throw new BizApplicationException(\"AAPARE0001\", ...)"
   - case_id: "PY016-E-002"
     rule_type: "E"
-    title: "Business rule enforcement"
-    description: "A business constraint visible in the source is enforced before processing."
+    title: "Payment date on or before transaction date is rejected"
+    description: "The service blocks the transfer when payment date is not after the transaction date, enforcing the business rule that payout must be scheduled forward."
     input:
       custId: "CUST001"
     expect:
@@ -154,14 +162,14 @@ rules:
       snippet: "throw new BizApplicationException(\"BAPPYE0008\")"
   - case_id: "PY016-N-001"
     rule_type: "N"
-    title: "Transaction output assembly"
-    description: "Successful processing populates observable transaction fields on the response."
+    title: "Successful salary transfer returns transaction date and time"
+    description: "After a valid request is accepted, the service returns transaction date and time on the response so the channel can confirm when the transfer was recorded."
     input:
       custId: "CUST001"
     expect:
       outcome: "success"
       http_status: 200
-      validation_target: "transaction date/time fields are populated"
+      validation_target: "channel receives transaction date and time for the completed salary transfer"
     assertions:
       - path: "$.txDt"
         op: "not_null"
@@ -173,8 +181,8 @@ rules:
       snippet: "out.setTxDt(...); out.setTxHms(...)"
   - case_id: "PY016-N-002"
     rule_type: "N"
-    title: "Output list size matches input list size"
-    description: "Successful processing returns one result entry per input list item."
+    title: "Registration list returns one result row per submitted account"
+    description: "When multiple target accounts are submitted, the service returns a result list with one entry per input row so the caller can reconcile each registration outcome."
     input:
       custId: "CUST001"
       regList:
@@ -212,6 +220,8 @@ def schema_hard_requirements() -> str:
         "  - N: Normal Case (successful path, observable output verification)\n"
         "- Each case MUST include ALL of: case_id, rule_type, title, description, input, expect, "
         "assertions, tags, source_evidence\n"
+        "- title and description MUST follow the Title and description quality rules in the system "
+        "prompt (business-oriented, specific, scannable; never vague or field-only titles).\n"
         "- Each case's input MUST be a complete map of the service In DTO / OMM: include every "
         "request property key; use null for unused fields in that case (never omit keys that exist "
         "on the DTO).\n"
@@ -236,7 +246,9 @@ def schema_hard_requirements() -> str:
         "- source_evidence MUST include:\n"
         "  - method: the method name where the case is derived\n"
         "  - snippet: a short code fragment (max ~200 chars, single line) verbatim from the source\n"
-        "- Minimum output: at least 1 Error case (E) AND at least 1 Normal case (N).\n"
+        "- Include at least 1 Error case (E) AND at least 1 Normal case (N) when the service has "
+        "evidenced failure and success behaviors. Do NOT add filler cases to meet a count.\n"
+        "- Every case MUST have independent business significance (see Case significance rules).\n"
         "- Do NOT use legacy fields or values: rule_id, minimal_input, severity, "
         "rule_type error/business/code.\n"
     )
@@ -248,8 +260,13 @@ def build_system_prompt() -> str:
         "Your task: generate STRICT YAML that defines BUSINESS-MEANINGFUL test cases for ONE service "
         "based on service metadata and the user's objective.\n"
         "Exclude framework/DI/logging noise; consolidate related behavior; do not invent HTTP "
-        "status codes; use assertions: [] when no confident assertion exists.\n\n"
+        "status codes; use assertions: [] when no confident assertion exists.\n"
+        "Write titles and descriptions so a business user understands each case from the list "
+        "view without opening YAML.\n"
+        "Prefer fewer high-value cases; omit implementation-noise rules entirely.\n\n"
         f"{schema_hard_requirements()}\n"
+        f"{CASE_SIGNIFICANCE_GUIDANCE}\n\n"
+        f"{TITLE_AND_DESCRIPTION_GUIDANCE}\n\n"
         f"{GENERALIZATION_RULES_FOR_ALL_SERVICES}\n\n"
         f"{INPUT_AND_ASSERTION_GUIDANCE}\n"
     )

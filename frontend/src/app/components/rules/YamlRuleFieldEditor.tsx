@@ -69,8 +69,8 @@ export function YamlRuleFieldEditor({
           onBlur={onApply}
           disabled={disabled}
           spellCheck={false}
-          rows={10}
-          className="w-full font-mono text-xs bg-background border border-border rounded-sm p-3 outline-none focus:ring-2 focus:ring-primary/25"
+          rows={18}
+          className="w-full min-h-[16rem] sm:min-h-[18rem] font-mono text-xs bg-background border border-border rounded-sm p-3 outline-none focus:ring-2 focus:ring-primary/25"
         />
       </FinixField>
 

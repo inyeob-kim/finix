@@ -1,19 +1,41 @@
 """HTTP routes for scenarios (v1)."""
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
-from app.core.deps import get_scenario_service, get_testcase_service
+from app.core.deps import (
+    get_cbs_service_catalog_repository,
+    get_scenario_bindings_ai_service,
+    get_scenario_resolve_service,
+    get_scenario_service,
+    get_service_catalog_service,
+    get_testcase_service,
+)
+from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
+from app.schemas.scenario_bindings_suggest_schema import (
+    ScenarioBindingsSuggestRead,
+    ScenarioBindingsSuggestRequest,
+)
+from app.domain.postman_collection_config import PostmanCollectionConfig
 from app.schemas.scenario_schema import (
     ScenarioAttachTestCasesRequest,
     ScenarioCreateV1,
     ScenarioListRead,
     ScenarioPatchV1,
     ScenarioRead,
+    ScenarioStepRead,
     scenario_entity_to_read,
 )
+from app.schemas.scenario_resolve_schema import (
+    ScenarioResolvePreviewInlineRequest,
+    ScenarioResolvePreviewRead,
+)
 from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
+from app.services.scenario_bindings_ai_service import ScenarioBindingsAiService
+from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.scenario_service import ScenarioService
+from app.services.service_catalog_service import ServiceCatalogService
 from app.services.testcase_service import TestCaseService
 
 router = APIRouter(prefix="/scenarios")
@@ -90,6 +112,143 @@ async def generate_test_cases_for_scenario(
         scenario_id, instruction=payload.instruction
     )
     return [testcase_entity_to_read(r) for r in rows]
+
+
+@router.post(
+    "/suggest-bindings",
+    response_model=ScenarioBindingsSuggestRead,
+    summary="AI/heuristic suggest extract/inject between scenario services",
+)
+async def suggest_scenario_bindings_v1(
+    payload: ScenarioBindingsSuggestRequest,
+    service: ScenarioBindingsAiService = Depends(get_scenario_bindings_ai_service),
+) -> ScenarioBindingsSuggestRead:
+    """Propose step connections from catalog input/output fields for user review."""
+    return await service.suggest(service_codes=payload.service_codes)
+
+
+@router.post(
+    "/resolve-preview",
+    response_model=ScenarioResolvePreviewRead,
+    summary="Resolve bindings for inline scenario draft",
+)
+async def resolve_preview_inline_v1(
+    payload: ScenarioResolvePreviewInlineRequest,
+    service: ScenarioResolveService = Depends(get_scenario_resolve_service),
+) -> ScenarioResolvePreviewRead:
+    """Dry-run inject/extract chain before a scenario is saved."""
+    return await service.preview_inline(
+        steps=payload.steps,
+        per_step=payload.per_step,
+        simulate_responses=payload.simulate_responses,
+    )
+
+
+@router.post(
+    "/{scenario_id}/resolve-preview",
+    response_model=ScenarioResolvePreviewRead,
+    summary="Resolve bindings for a saved scenario",
+)
+async def resolve_preview_for_scenario_v1(
+    scenario_id: int,
+    simulate_responses: bool = Query(default=True),
+    service: ScenarioResolveService = Depends(get_scenario_resolve_service),
+) -> ScenarioResolvePreviewRead:
+    """Return template vs resolved bodies and context trace."""
+    return await service.preview_for_scenario(
+        scenario_id,
+        simulate_responses=simulate_responses,
+    )
+
+
+class ScenarioSaveDefinitionRequest(BaseModel):
+    """Persist scenario metadata, steps, and pool testcase attachment in one call."""
+
+    title: str | None = Field(default=None, max_length=255)
+    prompt: str | None = Field(default=None, max_length=4000)
+    steps: list[ScenarioStepRead] | None = None
+    postman: PostmanCollectionConfig | None = None
+    per_step: list[list[int]] | None = Field(
+        default=None,
+        description="Pool testcase ids per logical step; clones templates into scenario.",
+    )
+    mark_saved: bool = Field(default=True)
+
+
+@router.post(
+    "/{scenario_id}/save-definition",
+    response_model=ScenarioRead,
+    summary="Save scenario definition and attach pool templates",
+)
+async def save_scenario_definition_v1(
+    scenario_id: int,
+    payload: ScenarioSaveDefinitionRequest,
+    scenario_service: ScenarioService = Depends(get_scenario_service),
+    testcase_service: TestCaseService = Depends(get_testcase_service),
+) -> ScenarioRead:
+    """Patch steps/title and optionally attach pool testcases (clone, keep pool)."""
+    patch = payload.model_dump(exclude_unset=True)
+    steps_dump = None
+    if payload.steps is not None:
+        steps_dump = [s.model_dump() for s in payload.steps]
+    entity = await scenario_service.patch_scenario(
+        scenario_id,
+        title=patch.get("title"),
+        prompt=patch.get("prompt"),
+        steps=steps_dump,
+        postman=payload.postman.model_dump(exclude_none=True)
+        if payload.postman is not None
+        else None,
+    )
+    if payload.per_step is not None:
+        await testcase_service.attach_pool_to_scenario(
+            scenario_id,
+            per_step=payload.per_step,
+        )
+    if payload.mark_saved:
+        entity = await scenario_service.mark_saved(scenario_id, saved=True)
+    return scenario_entity_to_read(entity)
+
+
+@router.get(
+    "/{scenario_id}/export/postman",
+    summary="Export scenario as Postman collection",
+)
+async def export_scenario_postman_v1(
+    scenario_id: int,
+    resolved: bool = Query(default=True),
+    native: bool = Query(
+        default=True,
+        description="When true, use {{var}} placeholders and pm.environment scripts for chaining.",
+    ),
+    testcase_service: TestCaseService = Depends(get_testcase_service),
+    scenario_service: ScenarioService = Depends(get_scenario_service),
+    catalog_service: ServiceCatalogService = Depends(get_service_catalog_service),
+    cbs_repo: CbsServiceCatalogRepository = Depends(get_cbs_service_catalog_repository),
+) -> JSONResponse:
+    """Return Postman Collection v2.1 (resolved bodies by default)."""
+    from app.services.scenario_auto_bindings_service import ScenarioAutoBindingsService
+
+    entity = await scenario_service.get_scenario(scenario_id)
+    codes = TestCaseService._ordered_service_codes_from_steps(entity.steps_json)
+    steps_json = entity.steps_json
+    if codes:
+        auto_svc = ScenarioAutoBindingsService(
+            catalog_service=catalog_service,
+            cbs_repo=cbs_repo,
+        )
+        steps_json = await auto_svc.ensure_steps_json_bindings(
+            steps_json,
+            codes,
+            min_existing_rows=1,
+        )
+    collection = await testcase_service.build_postman_for_scenario(
+        scenario_id,
+        resolved=resolved,
+        native=native,
+        steps_json_override=steps_json,
+    )
+    return JSONResponse(content=collection)
 
 
 @router.post(

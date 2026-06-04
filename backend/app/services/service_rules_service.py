@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from app.prompts.case_significance_guidance import validate_rule_case_significance
+from app.prompts.title_description_guidance import validate_rule_title_description
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
@@ -259,16 +261,34 @@ def _validate_rules_structure(payload: dict[str, Any]) -> None:
             )
 
         title = r.get("title")
+        description = r.get("description")
         if not (isinstance(title, str) and title.strip()):
             raise InvalidInputError(f"rules[{idx}].title이 필요합니다.")
-
-        description = r.get("description")
         if not (isinstance(description, str) and description.strip()):
             raise InvalidInputError(f"rules[{idx}].description이 필요합니다.")
+        validate_rule_title_description(
+            idx=idx,
+            title=title.strip(),
+            description=description.strip(),
+        )
+        validate_rule_case_significance(idx=idx, rule=r)
 
         rule_input = r.get("input")
         if not isinstance(rule_input, dict):
             raise InvalidInputError(f"rules[{idx}].input은 object(map) 형태여야 합니다.")
+
+        for meta_key in ("extract", "use"):
+            block = r.get(meta_key)
+            if block is None:
+                continue
+            if not isinstance(block, dict):
+                raise InvalidInputError(
+                    f"rules[{idx}].{meta_key}는 object(map) 형태여야 합니다.",
+                )
+            if "auto" in block and not isinstance(block.get("auto"), bool):
+                raise InvalidInputError(
+                    f"rules[{idx}].{meta_key}.auto는 true|false 여야 합니다.",
+                )
 
         assertions = r.get("assertions")
         if not isinstance(assertions, list):

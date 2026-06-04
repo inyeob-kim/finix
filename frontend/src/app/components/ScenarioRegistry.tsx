@@ -1,95 +1,124 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
-import { useNavigate } from "react-router";
+import { useScenarioBindingSuggestions } from "@/hooks/useScenarioBindingSuggestions";
+import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import {
-  FolderKanban,
-  Plus,
-  Search,
-  Trash2,
-  Pencil,
-  ExternalLink,
-  Upload,
-  Download,
-  FolderPlus,
-  ChevronRight,
-  ChevronLeft,
-  GripVertical,
-  Wand2,
-  Play,
-  Sparkles,
-  BarChart3,
-  Zap,
-  PanelRightClose,
-  PanelRightOpen,
+    FINIX_LARGE_MODAL_CONTENT,
+    FINIX_LARGE_MODAL_MAX_WIDTH,
+} from "@/lib/finixModalLayout";
+import {
+    defaultCollectionPostmanZipName,
+    defaultSinglePostmanDownloadName,
+    mergeExportPostmanConfig,
+    pickInitialExportBaseUrl,
+} from "@/lib/postmanExportDownload";
+import {
+    canExportRegistryScenarioPostman,
+    exportRegistryCollectionPostmanZip,
+    exportRegistryScenarioPostman,
+} from "@/lib/registryScenarioExport";
+import {
+    migrateBindingsToStepKeys,
+    type StepBindingsByStepKey,
+} from "@/lib/scenarioBindings";
+import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
+import {
+    emptyPostmanConfig,
+    ensurePostmanConfig,
+    startVarKeysFromConfig,
+} from "@/lib/scenarioPostmanVariables";
+import {
+    buildRunStepsFromPicks,
+    serviceNameMapFromDrafts,
+} from "@/lib/scenarioRunSequence";
+import { pruneOrphanInjects } from "@/lib/scenarioRuntimeContext";
+import {
+    BarChart3,
+    ChevronLeft,
+    ChevronRight,
+    Download,
+    FolderKanban,
+    FolderPlus,
+    PanelRightClose,
+    PanelRightOpen,
+    Pencil,
+    Plus,
+    Search,
+    Sparkles,
+    Trash2,
+    Upload,
+    Variable
 } from "lucide-react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type DragEvent,
+} from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
-import { createScenario, patchScenario } from "../../api/scenarioApi";
-import {
-  FINIX_LARGE_MODAL_CONTENT,
-  FINIX_LARGE_MODAL_MAX_WIDTH,
-} from "@/lib/finixModalLayout";
-import { PageShell } from "./PageShell";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import {
-  FinixField,
-  FinixUnderlineInput,
-  FinixUnderlineSelect,
-  FinixUnderlineTextarea,
-} from "./ui/finix-form";
-import { FinixPrimaryButton, FinixPrimaryLink } from "./ui/finix-button";
-import { FinixLoading } from "./ui/finix-loading";
-import { useAuthStore } from "../auth/authStore";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "./ui/resizable";
-import { SERVICE_ITEM_TYPE } from "./scenarioRegistry/constants";
-import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
-import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
-import type {
-  RegistryStatus,
-  ScenarioRegistryFolder,
-  ScenarioRegistryItem,
-  ScenarioRegistryStateV2,
-  ScenarioRuleTestcaseRef,
-  ServiceCatalogItem,
-  ServiceDraft,
-} from "./scenarioRegistry/types";
-import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
-import {
-  calcCoverage,
-  calcEdgeCases,
-  getFolderLabel,
-  hash01,
-  newId,
-  normalizeTags,
-  nowStamp,
-  safeJsonParse,
-} from "./scenarioRegistry/utils";
-import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
-import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
-import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
-import { ConfirmPopover } from "./scenarioRegistry/components/ConfirmPopover";
-import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
+import { useNavigate } from "react-router";
 import { listTestCasesByServiceCode } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
 import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
+import { useAuthStore } from "../auth/authStore";
+import { PageShell } from "./PageShell";
+import { ScenarioAiSuggestionsPanel } from "./scenario/ScenarioAiSuggestionsPanel";
+import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
+import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizardStep";
+import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
+import { ConfirmPopover } from "./scenarioRegistry/components/ConfirmPopover";
+import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
+import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
+import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
+import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
+import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
+import type {
+    RegistryStatus,
+    ScenarioRegistryFolder,
+    ScenarioRegistryItem,
+    ScenarioRegistryStateV2,
+    ScenarioRuleTestcaseRef,
+    ServiceCatalogItem,
+    ServiceDraft,
+} from "./scenarioRegistry/types";
+import {
+    getFolderLabel,
+    newId,
+    normalizeTags,
+    nowStamp,
+    safeJsonParse,
+} from "./scenarioRegistry/utils";
+import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "./ui/dialog";
+import { FinixPrimaryButton } from "./ui/finix-button";
+import {
+    FinixField,
+    FinixUnderlineInput,
+    FinixUnderlineSelect,
+    FinixUnderlineTextarea,
+} from "./ui/finix-form";
+import { FinixLoading } from "./ui/finix-loading";
+import {
+    ResizableHandle,
+    ResizablePanel,
+    ResizablePanelGroup,
+} from "./ui/resizable";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "./ui/table";
 
 function mapPersistedTestcaseToRef(
   row: TestCaseReadDto,
@@ -123,7 +152,6 @@ export function ScenarioRegistry() {
   const [tagFilter, setTagFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [openingId, setOpeningId] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(true);
 
@@ -136,7 +164,7 @@ export function ScenarioRegistry() {
   const [folderId, setFolderId] = useState<string>("");
   const [serviceDrafts, setServiceDrafts] = useState<ServiceDraft[]>([]);
   const [activeServiceCode, setActiveServiceCode] = useState<string | null>(null);
-  const [scenarioWizardStep, setScenarioWizardStep] = useState<1 | 2>(1);
+  const [scenarioWizardStep, setScenarioWizardStep] = useState<1 | 2 | 3>(1);
   const [rulePickLoading, setRulePickLoading] = useState(false);
   const [allYamlRuleRefs, setAllYamlRuleRefs] = useState<ScenarioRuleTestcaseRef[]>(
     [],
@@ -144,6 +172,10 @@ export function ScenarioRegistry() {
   const [selectedRulePicks, setSelectedRulePicks] = useState<
     ScenarioRuleTestcaseRef[]
   >([]);
+  const [stepBindingsByStepKey, setStepBindingsByStepKey] =
+    useState<StepBindingsByStepKey>({});
+  const [postmanConfig, setPostmanConfig] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
   const [hydrated, setHydrated] = useState(false);
 
   const {
@@ -151,6 +183,24 @@ export function ScenarioRegistry() {
     loading: catalogLoading,
     error: catalogError,
   } = useServiceCatalogPicker({ enabled: open });
+
+  const scenarioServiceInputRef = useRef<HTMLInputElement>(null);
+
+  const focusScenarioServiceSearch = useCallback(() => {
+    window.setTimeout(() => {
+      scenarioServiceInputRef.current?.focus();
+    }, 0);
+  }, []);
+
+  useEffect(() => {
+    if (!open || scenarioWizardStep !== 1) return;
+    focusScenarioServiceSearch();
+  }, [
+    open,
+    scenarioWizardStep,
+    catalogLoading,
+    focusScenarioServiceSearch,
+  ]);
 
   const [ioDialog, setIoDialog] = useState<"export" | "import" | null>(null);
   const [ioText, setIoText] = useState("");
@@ -165,6 +215,65 @@ export function ScenarioRegistry() {
   const [confirmDeleteScenarioId, setConfirmDeleteScenarioId] = useState<
     string | null
   >(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [postmanExportTarget, setPostmanExportTarget] =
+    useState<ScenarioRegistryItem | null>(null);
+  const [postmanExportDraft, setPostmanExportDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [postmanExportFilename, setPostmanExportFilename] = useState("");
+  const [postmanExportLoading, setPostmanExportLoading] = useState(false);
+  const [postmanExportError, setPostmanExportError] = useState<string | null>(
+    null,
+  );
+  const [aiSuggestOpen, setAiSuggestOpen] = useState(false);
+  const [collectionVarsOpen, setCollectionVarsOpen] = useState(false);
+  const [collectionExportOpen, setCollectionExportOpen] = useState(false);
+  const [collectionExportPostmanDraft, setCollectionExportPostmanDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [collectionExportFilename, setCollectionExportFilename] = useState("");
+  const [collectionExportLoading, setCollectionExportLoading] = useState(false);
+  const [collectionExportError, setCollectionExportError] = useState<string | null>(
+    null,
+  );
+  const [collectionExportProgress, setCollectionExportProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+
+  const wizardRunSteps = useMemo(
+    () =>
+      buildRunStepsFromPicks(
+        selectedRulePicks,
+        serviceNameMapFromDrafts(
+          serviceDrafts.map((s) => ({ code: s.code, name: s.name })),
+        ),
+      ),
+    [selectedRulePicks, serviceDrafts],
+  );
+
+  const handlePostmanConfigChange = useCallback(
+    (next: ScenarioPostmanConfig) => {
+      setPostmanConfig(next);
+      const keys = startVarKeysFromConfig(next);
+      setStepBindingsByStepKey((prev) =>
+        pruneOrphanInjects(wizardRunSteps, prev, keys),
+      );
+    },
+    [wizardRunSteps],
+  );
+
+  const aiBindingSuggestions = useScenarioBindingSuggestions(
+    wizardRunSteps,
+    stepBindingsByStepKey,
+    setStepBindingsByStepKey,
+  );
+
+  useEffect(() => {
+    if (scenarioWizardStep !== 2) {
+      setAiSuggestOpen(false);
+      setCollectionVarsOpen(false);
+    }
+  }, [scenarioWizardStep]);
 
   const selectedScenario = useMemo(() => {
     if (!selectedScenarioId) return null;
@@ -271,6 +380,7 @@ export function ScenarioRegistry() {
             if (cancelled) return;
             const name = s.name || s.code;
             for (const row of rows) {
+              if (row.scenario_id != null) continue;
               if (seenIds.has(row.id)) continue;
               seenIds.add(row.id);
               merged.push(mapPersistedTestcaseToRef(row, s.code, name));
@@ -351,37 +461,28 @@ export function ScenarioRegistry() {
     }
   };
 
-  const scenarioMetrics = useMemo(() => {
-    const total = filtered.length;
-    const aiGenerated = filtered.filter((x) =>
-      x.tags.some((t) => t.toLowerCase().includes("ai")),
-    ).length;
-    const aiRatio = total ? Math.round((aiGenerated / total) * 100) : 0;
-    const avgCoverage = total
-      ? Math.round(
-          filtered.reduce((acc, x) => {
-            const base = 60 + Math.min(35, (x.serviceSequence?.length ?? 0) * 8);
-            return acc + base;
-          }, 0) / total,
-        )
-      : 0;
-    const successRate = total
-      ? Math.round(
-          filtered.reduce((acc, x) => {
-            const s = x.status === "active" ? 92 : 75;
-            return acc + s;
-          }, 0) / total,
-        )
-      : 0;
-    const failedApis = Math.max(0, Math.round((100 - successRate) / 7));
+  const scenariosInSelectedFolder = useMemo(() => {
+    if (!selectedFolderId) return [];
+    return items.filter((i) => i.folderId === selectedFolderId);
+  }, [items, selectedFolderId]);
+
+  const collectionExportStats = useMemo(() => {
+    const total = scenariosInSelectedFolder.length;
+    const exportable = scenariosInSelectedFolder.filter(
+      canExportRegistryScenarioPostman,
+    );
     return {
       total,
-      aiRatio,
-      successRate,
-      failedApis,
-      coverage: avgCoverage,
+      exportableCount: exportable.length,
+      skippedCount: total - exportable.length,
+      exportable,
     };
-  }, [filtered]);
+  }, [scenariosInSelectedFolder]);
+
+  const postmanExportDefaultFilename = useMemo(() => {
+    if (!postmanExportTarget) return "postman-scenario.json";
+    return defaultSinglePostmanDownloadName(postmanExportTarget.title);
+  }, [postmanExportTarget]);
 
   const folderOptions = useMemo(() => {
     const roots = folders.filter((f) => f.parentId == null);
@@ -406,6 +507,13 @@ export function ScenarioRegistry() {
     roots.sort((a, b) => a.name.localeCompare(b.name)).forEach((r) => walk(r, 0));
     return out;
   }, [folders]);
+
+  const collectionExportDefaultFilename = useMemo(() => {
+    if (!selectedFolderId) return "postman-collection.zip";
+    return defaultCollectionPostmanZipName(
+      getFolderLabel(folderOptions, selectedFolderId),
+    );
+  }, [selectedFolderId, folderOptions]);
 
   const folderSummary = useMemo(() => {
     const childrenByParent = new Map<string, string[]>();
@@ -470,6 +578,8 @@ export function ScenarioRegistry() {
     setRulePickLoading(false);
     setAllYamlRuleRefs([]);
     setSelectedRulePicks([]);
+    setStepBindingsByStepKey({});
+    setPostmanConfig(emptyPostmanConfig());
     setError(null);
   };
 
@@ -495,15 +605,35 @@ export function ScenarioRegistry() {
     }));
     setServiceDrafts(drafts);
     setActiveServiceCode(drafts[0]?.code ?? null);
-    setSelectedRulePicks(
+    const picks =
       item.selectedRuleTestcases?.length
         ? [...item.selectedRuleTestcases]
-        : [],
+        : [];
+    setSelectedRulePicks(picks);
+    setStepBindingsByStepKey(
+      migrateBindingsToStepKeys(
+        picks.map((p) => p.id),
+        picks,
+        item.stepBindingsByStepKey ?? item.stepBindingsByCode,
+      ),
     );
+    setPostmanConfig(ensurePostmanConfig(item.postmanConfig));
     setScenarioWizardStep(1);
     setError(null);
     setOpen(true);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const picks = selectedRulePicks;
+    setStepBindingsByStepKey((prev) =>
+      migrateBindingsToStepKeys(
+        picks.map((p) => p.id),
+        picks,
+        prev,
+      ),
+    );
+  }, [open, selectedRulePicks]);
 
   const save = () => {
     const trimmedTitle = title.trim();
@@ -520,10 +650,7 @@ export function ScenarioRegistry() {
       code: s.code,
       name: s.name,
     }));
-    const seqCodes = new Set(nextSequence.map((s) => s.code));
-    const nextRulePicks = selectedRulePicks.filter((r) =>
-      seqCodes.has(r.serviceCode),
-    );
+    const nextRulePicks = [...selectedRulePicks];
     const stamp = nowStamp();
 
     if (!editingId) {
@@ -537,6 +664,11 @@ export function ScenarioRegistry() {
         serviceSequence: nextSequence,
         selectedRuleTestcases:
           nextRulePicks.length > 0 ? nextRulePicks : undefined,
+        stepBindingsByStepKey:
+          Object.keys(stepBindingsByStepKey).length > 0
+            ? stepBindingsByStepKey
+            : undefined,
+        postmanConfig: ensurePostmanConfig(postmanConfig),
         createdAt: stamp,
         updatedAt: stamp,
         updatedBy,
@@ -561,6 +693,11 @@ export function ScenarioRegistry() {
           serviceSequence: nextSequence,
           selectedRuleTestcases:
             nextRulePicks.length > 0 ? nextRulePicks : undefined,
+          stepBindingsByStepKey:
+            Object.keys(stepBindingsByStepKey).length > 0
+              ? stepBindingsByStepKey
+              : undefined,
+          postmanConfig: ensurePostmanConfig(postmanConfig),
           updatedAt: stamp,
           updatedBy,
         };
@@ -569,51 +706,144 @@ export function ScenarioRegistry() {
     setOpen(false);
   };
 
-  const openAsScenario = async (item: ScenarioRegistryItem) => {
+  const openPostmanExportDialog = (item: ScenarioRegistryItem) => {
+    if (!canExportRegistryScenarioPostman(item)) {
+      setError(
+        "포스트맨 export를 위해 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
+      );
+      return;
+    }
+    setPostmanExportError(null);
+    setPostmanExportDraft(ensurePostmanConfig(item.postmanConfig));
+    setPostmanExportFilename("");
+    setPostmanExportTarget(item);
+  };
+
+  const closePostmanExportDialog = () => {
+    if (postmanExportLoading) return;
+    setPostmanExportTarget(null);
+    setPostmanExportError(null);
+  };
+
+  const confirmPostmanExport = async () => {
+    const item = postmanExportTarget;
+    if (!item || !canExportRegistryScenarioPostman(item)) return;
+
+    setPostmanExportLoading(true);
+    setExportingId(item.id);
+    setPostmanExportError(null);
+    setError(null);
     try {
-      setOpeningId(item.id);
-      const picks = item.selectedRuleTestcases ?? [];
-      const testcaseSelections = picks
-        .filter((x) => x.backendTestcaseId != null)
-        .map((x) => ({
-          id: x.backendTestcaseId!,
-          scenarioId: x.scenarioId ?? null,
-          name: x.title,
-          serviceCode: x.serviceCode,
-        }));
-      navigate("/test-case", {
-        state: {
-          from: "/scenario-registry",
-          registry: {
-            title: item.title,
-            description: item.description,
-            tags: item.tags,
-            serviceSequence: item.serviceSequence ?? [],
-            testcaseSelections:
-              testcaseSelections.length > 0 ? testcaseSelections : undefined,
-            ruleSelections:
-              testcaseSelections.length > 0
-                ? undefined
-                : picks
-                    .filter((x) => (x.ruleId ?? "").trim())
-                    .map((x) => ({
-                      serviceCode: x.serviceCode,
-                      ruleId: (x.ruleId ?? "").trim(),
-                      title: x.title,
-                    })),
-          },
-        },
+      const itemWithPostman = {
+        ...item,
+        postmanConfig: postmanExportDraft,
+      };
+      const { scenarioId } = await exportRegistryScenarioPostman(itemWithPostman, {
+        downloadName: postmanExportFilename,
       });
+      setItems((prev) =>
+        prev.map((row) =>
+          row.id === item.id
+            ? { ...row, backendScenarioId: scenarioId, postmanConfig: postmanExportDraft }
+            : row,
+        ),
+      );
+      setPostmanExportTarget(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "테스트케이스 생성에 실패했습니다.");
+      const message =
+        e instanceof Error
+          ? e.message
+          : "포스트맨 컬렉션 export에 실패했습니다.";
+      setPostmanExportError(message);
+      setError(message);
     } finally {
-      setOpeningId(null);
+      setPostmanExportLoading(false);
+      setExportingId(null);
     }
   };
 
-  const runFromRegistry = async (item: ScenarioRegistryItem) => {
-    // Run now means: go to testcase generation screen (no API calls)
-    await openAsScenario(item);
+  const openCollectionExportDialog = () => {
+    if (!selectedFolderId) {
+      setError("컬렉션을 먼저 선택하세요.");
+      return;
+    }
+    if (collectionExportStats.exportableCount === 0) {
+      setError(
+        "다운로드할 시나리오가 없습니다. DB 테스트 케이스가 포함된 시나리오만 export할 수 있습니다.",
+      );
+      return;
+    }
+    setCollectionExportError(null);
+    setCollectionExportProgress(null);
+    setCollectionExportPostmanDraft({
+      ...emptyPostmanConfig(),
+      baseUrl: pickInitialExportBaseUrl(collectionExportStats.exportable),
+    });
+    setCollectionExportFilename("");
+    setCollectionExportOpen(true);
+  };
+
+  const closeCollectionExportDialog = () => {
+    if (collectionExportLoading) return;
+    setCollectionExportOpen(false);
+    setCollectionExportError(null);
+    setCollectionExportProgress(null);
+  };
+
+  const confirmCollectionExport = async () => {
+    if (!selectedFolderId) return;
+    const folderLabel = getFolderLabel(folderOptions, selectedFolderId);
+
+    setCollectionExportLoading(true);
+    setCollectionExportError(null);
+    setCollectionExportProgress({
+      done: 0,
+      total: collectionExportStats.exportableCount,
+    });
+    setError(null);
+    try {
+      const result = await exportRegistryCollectionPostmanZip(
+        scenariosInSelectedFolder,
+        {
+          zipDownloadName: collectionExportFilename,
+          baseUrlOverride: collectionExportPostmanDraft.baseUrl,
+          folderLabel,
+        },
+        (done, total) => setCollectionExportProgress({ done, total }),
+      );
+      setItems((prev) =>
+        prev.map((row) => {
+          const scenarioId = result.scenarioIdsByItemId[row.id];
+          if (scenarioId == null) return row;
+          return {
+            ...row,
+            backendScenarioId: scenarioId,
+            postmanConfig: mergeExportPostmanConfig(
+              row.postmanConfig,
+              collectionExportPostmanDraft.baseUrl,
+            ),
+          };
+        }),
+      );
+      if (result.errors.length > 0) {
+        const preview = result.errors.slice(0, 2).join(" · ");
+        const suffix = result.errors.length > 2 ? " …" : "";
+        setError(
+          `ZIP ${result.exported}개 포함. ${result.errors.length}개 실패: ${preview}${suffix}`,
+        );
+      }
+      setCollectionExportOpen(false);
+    } catch (e) {
+      const message =
+        e instanceof Error
+          ? e.message
+          : "컬렉션 Postman 다운로드에 실패했습니다.";
+      setCollectionExportError(message);
+      setError(message);
+    } finally {
+      setCollectionExportLoading(false);
+      setCollectionExportProgress(null);
+    }
   };
 
   const remove = (id: string) => {
@@ -806,26 +1036,6 @@ export function ScenarioRegistry() {
     <PageShell
       icon={<FolderKanban className="w-5 h-5" strokeWidth={2} />}
       title="시나리오 관리"
-      actions={
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={exportJson}
-            className="h-9 px-3 rounded-sm border border-border bg-background text-sm font-medium hover:bg-muted transition-colors inline-flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            type="button"
-            onClick={importJson}
-            className="h-9 px-3 rounded-sm border border-border bg-background text-sm font-medium hover:bg-muted transition-colors inline-flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            Import
-          </button>
-        </div>
-      }
     >
 
         {error ? (
@@ -922,40 +1132,26 @@ export function ScenarioRegistry() {
                       : "—"}
                   </span>
                 </div>
-                <FinixPrimaryButton
-                  onClick={startCreate}
-                  className="h-9 px-3 w-auto rounded-sm text-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  등록
-                </FinixPrimaryButton>
-              </div>
-              <div className="px-4 py-3 border-b border-border bg-background">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-sm border border-border bg-card px-3 py-2">
-                    <div className="text-[11px] text-muted-foreground">Total</div>
-                    <div className="text-sm font-semibold tabular-nums">
-                      {scenarioMetrics.total}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-border bg-card px-3 py-2">
-                    <div className="text-[11px] text-muted-foreground">AI Generated</div>
-                    <div className="text-sm font-semibold tabular-nums">
-                      {scenarioMetrics.aiRatio}%
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-border bg-card px-3 py-2">
-                    <div className="text-[11px] text-muted-foreground">Success</div>
-                    <div className="text-sm font-semibold tabular-nums">
-                      {scenarioMetrics.successRate}%
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-border bg-card px-3 py-2">
-                    <div className="text-[11px] text-muted-foreground">Coverage</div>
-                    <div className="text-sm font-semibold tabular-nums">
-                      {scenarioMetrics.coverage}%
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="h-9 px-2.5 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                    onClick={openCollectionExportDialog}
+                    disabled={
+                      !selectedFolderId || collectionExportStats.exportableCount === 0
+                    }
+                    title="컬렉션 시나리오 Postman ZIP 다운로드"
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">전체 다운로드</span>
+                  </button>
+                  <FinixPrimaryButton
+                    onClick={startCreate}
+                    className="h-9 px-3 w-auto rounded-sm text-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    등록
+                  </FinixPrimaryButton>
                 </div>
               </div>
               <div className="overflow-auto">
@@ -1008,16 +1204,7 @@ export function ScenarioRegistry() {
                     ) : (
                       filtered.map((item) => {
                         const isSelected = item.id === selectedScenarioId;
-                        const svcCount = item.serviceSequence?.length ?? 0;
-                        const coverage = calcCoverage(svcCount);
-                        const edgeCases = calcEdgeCases(svcCount);
-                        const isAi = item.tags.some((t) =>
-                          t.toLowerCase().includes("ai"),
-                        );
-                        const lastRunRoll = hash01(item.id);
-                        const lastRun =
-                          lastRunRoll < 0.72 ? "PASS" : lastRunRoll < 0.92 ? "FAIL" : "RUNNING";
-                        const lastRunAgeMin = 2 + Math.floor(hash01(item.updatedAt) * 57);
+                        const tcCount = item.selectedRuleTestcases?.length ?? 0;
                         return (
                         <TableRow
                           key={item.id}
@@ -1030,62 +1217,15 @@ export function ScenarioRegistry() {
                         >
                           <TableCell className="py-3 align-top">
                             <div className="min-w-0">
-                              <div className="flex items-start gap-2">
-                                <span
-                                  className={[
-                                    "mt-1.5 h-2 w-2 rounded-full shrink-0",
-                                    lastRun === "PASS"
-                                      ? "bg-success"
-                                      : lastRun === "FAIL"
-                                        ? "bg-destructive"
-                                        : "bg-primary animate-pulse",
-                                  ].join(" ")}
-                                  title={`Last run: ${lastRun}`}
-                                />
-                                <p className="text-sm font-medium leading-snug flex-1 min-w-0">
-                                  {item.title}
-                                </p>
-                              </div>
+                              <p className="text-sm font-medium leading-snug">
+                                {item.title}
+                              </p>
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-normal">
                                 {item.description || "—"}
                               </p>
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                services {svcCount} · APIs {svcCount} · Last Run:{" "}
-                                <span
-                                  className={[
-                                    "font-semibold",
-                                    lastRun === "PASS"
-                                      ? "text-success"
-                                      : lastRun === "FAIL"
-                                        ? "text-destructive"
-                                        : "text-primary",
-                                  ].join(" ")}
-                                >
-                                  {lastRun}
-                                </span>{" "}
-                                · {lastRunAgeMin}m ago
-                              </div>
-                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-primary/10 text-primary border border-primary/25">
-                                  Coverage {coverage}%
-                                </span>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-violet-500/10 text-violet-700 border border-violet-500/25">
-                                  Edge +{edgeCases}
-                                </span>
-                                {isAi ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] font-medium bg-sky-500/10 text-sky-700 border border-sky-500/25">
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    AI Generated
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-slate-500/10 text-slate-700 border border-slate-500/25">
-                                    Manual
-                                  </span>
-                                )}
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-emerald-500/10 text-emerald-700 border border-emerald-500/25">
-                                  Auto Validated
-                                </span>
-                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                                테스트 케이스 {tcCount}개
+                              </p>
                             </div>
                           </TableCell>
                           <TableCell className="py-3 align-top">
@@ -1110,31 +1250,17 @@ export function ScenarioRegistry() {
                             {item.updatedBy}
                           </TableCell>
                           <TableCell className="py-3 text-right align-top">
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void openAsScenario(item);
-                                }}
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60"
-                                title="테스트케이스 생성"
-                                disabled={openingId === item.id}
-                              >
-                                <Wand2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate("/history");
-                                }}
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                                title="View Report"
-                              >
-                                <BarChart3 className="w-4 h-4" />
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate("/history");
+                              }}
+                              className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                              title="View Report"
+                            >
+                              <BarChart3 className="w-4 h-4" />
+                            </button>
                           </TableCell>
                         </TableRow>
                       )})
@@ -1202,64 +1328,28 @@ export function ScenarioRegistry() {
                           : "—"}
                       </span>
                     </div>
-                    <FinixPrimaryButton
-                      onClick={startCreate}
-                      className="h-9 px-3 w-auto rounded-sm text-sm"
-                    >
-                      <Plus className="w-4 h-4" />
-                      이 컬렉션에 등록
-                    </FinixPrimaryButton>
-                  </div>
-                  <div className="px-4 py-3 border-b border-border bg-background">
-                    <div className="grid grid-cols-4 gap-2">
-                      <div className="rounded-sm border border-border bg-card px-3 py-2 shadow-sm">
-                        <div className="text-[11px] text-muted-foreground">
-                          Total Scenarios
-                        </div>
-                        <div className="text-sm font-semibold tabular-nums">
-                          {scenarioMetrics.total}
-                        </div>
-                      </div>
-                      <div className="rounded-sm border border-border bg-card px-3 py-2 shadow-sm">
-                        <div className="text-[11px] text-muted-foreground">
-                          AI Generated
-                        </div>
-                        <div className="text-sm font-semibold tabular-nums">
-                          {scenarioMetrics.aiRatio}%
-                        </div>
-                      </div>
-                      <div className="rounded-sm border border-border bg-card px-3 py-2 shadow-sm">
-                        <div className="text-[11px] text-muted-foreground">
-                          Success Rate
-                        </div>
-                        <div className="text-sm font-semibold tabular-nums">
-                          {scenarioMetrics.successRate}%
-                        </div>
-                      </div>
-                      <div className="rounded-sm border border-border bg-card px-3 py-2 shadow-sm">
-                        <div className="text-[11px] text-muted-foreground">
-                          Coverage
-                        </div>
-                        <div className="text-sm font-semibold tabular-nums">
-                          {scenarioMetrics.coverage}%
-                        </div>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="h-9 px-3 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+                        onClick={openCollectionExportDialog}
+                        disabled={
+                          !selectedFolderId ||
+                          collectionExportStats.exportableCount === 0
+                        }
+                        title="컬렉션 시나리오 Postman ZIP 다운로드"
+                      >
+                        <Download className="w-4 h-4" />
+                        전체 다운로드
+                      </button>
+                      <FinixPrimaryButton
+                        onClick={startCreate}
+                        className="h-9 px-3 w-auto rounded-sm text-sm"
+                      >
+                        <Plus className="w-4 h-4" />
+                        이 컬렉션에 등록
+                      </FinixPrimaryButton>
                     </div>
-                  </div>
-                  <div className="px-4 py-2 border-b border-border bg-background hidden lg:flex items-center justify-end">
-                    <button
-                      type="button"
-                      className="h-8 px-2 rounded-sm border border-border bg-card text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-2"
-                      title={previewCollapsed ? "Preview 펼치기" : "Preview 접기"}
-                      onClick={() => setPreviewCollapsed((v) => !v)}
-                    >
-                      {previewCollapsed ? (
-                        <PanelRightOpen className="w-4 h-4" />
-                      ) : (
-                        <PanelRightClose className="w-4 h-4" />
-                      )}
-                      {previewCollapsed ? "Preview 열기" : "Preview 접기"}
-                    </button>
                   </div>
                   <div className="flex-1 min-h-0 overflow-hidden flex">
                     <div className="flex-1 min-w-0 overflow-auto">
@@ -1312,15 +1402,7 @@ export function ScenarioRegistry() {
                         ) : (
                           filtered.map((item) => {
                             const isSelected = item.id === selectedScenarioId;
-                            const coverage =
-                              60 + Math.min(35, (item.serviceSequence?.length ?? 0) * 8);
-                            const edgeCases = Math.min(
-                              9,
-                              Math.max(0, (item.serviceSequence?.length ?? 0) - 1),
-                            );
-                            const isAi = item.tags.some((t) =>
-                              t.toLowerCase().includes("ai"),
-                            );
+                            const tcCount = item.selectedRuleTestcases?.length ?? 0;
                             return (
                             <TableRow
                               key={item.id}
@@ -1339,27 +1421,9 @@ export function ScenarioRegistry() {
                                   <p className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-normal">
                                     {item.description || "—"}
                                   </p>
-                                  <p className="text-[11px] text-muted-foreground font-mono mt-1">
-                                    services {(item.serviceSequence ?? []).length}
+                                  <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                                    테스트 케이스 {tcCount}개
                                   </p>
-                                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-primary/10 text-primary border border-primary/25">
-                                      Coverage {coverage}%
-                                    </span>
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-violet-500/10 text-violet-700 border border-violet-500/25">
-                                      Edge +{edgeCases}
-                                    </span>
-                                    {isAi ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[11px] font-medium bg-sky-500/10 text-sky-700 border border-sky-500/25">
-                                        <Sparkles className="w-3.5 h-3.5" />
-                                        AI Generated
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium bg-slate-500/10 text-slate-700 border border-slate-500/25">
-                                        Manual
-                                      </span>
-                                    )}
-                                  </div>
                                 </div>
                               </TableCell>
                               <TableCell className="py-3 align-top">
@@ -1414,13 +1478,20 @@ export function ScenarioRegistry() {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      void openAsScenario(item);
+                                      openPostmanExportDialog(item);
                                     }}
-                                    className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-60"
-                                    title="테스트케이스 생성"
-                                    disabled={openingId === item.id}
+                                    disabled={
+                                      exportingId === item.id ||
+                                      !canExportRegistryScenarioPostman(item)
+                                    }
+                                    className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                    title={
+                                      canExportRegistryScenarioPostman(item)
+                                        ? "Postman 컬렉션 다운로드"
+                                        : "DB 테스트 케이스가 포함된 시나리오만 export 가능"
+                                    }
                                   >
-                                    <Wand2 className="w-4 h-4" />
+                                    <Download className="w-4 h-4" />
                                   </button>
                                   <ConfirmPopover
                                     open={confirmDeleteScenarioId === item.id}
@@ -1475,21 +1546,33 @@ export function ScenarioRegistry() {
           if (!v) resetForm();
         }}
       >
-        <DialogContent className={`${FINIX_LARGE_MODAL_CONTENT} rounded-sm`}>
+        <DialogContent
+          className={`${FINIX_LARGE_MODAL_CONTENT} rounded-sm`}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            if (scenarioWizardStep === 1) {
+              focusScenarioServiceSearch();
+            }
+          }}
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
             <DialogTitle className="pr-10 text-lg font-semibold">
               {editingId ? "시나리오 편집" : "시나리오 등록"}
               <span className="block text-xs font-normal text-muted-foreground mt-1">
                 {scenarioWizardStep === 1
-                  ? "1/2 서비스 · 테스트 케이스 조립"
-                  : "2/2 제목·상태·컬렉션·설명"}
+                  ? "1/3 서비스 · 테스트 케이스 조립"
+                  : scenarioWizardStep === 2
+                    ? "2/3 런타임 컨텍스트 흐름"
+                    : "3/3 제목 · 상태 · 컬렉션 · 설명"}
               </span>
             </DialogTitle>
           </DialogHeader>
 
           <div
             className={`px-6 py-4 flex-1 min-h-0 ${
-              scenarioWizardStep === 1
+              scenarioWizardStep === 1 || scenarioWizardStep === 2
                 ? "flex flex-col overflow-hidden"
                 : "overflow-y-auto"
             }`}
@@ -1502,26 +1585,21 @@ export function ScenarioRegistry() {
                   </div>
                 ) : null}
                 <FinixField
-                  label="서비스 추가"
-                  helperText="코드 또는 이름으로 검색 후 선택 (시퀀스에 추가됩니다)"
+                  label="서비스"
+                  helperText="검색해 추가 · 카드 클릭 시 해당 서비스 테스트케이스 후보만 표시 · 드래그로 순서 변경"
+                  className="shrink-0"
                 >
                   <ServiceCatalogCombobox
+                    inputRef={scenarioServiceInputRef}
                     options={catalogOptions}
                     value={servicePickerCode}
                     onValueChange={handleServiceCatalogPick}
                     loading={catalogLoading}
                     disabled={catalogOptions.length === 0}
                   />
-                </FinixField>
-
-                <FinixField
-                  label="서비스 시퀀스"
-                  helperText="클릭하면 해당 서비스 테스트케이스 후보만 표시됩니다. 제거는 휴지통만 사용하세요."
-                  className="shrink-0"
-                >
                   <DndProvider backend={HTML5Backend}>
                     <div
-                      className="space-y-2 max-h-[min(140px,18vh)] overflow-y-auto"
+                      className="mt-2 flex flex-nowrap items-stretch gap-2 min-h-[4.75rem] overflow-x-auto overflow-y-hidden py-0.5"
                       onPointerDown={() => {
                         if (document.activeElement instanceof HTMLElement) {
                           document.activeElement.blur();
@@ -1529,7 +1607,7 @@ export function ScenarioRegistry() {
                       }}
                     >
                       {serviceDrafts.length === 0 ? (
-                        <div className="rounded-sm border border-dashed border-border bg-muted/10 px-4 py-4 text-sm text-muted-foreground text-center">
+                        <div className="flex-1 min-w-full rounded-sm border border-dashed border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground text-center">
                           서비스를 검색해 추가하세요.
                         </div>
                       ) : (
@@ -1560,6 +1638,20 @@ export function ScenarioRegistry() {
                   onAddAll={addAllRulesToSelected}
                   onRemoveAll={removeAllRulesFromSelected}
                   parseDragRuleId={parseDragRuleId}
+                />
+              </div>
+            ) : scenarioWizardStep === 2 ? (
+              <div className="flex flex-col flex-1 min-h-0 min-w-0 -mx-1 px-1">
+                <ScenarioConnectionWizardStep
+                  serviceDrafts={serviceDrafts.map((s) => ({
+                    code: s.code,
+                    name: s.name,
+                  }))}
+                  selectedRuleTestcases={selectedRulePicks}
+                  bindings={stepBindingsByStepKey}
+                  onBindingsChange={setStepBindingsByStepKey}
+                  postmanConfig={postmanConfig}
+                  onOpenCollectionVars={() => setCollectionVarsOpen(true)}
                 />
               </div>
             ) : (
@@ -1649,6 +1741,65 @@ export function ScenarioRegistry() {
                   <ChevronRight className="w-4 h-4" />
                 </FinixPrimaryButton>
               </>
+            ) : scenarioWizardStep === 2 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="h-9 px-3 rounded-sm border border-dashed border-border text-sm font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground inline-flex items-center gap-1.5"
+                    onClick={() => setCollectionVarsOpen(true)}
+                  >
+                    <Variable className="w-4 h-4" />
+                    컬렉션 설정
+                    {startVarKeysFromConfig(postmanConfig).length > 0 ? (
+                      <span className="text-[10px] tabular-nums text-primary">
+                        ({startVarKeysFromConfig(postmanConfig).length})
+                      </span>
+                    ) : null}
+                  </button>
+                  {wizardRunSteps.length >= 2 ? (
+                    <button
+                      type="button"
+                      className="h-9 px-3 rounded-sm border border-dashed border-border text-sm font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground inline-flex items-center gap-1.5"
+                      onClick={() => setAiSuggestOpen(true)}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      AI 연결 제안
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted inline-flex items-center gap-1"
+                  onClick={() => {
+                    setError(null);
+                    setScenarioWizardStep(1);
+                  }}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  이전
+                </button>
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  onClick={() => setOpen(false)}
+                >
+                  취소
+                </button>
+                <FinixPrimaryButton
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setScenarioWizardStep(3);
+                  }}
+                  className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-1"
+                >
+                  다음
+                  <ChevronRight className="w-4 h-4" />
+                </FinixPrimaryButton>
+                </div>
+              </div>
             ) : (
               <>
                 <button
@@ -1656,7 +1807,7 @@ export function ScenarioRegistry() {
                   className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted inline-flex items-center gap-1"
                   onClick={() => {
                     setError(null);
-                    setScenarioWizardStep(1);
+                    setScenarioWizardStep(2);
                   }}
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -1740,6 +1891,190 @@ export function ScenarioRegistry() {
               className="h-9 px-4 w-auto rounded-sm"
             >
               저장
+            </FinixPrimaryButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ScenarioCollectionVarsDialog
+        open={open && scenarioWizardStep === 2 && collectionVarsOpen}
+        onOpenChange={setCollectionVarsOpen}
+        config={postmanConfig}
+        onChange={handlePostmanConfigChange}
+      />
+
+      <ScenarioAiSuggestionsPanel
+        open={open && scenarioWizardStep === 2 && aiSuggestOpen}
+        onOpenChange={setAiSuggestOpen}
+        runSteps={wizardRunSteps}
+        loading={aiBindingSuggestions.loading}
+        error={aiBindingSuggestions.error}
+        message={aiBindingSuggestions.message}
+        links={aiBindingSuggestions.lastLinks}
+        onFetch={() => void aiBindingSuggestions.fetchSuggestions()}
+        onApplyAll={() => void aiBindingSuggestions.applySuggestions("replace")}
+      />
+
+      <Dialog
+        open={collectionExportOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCollectionExportDialog();
+        }}
+      >
+        <DialogContent className="w-full max-w-md rounded-sm">
+          <DialogHeader>
+            <DialogTitle className="pr-10">컬렉션 Postman 다운로드</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-1 text-sm">
+                <span>
+                  컬렉션 «
+                  {selectedFolderId
+                    ? getFolderLabel(folderOptions, selectedFolderId)
+                    : "—"}
+                  »의 시나리오{" "}
+                  <span className="font-medium text-foreground">
+                    {collectionExportStats.exportableCount}개
+                  </span>
+                  를 Postman JSON ZIP으로 받습니다.
+                </span>
+                {collectionExportStats.skippedCount > 0 ? (
+                  <span className="block text-[11px] text-muted-foreground">
+                    DB 테스트 케이스가 없는 {collectionExportStats.skippedCount}
+                    개는 제외됩니다.
+                  </span>
+                ) : null}
+                <span className="block text-[11px] text-muted-foreground">
+                  검색·필터와 관계없이 이 컬렉션에 등록된 전체 시나리오가
+                  대상입니다.
+                </span>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!collectionExportLoading ? (
+            <ScenarioPostmanExportDialogForm
+              postmanConfig={collectionExportPostmanDraft}
+              onPostmanConfigChange={setCollectionExportPostmanDraft}
+              filename={collectionExportFilename}
+              onFilenameChange={setCollectionExportFilename}
+              defaultFilename={collectionExportDefaultFilename}
+              baseUrlHint="baseUrl은 이번 ZIP export의 모든 시나리오에 적용됩니다."
+            />
+          ) : null}
+
+          {collectionExportLoading ? (
+            <div className="py-6">
+              <FinixLoading
+                size="md"
+                center
+                label={
+                  collectionExportProgress
+                    ? `시나리오 ${collectionExportProgress.done}/${collectionExportProgress.total} Postman 생성 중…`
+                    : "ZIP 생성 중…"
+                }
+              />
+            </div>
+          ) : collectionExportError ? (
+            <p className="text-sm text-destructive">{collectionExportError}</p>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
+              onClick={closeCollectionExportDialog}
+              disabled={collectionExportLoading}
+            >
+              취소
+            </button>
+            <FinixPrimaryButton
+              onClick={() => void confirmCollectionExport()}
+              disabled={collectionExportLoading}
+              className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
+            >
+              {collectionExportLoading ? (
+                <>
+                  <FinixLoading size="sm" inline />
+                  생성 중…
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  ZIP 다운로드
+                </>
+              )}
+            </FinixPrimaryButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={postmanExportTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) closePostmanExportDialog();
+        }}
+      >
+        <DialogContent className="w-full max-w-md rounded-sm">
+          <DialogHeader>
+            <DialogTitle className="pr-10">Postman 컬렉션 다운로드</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-1">
+                <span>{postmanExportTarget?.title}</span>
+                <span className="block text-[11px] text-muted-foreground">
+                  변수 연결·body 고정값이 포함된 Postman 컬렉션입니다.
+                </span>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!postmanExportLoading ? (
+            <ScenarioPostmanExportDialogForm
+              postmanConfig={postmanExportDraft}
+              onPostmanConfigChange={setPostmanExportDraft}
+              filename={postmanExportFilename}
+              onFilenameChange={setPostmanExportFilename}
+              defaultFilename={postmanExportDefaultFilename}
+              baseUrlHint="baseUrl은 이번 export에만 적용되며, 저장 후 다음 다운로드에도 유지됩니다."
+            />
+          ) : null}
+
+          {postmanExportLoading ? (
+            <div className="py-6">
+              <FinixLoading
+                size="md"
+                center
+                label="시나리오 저장 및 Postman 파일 생성 중…"
+              />
+            </div>
+          ) : postmanExportError ? (
+            <p className="text-sm text-destructive">{postmanExportError}</p>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
+              onClick={closePostmanExportDialog}
+              disabled={postmanExportLoading}
+            >
+              취소
+            </button>
+            <FinixPrimaryButton
+              onClick={() => void confirmPostmanExport()}
+              disabled={postmanExportLoading || postmanExportTarget === null}
+              className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
+            >
+              {postmanExportLoading ? (
+                <>
+                  <FinixLoading size="sm" inline />
+                  생성 중…
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  다운로드
+                </>
+              )}
             </FinixPrimaryButton>
           </DialogFooter>
         </DialogContent>

@@ -61,9 +61,20 @@ async def patch_test_case_v1(
 )
 async def export_postman_v1(
     testcase_id: int,
+    mode: str = Query(default="template", pattern="^(template|resolved)$"),
+    scenario_id: int | None = Query(default=None, ge=1),
     service: TestCaseService = Depends(get_testcase_service),
 ) -> JSONResponse:
     """Return a Postman Collection v2.1 JSON document."""
     entity = await service.get_testcase(testcase_id)
-    collection = service.build_postman_collection(entity)
+    body = None
+    if mode == "resolved" and scenario_id is not None:
+        body = await service.get_resolved_request_body(
+            testcase_id,
+            scenario_id=scenario_id,
+        )
+    collection = service.build_postman_collection(
+        entity,
+        request_body=body,
+    )
     return JSONResponse(content=collection)

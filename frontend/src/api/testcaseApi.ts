@@ -63,8 +63,28 @@ export async function getTestCase(testCaseId: number): Promise<TestCaseReadDto> 
   });
 }
 
-export async function downloadPostmanCollection(testcaseId: number): Promise<void> {
-  const path = `/api/v1/test-cases/${testcaseId}/export/postman`;
+export async function attachTestCasesToScenario(
+  scenarioId: number,
+  perStep: number[][],
+): Promise<TestCaseReadDto[]> {
+  return apiRequest<TestCaseReadDto[]>(
+    `/api/v1/scenarios/${scenarioId}/attach-test-cases`,
+    {
+      method: "POST",
+      body: JSON.stringify({ per_step: perStep }),
+    },
+  );
+}
+
+export async function downloadPostmanCollection(
+  testcaseId: number,
+  options?: { mode?: "template" | "resolved"; scenarioId?: number },
+): Promise<void> {
+  const q = new URLSearchParams({ mode: options?.mode ?? "template" });
+  if (options?.scenarioId != null) {
+    q.set("scenario_id", String(options.scenarioId));
+  }
+  const path = `/api/v1/test-cases/${testcaseId}/export/postman?${q.toString()}`;
   const blob = await fetchBlob(path);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

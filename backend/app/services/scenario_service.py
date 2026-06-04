@@ -384,8 +384,20 @@ class ScenarioService:
         title: str | None,
         prompt: str | None,
         steps: list[dict[str, Any]] | None,
+        postman: dict[str, Any] | None = None,
     ) -> Scenario:
-        steps_json = dumps_json(steps) if steps is not None else None
+        steps_json = None
+        if steps is not None:
+            from app.domain.postman_collection_config import PostmanCollectionConfig
+            from app.utils.scenario_steps_document import dump_steps_document
+
+            pm_cfg = None
+            if postman is not None:
+                try:
+                    pm_cfg = PostmanCollectionConfig.model_validate(postman)
+                except Exception:
+                    pm_cfg = None
+            steps_json = dump_steps_document(steps, pm_cfg)
         entity = await self._metadata.update_scenario_fields(
             scenario_id,
             title=title,

@@ -16,6 +16,7 @@ from app.repositories.service_rules_repo import ServiceRulesRepository
 from app.rules_yaml.loader import load_service_rules
 from app.utils.helpers import build_placeholder_body
 from app.utils.json_text import dumps_json, loads_json
+from app.utils.scenario_steps_document import parse_steps_list
 from app.utils.testcase_display_name import build_materialized_testcase_name
 
 logger = get_logger(__name__)
@@ -250,6 +251,36 @@ class TestCaseService:
         )
         return created
 
+    async def _resolve_attach_source_testcase(
+        self,
+        testcase_id: int,
+        *,
+        scenario_id: int,
+    ) -> TestCase:
+        """
+        Resolve which row to clone from when attaching to a scenario.
+
+        Pool templates are preferred. Scenario-attached rows (same or other scenario)
+        are mapped to their pool twin when possible so re-save after delete works.
+        """
+        row = await self._metadata.get_testcase_by_id(testcase_id)
+        if row is None:
+            raise EntityNotFoundError("TestCase", testcase_id)
+        if row.scenario_id is None:
+            return row
+        pool = await self._metadata.find_pool_testcase_twin(
+            name=row.name,
+            rule_bundle_id=row.rule_bundle_id,
+        )
+        if pool is not None:
+            return pool
+        if row.scenario_id != scenario_id:
+            return row
+        raise InvalidInputError(
+            f"테스트 케이스 #{testcase_id}는 시나리오 전용 복사본입니다. "
+            "규칙/메타에서 서비스별 풀을 생성한 뒤 풀 템플릿을 선택하세요.",
+        )
+
     async def attach_pool_to_scenario(
         self,
         scenario_id: int,
@@ -266,27 +297,35 @@ class TestCaseService:
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        raw_steps: list[Any] = loads_json(scenario.steps_json, [])
+        raw_steps = parse_steps_list(loads_json(scenario.steps_json, []))
         if len(per_step) != len(raw_steps):
             raise InvalidInputError(
                 f"per_step 길이({len(per_step)})가 시나리오 스텝 수({len(raw_steps)})와 같아야 합니다.",
             )
-        global_idx = 0
-        touched: list[TestCase] = []
-        for ids in per_step:
+        attach_plan: list[tuple[int, TestCase]] = []
+        for step_i, ids in enumerate(per_step):
             for tid in ids:
-                tc = await self._metadata.get_testcase_by_id(int(tid))
-                if tc is None:
-                    raise EntityNotFoundError("TestCase", int(tid))
-                updated = await self._metadata.update_testcase_fields(
+                source = await self._resolve_attach_source_testcase(
                     int(tid),
                     scenario_id=scenario_id,
-                    step_index=global_idx,
                 )
-                if updated is None:
-                    raise EntityNotFoundError("TestCase", int(tid))
-                touched.append(updated)
-                global_idx += 1
+                attach_plan.append((step_i, source))
+        await self._metadata.delete_testcases_for_scenario(scenario_id)
+        touched: list[TestCase] = []
+        for step_i, source_tc in attach_plan:
+            cloned = await self._metadata.create_testcase(
+                name=source_tc.name,
+                steps=source_tc.steps,
+                scenario_id=scenario_id,
+                http_method=source_tc.http_method,
+                endpoint=source_tc.endpoint,
+                request_body_json=source_tc.request_body_json,
+                expected_status=source_tc.expected_status,
+                expected_body_json=source_tc.expected_body_json,
+                step_index=step_i,
+                rule_bundle_id=source_tc.rule_bundle_id,
+            )
+            touched.append(cloned)
         logger.info(
             "Test cases attached to scenario",
             extra={"scenario_id": scenario_id, "count": len(touched)},
@@ -299,7 +338,7 @@ class TestCaseService:
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        raw_steps: list[Any] = loads_json(scenario.steps_json, [])
+        raw_steps = parse_steps_list(loads_json(scenario.steps_json, []))
         if not raw_steps:
             raise InvalidInputError("시나리오에 단계(서비스)가 없습니다.")
 
@@ -338,7 +377,7 @@ class TestCaseService:
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        raw_steps: list[Any] = loads_json(scenario.steps_json, [])
+        raw_steps = parse_steps_list(loads_json(scenario.steps_json, []))
         if not raw_steps:
             raise InvalidInputError("시나리오에 단계가 없습니다. 먼저 시나리오를 생성하세요.")
 
@@ -428,26 +467,209 @@ class TestCaseService:
         logger.info("Test case updated", extra={"testcase_id": testcase_id})
         return entity
 
-    def build_postman_collection(self, testcase: TestCase) -> dict[str, Any]:
+    def build_postman_collection(
+        self,
+        testcase: TestCase,
+        *,
+        request_body: dict[str, Any] | None = None,
+        event_scripts: list[dict[str, Any]] | None = None,
+        request_headers: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """Build a Postman Collection v2.1 JSON document for one test case."""
-        body_raw = loads_json(testcase.request_body_json, {})
+        from app.domain.postman_default_headers import build_postman_request_headers
+
+        body_raw = request_body if request_body is not None else loads_json(
+            testcase.request_body_json, {},
+        )
+        headers = (
+            request_headers
+            if request_headers is not None
+            else build_postman_request_headers()
+        )
+        item: dict[str, Any] = {
+            "name": testcase.name,
+            "request": {
+                "method": testcase.http_method or "GET",
+                "header": headers,
+                "body": {
+                    "mode": "raw",
+                    "raw": dumps_json(body_raw),
+                },
+                "url": "{{baseUrl}}" + (testcase.endpoint or "/"),
+            },
+        }
+        if event_scripts:
+            item["event"] = event_scripts
         return {
             "info": {
                 "name": f"FinTest — {testcase.name}",
                 "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+                "description": "Generated snapshot (not source of truth).",
             },
-            "item": [
-                {
-                    "name": testcase.name,
-                    "request": {
-                        "method": testcase.http_method or "GET",
-                        "header": [{"key": "Content-Type", "value": "application/json"}],
-                        "body": {
-                            "mode": "raw",
-                            "raw": dumps_json(body_raw),
-                        },
-                        "url": "{{baseUrl}}" + (testcase.endpoint or "/"),
-                    },
-                },
-            ],
+            "item": [item],
         }
+
+    async def build_postman_for_scenario(
+        self,
+        scenario_id: int,
+        *,
+        resolved: bool = True,
+        native: bool = True,
+        steps_json_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Export all scenario test cases as one Postman collection."""
+        from app.domain.postman_chaining import (
+            build_postman_request_body,
+            merge_postman_events,
+        )
+        from app.domain.postman_collection_variables import (
+            build_postman_collection_variables,
+            collect_runtime_var_names_from_bindings,
+        )
+        from app.domain.postman_default_headers import build_postman_request_headers
+        from app.services.execution_simulator import simulate_response
+        from app.services.scenario_run_resolver import (
+            bindings_by_logical_step,
+            resolve_scenario_run,
+        )
+        from app.utils.scenario_steps_document import parse_steps_document, parse_steps_list
+
+        scenario = await self._metadata.get_scenario_by_id(scenario_id)
+        if scenario is None:
+            raise EntityNotFoundError("Scenario", scenario_id)
+        testcases = await self._metadata.list_testcases_for_scenario(scenario_id)
+        if not testcases:
+            raise InvalidInputError("시나리오에 연결된 테스트 케이스가 없습니다.")
+
+        steps_json = steps_json_override if steps_json_override is not None else scenario.steps_json
+        _raw_steps, postman_config = parse_steps_document(steps_json)
+        request_headers = build_postman_request_headers(
+            postman_config.default_headers if postman_config is not None else None,
+        )
+
+        use_native = native and resolved
+        preview = None
+        if resolved and not use_native:
+            preview = resolve_scenario_run(
+                testcases,
+                steps_json=steps_json,
+                simulate_response=simulate_response,
+            )
+        elif resolved and use_native:
+            preview = resolve_scenario_run(
+                testcases,
+                steps_json=steps_json,
+                simulate_response=None,
+            )
+
+        binding_map = bindings_by_logical_step(steps_json)
+        collection_variables = build_postman_collection_variables(
+            postman_config,
+            runtime_var_names=collect_runtime_var_names_from_bindings(binding_map),
+        )
+        items: list[dict[str, Any]] = []
+        for tc in testcases:
+            logical_step = tc.step_index if tc.step_index is not None else 0
+            injects, extracts, overrides = binding_map.get(logical_step, ([], [], []))
+            raw_body = loads_json(tc.request_body_json, {})
+            template = raw_body if isinstance(raw_body, dict) else {}
+
+            if use_native:
+                body = build_postman_request_body(
+                    template,
+                    injects=injects,
+                    overrides=overrides,
+                )
+            elif resolved and preview is not None:
+                row = next((r for r in preview.steps if r.testcase_id == tc.id), None)
+                body = (
+                    row.resolved_request_body
+                    if row is not None
+                    else template
+                )
+            else:
+                body = template
+
+            events = (
+                merge_postman_events(
+                    extracts=extracts,
+                    injects=injects,
+                    expected_status=tc.expected_status,
+                )
+                if use_native and (extracts or injects)
+                else None
+            )
+            col = self.build_postman_collection(
+                tc,
+                request_body=body if isinstance(body, dict) else {},
+                event_scripts=events,
+                request_headers=request_headers,
+            )
+            items.extend(col["item"])
+
+        desc = (
+            "Executable workflow: collection variables, {{var}} injects, "
+            "pm.collectionVariables.set on test scripts. Run requests in order."
+            if use_native
+            else "Generated snapshot (resolved request bodies)."
+        )
+        payload: dict[str, Any] = {
+            "info": {
+                "name": f"FinTest Scenario — {scenario.title}",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+                "description": desc,
+            },
+            "item": items,
+        }
+        if collection_variables:
+            payload["variable"] = collection_variables
+        return payload
+
+    @staticmethod
+    def _ordered_service_codes_from_steps(steps_json: str | None) -> list[str]:
+        from app.utils.scenario_steps_document import parse_steps_list
+
+        raw = parse_steps_list(loads_json(steps_json, []))
+        rows: list[tuple[int, str]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            num = item.get("number")
+            if not isinstance(num, int):
+                continue
+            code = item.get("service_code")
+            if isinstance(code, str) and code.strip():
+                rows.append((num, code.strip()))
+                continue
+            parsed = TestCaseService._extract_service_code(item)
+            if parsed:
+                rows.append((num, parsed))
+        rows.sort(key=lambda x: x[0])
+        seen: set[str] = set()
+        out: list[str] = []
+        for _n, code in rows:
+            if code in seen:
+                continue
+            seen.add(code)
+            out.append(code)
+        return out
+
+    async def get_resolved_request_body(
+        self,
+        testcase_id: int,
+        *,
+        scenario_id: int,
+    ) -> dict[str, Any]:
+        """Resolve one testcase body in scenario order (for Postman export)."""
+        from app.services.scenario_run_resolver import resolve_scenario_run
+
+        scenario = await self._metadata.get_scenario_by_id(scenario_id)
+        if scenario is None:
+            raise EntityNotFoundError("Scenario", scenario_id)
+        testcases = await self._metadata.list_testcases_for_scenario(scenario_id)
+        preview = resolve_scenario_run(testcases, steps_json=scenario.steps_json)
+        row = next((r for r in preview.steps if r.testcase_id == testcase_id), None)
+        if row is None:
+            tc = await self.get_testcase(testcase_id)
+            return loads_json(tc.request_body_json, {})
+        return row.resolved_request_body

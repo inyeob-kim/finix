@@ -1,5 +1,9 @@
 import { apiRequest } from "./client";
-import type { ServiceCatalogImportResultDto, ServiceCatalogItemReadDto } from "./types";
+import type {
+  ServiceCatalogDtoSkeletonsDto,
+  ServiceCatalogImportResultDto,
+  ServiceCatalogItemReadDto,
+} from "./types";
 
 const CATALOG_PAGE_SIZE = 500;
 
@@ -58,6 +62,15 @@ export async function importServiceCatalogJson(
       method: "POST",
       body: JSON.stringify(payload),
     },
+  );
+}
+
+export async function getServiceCatalogDtoSkeletons(
+  serviceCode: string,
+): Promise<ServiceCatalogDtoSkeletonsDto> {
+  return apiRequest<ServiceCatalogDtoSkeletonsDto>(
+    `/api/v1/service-catalog/${encodeURIComponent(serviceCode)}/dto-skeletons`,
+    { method: "GET" },
   );
 }
 

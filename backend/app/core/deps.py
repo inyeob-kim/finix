@@ -17,6 +17,8 @@ from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.repositories.manual_chunk_repo import ManualChunkRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 from app.services.execution_service import ExecutionService
+from app.services.scenario_bindings_ai_service import ScenarioBindingsAiService
+from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.manual_rag_service import ManualRagService
 from app.services.scenario_service import ScenarioService
 from app.services.service_catalog_service import ServiceCatalogService
@@ -175,6 +177,28 @@ def get_manual_rag_service(
         manual_path=settings.manual_md_path,
         manual_docs_dir=settings.manual_docs_dir,
         embedding_model=settings.llm_embedding_model,
+    )
+
+
+def get_scenario_resolve_service(
+    metadata_repo: MetadataRepository = Depends(get_metadata_repository),
+) -> ScenarioResolveService:
+    """Build ScenarioResolveService for binding preview."""
+    return ScenarioResolveService(metadata_repo=metadata_repo)
+
+
+def get_scenario_bindings_ai_service(
+    catalog_service: ServiceCatalogService = Depends(get_service_catalog_service),
+    cbs_catalog_repo: CbsServiceCatalogRepository = Depends(
+        get_cbs_service_catalog_repository
+    ),
+    llm: LlmClient | None = Depends(get_llm_client),
+) -> ScenarioBindingsAiService:
+    """Build binding suggest service (LLM optional; heuristic fallback)."""
+    return ScenarioBindingsAiService(
+        catalog_service=catalog_service,
+        cbs_repo=cbs_catalog_repo,
+        llm=llm,
     )
 
 
