@@ -12,6 +12,9 @@ from app.models.execution_step_result import ExecutionStepResult
 from app.utils.json_text import loads_json
 
 
+ExecutionMode = Literal["simulate", "live"]
+
+
 class ExecutionCreateV1(BaseModel):
     """Start a multi-step execution for all cases under a scenario."""
 
@@ -19,7 +22,11 @@ class ExecutionCreateV1(BaseModel):
     base_url: str = Field(
         default="",
         max_length=2048,
-        description="Target SUT base URL; empty uses deterministic stub only.",
+        description="Target SUT base URL; required for live mode.",
+    )
+    mode: ExecutionMode = Field(
+        default="simulate",
+        description="simulate uses deterministic stub; live performs real HTTP.",
     )
 
 

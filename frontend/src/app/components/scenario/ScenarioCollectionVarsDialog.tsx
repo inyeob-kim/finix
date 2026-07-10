@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { headerKeysFromConfig } from "@/lib/scenarioPostmanHeaders";
 import {
   appendStartVarIfMissing,
-  newStartVar,
+  normalizePostmanConfigWithMeta,
   startVarKeysFromConfig,
   type ScenarioPostmanConfig,
 } from "@/lib/scenarioPostmanVariables";
@@ -23,8 +22,8 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ScenarioPostmanBaseUrlField } from "./ScenarioPostmanBaseUrlField";
 import { ScenarioPostmanHeaderRows } from "./ScenarioPostmanHeaderRows";
+import { ScenarioCollectionVarsEditor } from "./ScenarioCollectionVarsEditor";
 import { cn } from "../ui/utils";
 
 type Props = {
@@ -44,29 +43,36 @@ export function ScenarioCollectionVarsDialog({
   initialTab = "vars",
 }: Props) {
   const [tab, setTab] = useState<"vars" | "headers">(initialTab);
-  const [focusRowId, setFocusRowId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<CollectionVarFavorite[]>([]);
+  const [cleanupNote, setCleanupNote] = useState<string | null>(null);
+  const normalizedOnOpenRef = useRef(false);
 
-  const varCount = startVarKeysFromConfig(config).length;
+  const channelVarCount = startVarKeysFromConfig(config).length;
   const headerCount = headerKeysFromConfig(config).length;
 
   useEffect(() => {
     if (open) {
       setFavorites(loadCollectionVarFavorites());
       setTab(initialTab);
+      normalizedOnOpenRef.current = false;
+      setCleanupNote(null);
     }
   }, [open, initialTab]);
 
-  const configuredKeys = new Set(startVarKeysFromConfig(config));
+  useEffect(() => {
+    if (!open || normalizedOnOpenRef.current) return;
+    normalizedOnOpenRef.current = true;
+    const { config: normalized, migratedHeaderCount } =
+      normalizePostmanConfigWithMeta(config);
+    if (migratedHeaderCount > 0) {
+      onChange(normalized);
+      setCleanupNote(
+        `중복 채널 헤더 ${migratedHeaderCount}건을 변수로 정리했습니다.`,
+      );
+    }
+  }, [open, config, onChange]);
 
-  const addEmptyRow = () => {
-    const row = newStartVar();
-    onChange({
-      ...config,
-      startVars: [...config.startVars, row],
-    });
-    setFocusRowId(row.id);
-  };
+  const configuredKeys = new Set(startVarKeysFromConfig(config));
 
   const addFromFavorite = (fav: CollectionVarFavorite) => {
     onChange(appendStartVarIfMissing(config, fav.key, fav.value));
@@ -96,9 +102,16 @@ export function ScenarioCollectionVarsDialog({
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
           <DialogTitle className="pr-8">컬렉션 설정</DialogTitle>
           <DialogDescription>
-            Postman export · 변수는 값 저장, 헤더는 요청에 붙는 형식
+            채널 변수·헤더만 설정 · baseUrl은 Postman 다운로드·Live 실행 시
+            입력
           </DialogDescription>
         </DialogHeader>
+
+        {cleanupNote ? (
+          <p className="shrink-0 mx-6 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-sm px-2.5 py-1.5">
+            {cleanupNote}
+          </p>
+        ) : null}
 
         <Tabs
           value={tab}
@@ -107,7 +120,7 @@ export function ScenarioCollectionVarsDialog({
         >
           <TabsList className="shrink-0 w-full grid grid-cols-2 h-9 rounded-sm p-0.5 bg-muted/60">
             <TabsTrigger value="vars" className="text-xs rounded-sm">
-              변수{varCount > 0 ? ` (${varCount})` : ""}
+              변수{channelVarCount > 0 ? ` (${channelVarCount})` : ""}
             </TabsTrigger>
             <TabsTrigger value="headers" className="text-xs rounded-sm">
               헤더{headerCount > 0 ? ` (${headerCount})` : ""}
@@ -121,7 +134,7 @@ export function ScenarioCollectionVarsDialog({
             {favorites.length > 0 ? (
               <div className="shrink-0 space-y-1.5 max-h-24 overflow-y-auto overscroll-contain">
                 <p className="text-[10px] text-muted-foreground">
-                  즐겨찾기 · 클릭하면 추가
+                  즐겨찾기 · 클릭하면 시나리오 변수에 추가
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {favorites.map((fav) => {
@@ -149,32 +162,15 @@ export function ScenarioCollectionVarsDialog({
               </div>
             ) : (
               <p className="shrink-0 text-[10px] text-muted-foreground border border-dashed rounded-sm px-2 py-2">
-                자주 쓰는 변수는 행의 ★로 즐겨찾기에 등록하세요.
+                시나리오 변수 행의 ★로 즐겨찾기에 등록하세요.
               </p>
             )}
 
-            <div className="shrink-0 flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">변수 목록</span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-0.5 h-7 px-2 rounded-sm border border-border text-[11px] font-medium text-primary hover:bg-primary/10"
-                onClick={addEmptyRow}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                추가
-              </button>
-            </div>
-
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 border border-border/60 rounded-sm bg-muted/10">
               <div className="p-2">
-                <ScenarioPostmanBaseUrlField
+                <ScenarioCollectionVarsEditor
                   config={config}
                   onChange={onChange}
-                  showStartVars
-                  hideBaseUrl
-                  hideStartVarsHeader
-                  focusStartVarRowId={focusRowId}
-                  onFocusStartVarRowDone={() => setFocusRowId(null)}
                   isFavoriteKey={isFavorite}
                   onToggleFavorite={toggleFavorite}
                 />
@@ -186,11 +182,6 @@ export function ScenarioCollectionVarsDialog({
             value="headers"
             className="flex flex-col flex-1 min-h-0 gap-2 mt-2 pb-3 data-[state=inactive]:hidden"
           >
-            <p className="shrink-0 text-[10px] text-muted-foreground">
-              모든 요청에 공통 적용 · 값에 {"{{변수명}}"} 사용 (변수 탭에서
-              선언)
-            </p>
-
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 border border-border/60 rounded-sm bg-muted/10">
               <div className="p-2">
                 <ScenarioPostmanHeaderRows config={config} onChange={onChange} />

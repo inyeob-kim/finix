@@ -121,7 +121,7 @@ export function FinixLoadingPage({
   label?: string;
 }) {
   return (
-    <div className="min-h-full h-full flex-1 bg-secondary flex items-center justify-center p-8">
+    <div className="min-h-full h-full flex-1 bg-background flex items-center justify-center p-8">
       <FinixLoading size="lg" label={label} center />
     </div>
   );

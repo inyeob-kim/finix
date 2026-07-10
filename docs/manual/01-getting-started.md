@@ -8,7 +8,7 @@ FINIX 웹 UI는 사이드바 메뉴로 이동합니다.
 |------|------|--------|
 | AI 시나리오 생성 | `/` | 불필요 |
 | 시나리오 관리 | `/scenario-registry` | 필요 |
-| 테스트케이스 관리 | `/test-cases` | 필요 |
+| 테스트케이스 관리 | `/test-cases` → `/rules` 리다이렉트 | 필요 |
 | 규칙/메타 관리 | `/rules` | 필요 |
 | 테스트 이력 | `/history` | 필요 |
 | 매뉴얼 | `/manual` | 필요 |
@@ -74,9 +74,10 @@ flowchart TD
 
 1. **서비스 카탈로그 import** — `POST /api/v1/service-catalog/import` (UI 버튼 없음)
 2. **YAML 규칙 등록** — `/rules` 소스 붙여넣기 또는 YAML 편집 → **활성화**
-3. **테스트케이스 풀** — `/test-cases` → **YAML에서 생성**
+3. **테스트케이스 풀** — `/rules` → 서비스 선택 → **YAML에서 생성**
 4. **시나리오** — 홈 AI 또는 `/scenario-registry` 마법사
-5. **실행** — `/test-case/:scenarioId` → 테스트 실행
+5. **실행** — `/test-case/:id` 또는 레지스트리 ▶ — **Simulate** 또는 **Live** + baseUrl
+6. **이력** — `/history` 또는 `/execution-batch?ids=` (컬렉션 전체 실행)
 
 상세 E2E: `docs/manual/10-e2e-walkthrough-py027.md`
 
@@ -87,9 +88,9 @@ flowchart TD
 | 저장소 | 위치 | 용도 |
 |--------|------|------|
 | DB 시나리오 | `scenarios` 테이블 | AI 홈, `/scenario/:id`, 백엔드 실행 |
-| 시나리오 레지스트리 | `localStorage` | 폴더, Export/Import, 마법사 |
+| 시나리오 레지스트리 | `localStorage` (+ 실행 시 DB persist) | 폴더, Export/Import, Live·Postman |
 
-**자동 동기화 없음.** 팀 공유는 레지스트리 Export JSON 또는 DB 백업.
+**자동 동기화 없음.** 팀 공유는 Export JSON. 실행·export는 `save-definition`으로 DB 복제.
 
 ---
 

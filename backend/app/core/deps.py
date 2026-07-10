@@ -93,6 +93,34 @@ def get_llm_client() -> LlmClient | None:
     )
 
 
+@lru_cache
+def get_embedding_llm_client() -> LlmClient | None:
+    """
+    OpenAI-compatible client for manual RAG embeddings.
+
+    Uses LLM_EMBEDDING_API_KEY when set; otherwise reuses the main client only if
+    LLM_PROVIDER is openai.
+    """
+    settings = get_settings()
+    if settings.llm_embedding_api_key:
+        return LlmClient(
+            api_key=settings.llm_embedding_api_key.get_secret_value(),
+            model=settings.llm_embedding_model,
+            provider="openai",
+            base_url=settings.llm_embedding_base_url,
+            temperature=0.0,
+            max_tokens=4096,
+            timeout_seconds=120.0,
+        )
+    main = get_llm_client()
+    if main is None:
+        return None
+    provider = (settings.llm_provider or "openai").strip().lower()
+    if provider in {"anthropic", "claude"}:
+        return None
+    return main
+
+
 def get_scenario_service(
     metadata_repo: MetadataRepository = Depends(get_metadata_repository),
     registry_repo: ServiceRegistryRepository = Depends(get_service_registry_repository),
@@ -166,14 +194,28 @@ def get_service_rules_ai_service(
 def get_manual_rag_service(
     repo: ManualChunkRepository = Depends(get_manual_chunk_repository),
     llm: LlmClient | None = Depends(get_llm_client),
+    embedding_llm: LlmClient | None = Depends(get_embedding_llm_client),
 ) -> ManualRagService:
-    """Build ManualRagService. Requires LLM key for embeddings and chat."""
+    """Build ManualRagService. Chat = main LLM; index/search = embedding LLM."""
     if llm is None:
-        raise RuntimeError("LLM is not configured (LLM_API_KEY missing).")
+        raise HTTPException(
+            status_code=503,
+            detail="LLM이 설정되지 않았습니다. backend/.env 에 LLM_API_KEY를 설정하세요.",
+        )
+    if embedding_llm is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "매뉴얼 RAG 임베딩용 OpenAI 호환 API 키가 필요합니다. "
+                "LLM_PROVIDER=anthropic 인 경우 backend/.env 에 "
+                "LLM_EMBEDDING_API_KEY(sk-... OpenAI)를 추가하세요."
+            ),
+        )
     settings = get_settings()
     return ManualRagService(
         repo=repo,
         llm=llm,
+        embedding_llm=embedding_llm,
         manual_path=settings.manual_md_path,
         manual_docs_dir=settings.manual_docs_dir,
         embedding_model=settings.llm_embedding_model,

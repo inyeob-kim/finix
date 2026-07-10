@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { PageHeaderBar } from "./PageHeaderBar";
+import { cn } from "./ui/utils";
 
 type PageShellProps = {
   icon: ReactNode;
@@ -9,6 +10,8 @@ type PageShellProps = {
   children: ReactNode;
   containerClassName?: string;
   contentClassName?: string;
+  /** Scroll container for page body (default: vertical scroll). */
+  bodyClassName?: string;
 };
 
 export function PageShell({
@@ -19,19 +22,20 @@ export function PageShell({
   children,
   containerClassName,
   contentClassName,
+  bodyClassName,
 }: PageShellProps) {
   return (
     <div
-      className={[
-        "px-6 md:px-8 pt-0 pb-6 md:pb-8 bg-secondary min-h-full flex flex-col",
-        containerClassName ?? "",
-      ].join(" ")}
+      className={cn(
+        "flex flex-col flex-1 min-h-0 h-full px-6 md:px-8 pb-6 md:pb-8 bg-background",
+        containerClassName,
+      )}
     >
       <div
-        className={[
-          "w-full mx-auto flex flex-col gap-5 flex-1 min-h-0",
-          contentClassName ?? "",
-        ].join(" ")}
+        className={cn(
+          "w-full mx-auto flex flex-col flex-1 min-h-0",
+          contentClassName,
+        )}
       >
         <PageHeaderBar
           icon={icon}
@@ -39,9 +43,15 @@ export function PageShell({
           description={description}
           actions={actions}
         />
-        {children}
+        <div
+          className={cn(
+            "flex-1 min-h-0 overflow-y-auto overscroll-contain pt-5",
+            bodyClassName,
+          )}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
 }
-

@@ -26,6 +26,8 @@ import {
 } from "@/lib/scenarioPostmanVariables";
 import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
+import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
+import type { ScenarioRunMode } from "@/lib/registryScenarioRun";
 import { runScenarioExecution } from "@/api/executionApi";
 import { ApiError } from "@/api/client";
 import type {
@@ -47,6 +49,7 @@ import {
 } from "./ui/dialog";
 import { FINIX_LARGE_MODAL_MAX_WIDTH } from "@/lib/finixModalLayout";
 import { PageShell } from "./PageShell";
+import { PageActionButton } from "./ui/finix-page-action";
 import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
 
 export function TestCase() {
@@ -82,6 +85,12 @@ export function TestCase() {
   const [postmanExportError, setPostmanExportError] = useState<string | null>(
     null,
   );
+  const [scenarioRunOpen, setScenarioRunOpen] = useState(false);
+  const [scenarioRunDraft, setScenarioRunDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [scenarioRunMode, setScenarioRunMode] =
+    useState<ScenarioRunMode>("simulate");
+  const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
 
   const postmanExportDefaultFilename = useMemo(
     () => defaultSinglePostmanDownloadName(scenarioTitle || "scenario"),
@@ -247,20 +256,46 @@ export function TestCase() {
     }
   };
 
-  const handleRunTest = async () => {
-    if (!Number.isFinite(scenarioId)) {
+  const openScenarioRunDialog = async () => {
+    if (!Number.isFinite(scenarioId)) return;
+    setScenarioRunError(null);
+    setScenarioRunMode("simulate");
+    try {
+      const scenario = await getScenario(scenarioId);
+      setScenarioTitle(scenario.title ?? "");
+      setScenarioRunDraft(
+        ensurePostmanConfig(postmanConfigFromApi(scenario.postman)),
+      );
+      setScenarioRunOpen(true);
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "시나리오 정보를 불러오지 못했습니다.",
+      );
+    }
+  };
+
+  const confirmScenarioRun = async () => {
+    if (!Number.isFinite(scenarioId)) return;
+    const baseUrl = scenarioRunDraft.baseUrl?.trim() ?? "";
+    if (scenarioRunMode === "live" && !baseUrl) {
+      setScenarioRunError("Live 실행에는 baseUrl이 필요합니다.");
       return;
     }
     setRunning(true);
+    setScenarioRunError(null);
     setError(null);
     try {
       const exec = await runScenarioExecution({
         scenario_id: scenarioId,
-        base_url: "",
+        base_url: baseUrl,
+        mode: scenarioRunMode,
       });
-      navigate(`/execution-result/${exec.id}`);
+      setScenarioRunOpen(false);
+      navigate(`/execution-result/${exec.id}`, {
+        state: { from: `/test-cases/${scenarioId}` },
+      });
     } catch (e) {
-      setError(
+      setScenarioRunError(
         e instanceof ApiError ? e.message : "테스트 실행에 실패했습니다.",
       );
     } finally {
@@ -357,22 +392,19 @@ export function TestCase() {
         </div>
       }
       actions={
-        <button
-          type="button"
+        <PageActionButton
           onClick={() => {
-            // When coming from registry, go back to registry deterministically.
             if (from) {
               navigate(from);
               return;
             }
             navigate(-1);
           }}
-          className="h-9 px-3 rounded-sm border border-border bg-background text-sm font-medium hover:bg-muted transition-colors inline-flex items-center gap-2"
           title="시나리오 관리로"
         >
           <ArrowLeft className="w-4 h-4" />
           뒤로
-        </button>
+        </PageActionButton>
       }
     >
 
@@ -589,8 +621,8 @@ export function TestCase() {
                     포스트맨으로 내보내기
                   </button>
                   <FinixPrimaryButton
-                    onClick={() => void handleRunTest()}
-                    disabled={running}
+                    onClick={() => void openScenarioRunDialog()}
+                    disabled={running || testCases.length === 0}
                     className="px-6 h-10"
                   >
                     <Play className="w-4 h-4" />
@@ -652,6 +684,54 @@ export function TestCase() {
               </div>
             </>
           )}
+
+          <Dialog
+            open={scenarioRunOpen}
+            onOpenChange={(open) => {
+              if (!running) setScenarioRunOpen(open);
+            }}
+          >
+            <DialogContent className="w-full max-w-md rounded-sm">
+              <DialogHeader>
+                <DialogTitle className="pr-10">시나리오 실행</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-1">
+                    <span>{scenarioTitle || `#${scenarioId}`}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      테스트 케이스 {testCases.length}개 · inject/extract 적용 후 실행
+                    </span>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <ScenarioRunDialogForm
+                postmanConfig={scenarioRunDraft}
+                onPostmanConfigChange={setScenarioRunDraft}
+                mode={scenarioRunMode}
+                onModeChange={setScenarioRunMode}
+              />
+              {scenarioRunError ? (
+                <p className="text-sm text-destructive">{scenarioRunError}</p>
+              ) : null}
+              <DialogFooter className="gap-2 sm:gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded-sm border border-border hover:bg-muted"
+                  onClick={() => setScenarioRunOpen(false)}
+                  disabled={running}
+                >
+                  취소
+                </button>
+                <FinixPrimaryButton
+                  onClick={() => void confirmScenarioRun()}
+                  disabled={running}
+                  className="px-4 h-9"
+                >
+                  <Play className="w-4 h-4" />
+                  {running ? "실행 중…" : "실행"}
+                </FinixPrimaryButton>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog
             open={postmanExportOpen}

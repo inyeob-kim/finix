@@ -1,5 +1,7 @@
 """HTTP routes for executions (v1)."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_execution_service
@@ -24,6 +26,7 @@ async def create_execution_v1(
     run = await service.create_run_for_scenario(
         scenario_id=payload.scenario_id,
         base_url=payload.base_url,
+        mode=payload.mode,
     )
     return execution_run_to_detail(run)
 
@@ -33,9 +36,18 @@ async def list_executions_v1(
     service: ExecutionService = Depends(get_execution_service),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    created_from: datetime | None = Query(default=None),
+    created_to: datetime | None = Query(default=None),
+    scenario_id: int | None = Query(default=None, ge=1),
 ) -> ExecutionListResponseV1:
     """Paginated execution history."""
-    rows, total = await service.list_runs_page(limit=limit, offset=offset)
+    rows, total = await service.list_runs_page(
+        limit=limit,
+        offset=offset,
+        created_from=created_from,
+        created_to=created_to,
+        scenario_id=scenario_id,
+    )
     return ExecutionListResponseV1(
         items=[execution_run_to_list_item(r) for r in rows],
         total=total,

@@ -14,15 +14,20 @@ if str(_BACKEND) not in sys.path:
 
 async def main() -> None:
     from app.core.config import get_settings
-    from app.core.deps import get_llm_client
+    from app.core.deps import get_embedding_llm_client, get_llm_client
     from app.db.session import get_session_factory
     from app.repositories.manual_chunk_repo import ManualChunkRepository
     from app.services.manual_rag_service import ManualRagService
 
     settings = get_settings()
     llm = get_llm_client()
-    if llm is None:
-        print("ERROR: LLM_API_KEY is not set", file=sys.stderr)
+    embedding_llm = get_embedding_llm_client()
+    if embedding_llm is None:
+        print(
+            "ERROR: Set LLM_EMBEDDING_API_KEY (OpenAI sk-...) in backend/.env, "
+            "or use LLM_PROVIDER=openai for chat+embeddings.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     factory = get_session_factory()
@@ -30,7 +35,8 @@ async def main() -> None:
         repo = ManualChunkRepository(session)
         svc = ManualRagService(
             repo=repo,
-            llm=llm,
+            llm=llm or embedding_llm,
+            embedding_llm=embedding_llm,
             manual_path=settings.manual_md_path,
             manual_docs_dir=settings.manual_docs_dir,
             embedding_model=settings.llm_embedding_model,

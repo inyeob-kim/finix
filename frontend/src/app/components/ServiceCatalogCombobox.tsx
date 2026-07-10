@@ -203,7 +203,7 @@ export function ServiceCatalogCombobox({
                   type="button"
                   className={cn(
                     "w-full text-left px-3 py-2 text-sm flex items-center gap-3 border-b border-border last:border-b-0",
-                    isActive && "bg-[#5b8cff]/15 ring-1 ring-inset ring-[#5b8cff]/40",
+                    isActive && "bg-primary/15 ring-1 ring-inset ring-primary/40",
                     !isActive && "hover:bg-muted/60",
                   )}
                   onMouseDown={(e) => e.preventDefault()}

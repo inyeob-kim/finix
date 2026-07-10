@@ -4,6 +4,7 @@ import {
     FINIX_LARGE_MODAL_CONTENT,
     FINIX_LARGE_MODAL_MAX_WIDTH,
 } from "@/lib/finixModalLayout";
+import { PAGE_SECTION_STACK_CLASS } from "@/lib/finixShellLayout";
 import {
     defaultCollectionPostmanZipName,
     defaultSinglePostmanDownloadName,
@@ -16,14 +17,24 @@ import {
     exportRegistryScenarioPostman,
 } from "@/lib/registryScenarioExport";
 import {
+    canRunRegistryScenario,
+    runRegistryCollectionScenarios,
+    runRegistryScenario,
+    type ScenarioRunMode,
+} from "@/lib/registryScenarioRun";
+import {
     migrateBindingsToStepKeys,
     type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
+import { resolveScenarioCaseType } from "@/lib/scenarioCaseTypeFilter";
 import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
 import {
-    emptyPostmanConfig,
-    ensurePostmanConfig,
-    startVarKeysFromConfig,
+  buildExecutionBatchPath,
+} from "@/lib/executionBatchView";
+import {
+  ensurePostmanConfig,
+  emptyPostmanConfig,
+  startVarKeysFromConfig,
 } from "@/lib/scenarioPostmanVariables";
 import {
     buildRunStepsFromPicks,
@@ -40,6 +51,7 @@ import {
     PanelRightClose,
     PanelRightOpen,
     Pencil,
+    Play,
     Plus,
     Search,
     Sparkles,
@@ -57,22 +69,30 @@ import {
 } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { listTestCasesByServiceCode } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
 import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
 import { useAuthStore } from "../auth/authStore";
 import { PageShell } from "./PageShell";
+import { FinixScenarioStatusBadge } from "./ui/finix-status-badge";
 import { ScenarioAiSuggestionsPanel } from "./scenario/ScenarioAiSuggestionsPanel";
 import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
 import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizardStep";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
+import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
 import { ConfirmPopover } from "./scenarioRegistry/components/ConfirmPopover";
+import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
+import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
 import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
 import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
 import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
+import {
+  repairRegistryFolderLinks,
+  resolveScenarioFolderId,
+} from "./scenarioRegistry/registryFolderSync";
 import type {
     RegistryStatus,
     ScenarioRegistryFolder,
@@ -141,6 +161,7 @@ function mapPersistedTestcaseToRef(
 
 export function ScenarioRegistry() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuthStore();
   const updatedBy = user?.username ?? "unknown";
 
@@ -212,6 +233,7 @@ export function ScenarioRegistry() {
   const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<
     string | null
   >(null);
+  const [folderDeleteConfirmText, setFolderDeleteConfirmText] = useState("");
   const [confirmDeleteScenarioId, setConfirmDeleteScenarioId] = useState<
     string | null
   >(null);
@@ -236,6 +258,24 @@ export function ScenarioRegistry() {
     null,
   );
   const [collectionExportProgress, setCollectionExportProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [scenarioRunTarget, setScenarioRunTarget] =
+    useState<ScenarioRegistryItem | null>(null);
+  const [scenarioRunDraft, setScenarioRunDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [scenarioRunMode, setScenarioRunMode] = useState<ScenarioRunMode>("live");
+  const [scenarioRunLoading, setScenarioRunLoading] = useState(false);
+  const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
+  const [collectionRunOpen, setCollectionRunOpen] = useState(false);
+  const [collectionRunDraft, setCollectionRunDraft] =
+    useState<ScenarioPostmanConfig>(emptyPostmanConfig);
+  const [collectionRunMode, setCollectionRunMode] = useState<ScenarioRunMode>("live");
+  const [collectionRunLoading, setCollectionRunLoading] = useState(false);
+  const [collectionRunError, setCollectionRunError] = useState<string | null>(null);
+  const [collectionRunProgress, setCollectionRunProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -293,11 +333,37 @@ export function ScenarioRegistry() {
 
   useEffect(() => {
     const loaded = loadRegistryState(updatedBy);
+    const repaired = repairRegistryFolderLinks(
+      loaded.folders,
+      loaded.scenarios,
+      loaded.selectedFolderId,
+    );
     setFolders(loaded.folders);
-    setItems(loaded.scenarios);
-    setSelectedFolderId(loaded.selectedFolderId);
+    setItems(repaired.scenarios);
+    setSelectedFolderId(repaired.selectedFolderId);
     setHydrated(loaded.hydrated);
   }, [updatedBy]);
+
+  const folderIdsKey = useMemo(
+    () => folders.map((folder) => folder.id).join("|"),
+    [folders],
+  );
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const repaired = repairRegistryFolderLinks(folders, items, selectedFolderId);
+    if (repaired.selectedFolderId !== selectedFolderId) {
+      setSelectedFolderId(repaired.selectedFolderId);
+    }
+    const changed = repaired.scenarios.some(
+      (scenario, index) => scenario.folderId !== items[index]?.folderId,
+    );
+    if (changed) {
+      setItems(repaired.scenarios);
+    }
+    // Repair when collection structure changes (create/delete/import).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, folderIdsKey]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -336,6 +402,28 @@ export function ScenarioRegistry() {
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }, [items, query, statusFilter, tagFilter, selectedFolderId]);
+
+  const scenarioListEmptyCopy = useMemo(() => {
+    if (folders.length === 0) {
+      return {
+        title: "컬렉션이 없습니다.",
+        detail: "왼쪽에서 컬렉션을 만든 뒤 시나리오를 등록할 수 있습니다.",
+        canRegister: false,
+      };
+    }
+    if (!selectedFolderId) {
+      return {
+        title: "컬렉션을 선택해 주세요.",
+        detail: "왼쪽 목록에서 컬렉션을 선택하면 시나리오가 표시됩니다.",
+        canRegister: false,
+      };
+    }
+    return {
+      title: "이 컬렉션에 등록된 시나리오가 없습니다.",
+      detail: undefined,
+      canRegister: true,
+    };
+  }, [folders.length, selectedFolderId]);
 
   const selectedRuleIdSet = useMemo(
     () => new Set(selectedRulePicks.map((r) => r.id)),
@@ -409,11 +497,14 @@ export function ScenarioRegistry() {
     setSelectedRulePicks((prev) => prev.filter((x) => x.id !== id));
   };
 
-  const addAllRulesToSelected = () => {
+  const addRulesByCaseType = (caseType: "E" | "N" | "all") => {
     setSelectedRulePicks((prev) => {
       const seen = new Set(prev.map((x) => x.id));
       const next = [...prev];
       for (const row of leftRulePool) {
+        if (caseType !== "all" && resolveScenarioCaseType(row) !== caseType) {
+          continue;
+        }
         if (seen.has(row.id)) continue;
         seen.add(row.id);
         next.push(row);
@@ -584,6 +675,10 @@ export function ScenarioRegistry() {
   };
 
   const startCreate = () => {
+    if (folders.length === 0) {
+      setError("시나리오를 등록하려면 컬렉션을 먼저 만드세요.");
+      return;
+    }
     resetForm();
     setOpen(true);
   };
@@ -653,10 +748,20 @@ export function ScenarioRegistry() {
     const nextRulePicks = [...selectedRulePicks];
     const stamp = nowStamp();
 
+    const resolvedFolderId = resolveScenarioFolderId(
+      folderId,
+      selectedFolderId,
+      folders,
+    );
+    if (!resolvedFolderId) {
+      setError("시나리오를 등록하려면 컬렉션을 먼저 만들고 선택하세요.");
+      return;
+    }
+
     if (!editingId) {
       const item: ScenarioRegistryItem = {
         id: newId(),
-        folderId: folderId || selectedFolderId || folders[0]?.id || "",
+        folderId: resolvedFolderId,
         title: trimmedTitle,
         description: description.trim(),
         tags: nextTags,
@@ -685,7 +790,7 @@ export function ScenarioRegistry() {
         if (i.id !== editingId) return i;
         return {
           ...i,
-          folderId: folderId || i.folderId,
+          folderId: resolveScenarioFolderId(folderId, i.folderId, folders) ?? i.folderId,
           title: trimmedTitle,
           description: description.trim(),
           tags: nextTags,
@@ -846,6 +951,171 @@ export function ScenarioRegistry() {
     }
   };
 
+  const openScenarioRunDialog = (item: ScenarioRegistryItem) => {
+    if (!canRunRegistryScenario(item)) {
+      setError(
+        "실행하려면 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
+      );
+      return;
+    }
+    setScenarioRunError(null);
+    setScenarioRunDraft(ensurePostmanConfig(item.postmanConfig));
+    setScenarioRunMode("live");
+    setScenarioRunTarget(item);
+  };
+
+  const closeScenarioRunDialog = () => {
+    if (scenarioRunLoading) return;
+    setScenarioRunTarget(null);
+    setScenarioRunError(null);
+  };
+
+  const confirmScenarioRun = async () => {
+    const item = scenarioRunTarget;
+    if (!item || !canRunRegistryScenario(item)) return;
+    if (scenarioRunMode === "live" && !scenarioRunDraft.baseUrl.trim()) {
+      setScenarioRunError("Live 실행에는 baseUrl이 필요합니다.");
+      return;
+    }
+
+    setScenarioRunLoading(true);
+    setRunningId(item.id);
+    setScenarioRunError(null);
+    setError(null);
+    try {
+      const itemWithPostman = { ...item, postmanConfig: scenarioRunDraft };
+      const { scenarioId, executionId } = await runRegistryScenario({
+        item: itemWithPostman,
+        postmanConfig: scenarioRunDraft,
+        mode: scenarioRunMode,
+      });
+      setItems((prev) =>
+        prev.map((row) =>
+          row.id === item.id
+            ? {
+                ...row,
+                backendScenarioId: scenarioId,
+                postmanConfig: scenarioRunDraft,
+              }
+            : row,
+        ),
+      );
+      setScenarioRunTarget(null);
+      navigate(`/execution-result/${executionId}`, {
+        state: { from: location.pathname },
+      });
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "시나리오 실행에 실패했습니다.";
+      setScenarioRunError(message);
+      setError(message);
+    } finally {
+      setScenarioRunLoading(false);
+      setRunningId(null);
+    }
+  };
+
+  const openCollectionRunDialog = () => {
+    if (!selectedFolderId) {
+      setError("컬렉션을 먼저 선택하세요.");
+      return;
+    }
+    if (collectionExportStats.exportableCount === 0) {
+      setError(
+        "실행할 시나리오가 없습니다. DB 테스트 케이스가 포함된 시나리오만 실행할 수 있습니다.",
+      );
+      return;
+    }
+    setCollectionRunError(null);
+    setCollectionRunProgress(null);
+    setCollectionRunDraft({
+      ...emptyPostmanConfig(),
+      baseUrl: pickInitialExportBaseUrl(collectionExportStats.exportable),
+    });
+    setCollectionRunMode("live");
+    setCollectionRunOpen(true);
+  };
+
+  const closeCollectionRunDialog = () => {
+    if (collectionRunLoading) return;
+    setCollectionRunOpen(false);
+    setCollectionRunError(null);
+    setCollectionRunProgress(null);
+  };
+
+  const confirmCollectionRun = async () => {
+    if (!selectedFolderId) return;
+    if (collectionRunMode === "live" && !collectionRunDraft.baseUrl.trim()) {
+      setCollectionRunError("Live 실행에는 baseUrl이 필요합니다.");
+      return;
+    }
+
+    setCollectionRunLoading(true);
+    setCollectionRunError(null);
+    setCollectionRunProgress({
+      done: 0,
+      total: collectionExportStats.exportableCount,
+    });
+    setError(null);
+    try {
+      const result = await runRegistryCollectionScenarios(
+        scenariosInSelectedFolder,
+        {
+          baseUrlOverride: collectionRunDraft.baseUrl,
+          mode: collectionRunMode,
+        },
+        (done, total) => setCollectionRunProgress({ done, total }),
+      );
+      setItems((prev) =>
+        prev.map((row) => {
+          const run = result.runs.find((r) => r.itemId === row.id);
+          if (!run) return row;
+          return {
+            ...row,
+            backendScenarioId: run.scenarioId,
+            postmanConfig: mergeExportPostmanConfig(
+              row.postmanConfig,
+              collectionRunDraft.baseUrl,
+            ),
+          };
+        }),
+      );
+      setCollectionRunOpen(false);
+      const collectionName = selectedFolderId
+        ? getFolderLabel(folderOptions, selectedFolderId)
+        : undefined;
+      navigate(
+        buildExecutionBatchPath(result.runs.map((r) => r.executionId)),
+        {
+          state: {
+            from: location.pathname,
+            batchMeta: {
+              runs: result.runs,
+              skipped: result.skipped,
+              errors: result.errors,
+              collectionName,
+            },
+          },
+        },
+      );
+      if (result.errors.length > 0) {
+        const preview = result.errors.slice(0, 2).join(" · ");
+        const suffix = result.errors.length > 2 ? " …" : "";
+        setError(
+          `실행 ${result.runs.length}건 완료. ${result.errors.length}건 실패: ${preview}${suffix}`,
+        );
+      }
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "컬렉션 실행에 실패했습니다.";
+      setCollectionRunError(message);
+      setError(message);
+    } finally {
+      setCollectionRunLoading(false);
+      setCollectionRunProgress(null);
+    }
+  };
+
   const remove = (id: string) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
@@ -912,56 +1182,65 @@ export function ScenarioRegistry() {
 
     const hasChildren = folders.some((x) => x.parentId === id);
     if (hasChildren) {
-      setError("하위 폴더가 있는 폴더는 삭제할 수 없습니다.");
+      setError(
+        "하위 컬렉션이 있으면 삭제할 수 없습니다. 하위 컬렉션을 먼저 삭제하세요.",
+      );
       return;
     }
+
+    setError(null);
+    setFolderDeleteConfirmText("");
     setConfirmDeleteFolderId(id);
   };
 
-  const applyDeleteFolder = (idOverride?: string) => {
-    const id = idOverride ?? confirmDeleteFolderId;
+  const closeFolderDeleteDialog = () => {
+    setConfirmDeleteFolderId(null);
+    setFolderDeleteConfirmText("");
+  };
+
+  const applyDeleteFolder = () => {
+    const id = confirmDeleteFolderId;
     if (!id) return;
 
     const f = folders.find((x) => x.id === id);
     if (!f) {
-      setConfirmDeleteFolderId(null);
+      closeFolderDeleteDialog();
       return;
     }
 
-    // Choose a fallback folder that is NOT the one being deleted.
-    const fallbackExisting =
-      f.parentId ?? folders.find((x) => x.parentId == null && x.id !== id)?.id;
-
-    // If this is the last remaining folder, create a new root so the UI doesn't go blank.
-    const needNewRoot = !fallbackExisting && folders.length <= 1;
-    const stamp = nowStamp();
-    const newRoot: ScenarioRegistryFolder | null = needNewRoot
-      ? {
-          id: newId(),
-          name: "Default",
-          parentId: null,
-          createdAt: stamp,
-          updatedAt: stamp,
-          updatedBy,
-        }
-      : null;
-
-    const fallback = fallbackExisting ?? newRoot?.id ?? null;
-
-    if (fallback) {
-      setItems((prev) =>
-        prev.map((s) => (s.folderId === id ? { ...s, folderId: fallback } : s)),
-      );
+    const scenariosInFolder = items.filter((s) => s.folderId === id);
+    if (!canConfirmFolderDelete(scenariosInFolder.length, folderDeleteConfirmText)) {
+      return;
     }
 
-    setFolders((prev) => {
-      const kept = prev.filter((x) => x.id !== id);
-      return newRoot ? [newRoot, ...kept] : kept;
-    });
+    setItems((prev) => prev.filter((s) => s.folderId !== id));
+    setFolders((prev) => prev.filter((x) => x.id !== id));
 
-    if (selectedFolderId === id) setSelectedFolderId(fallback);
-    setConfirmDeleteFolderId(null);
+    if (selectedFolderId === id) {
+      const remaining = folders.filter((x) => x.id !== id);
+      setSelectedFolderId(remaining[0]?.id ?? null);
+    }
+
+    if (
+      selectedScenarioId &&
+      scenariosInFolder.some((s) => s.id === selectedScenarioId)
+    ) {
+      setSelectedScenarioId(null);
+    }
+
+    closeFolderDeleteDialog();
+    setError(null);
   };
+
+  const folderPendingDelete = useMemo(
+    () => folders.find((x) => x.id === confirmDeleteFolderId) ?? null,
+    [confirmDeleteFolderId, folders],
+  );
+
+  const folderDeleteScenarioCount = useMemo(() => {
+    if (!confirmDeleteFolderId) return 0;
+    return items.filter((s) => s.folderId === confirmDeleteFolderId).length;
+  }, [confirmDeleteFolderId, items]);
 
   const exportJson = () => {
     const payload: ScenarioRegistryStateV2 = {
@@ -985,8 +1264,13 @@ export function ScenarioRegistry() {
       return;
     }
     setFolders(parsed.folders ?? []);
-    setItems(parsed.scenarios ?? []);
-    setSelectedFolderId(parsed.folders?.[0]?.id ?? null);
+    const repaired = repairRegistryFolderLinks(
+      parsed.folders ?? [],
+      parsed.scenarios ?? [],
+      parsed.folders?.[0]?.id ?? null,
+    );
+    setItems(repaired.scenarios);
+    setSelectedFolderId(repaired.selectedFolderId);
     setIoDialog(null);
     setError(null);
   };
@@ -1038,6 +1322,8 @@ export function ScenarioRegistry() {
       title="시나리오 관리"
     >
 
+        <div className={`${PAGE_SECTION_STACK_CLASS} flex-1 min-h-0`}>
+
         {error ? (
           <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
@@ -1055,8 +1341,8 @@ export function ScenarioRegistry() {
                   }
                 >
                   <option value="">전체</option>
-                  <option value="active">Active</option>
-                  <option value="draft">Draft</option>
+                  <option value="active">운영</option>
+                  <option value="draft">초안</option>
                 </FinixUnderlineSelect>
               </FinixField>
               <FinixField label="태그" className="min-w-[12rem]">
@@ -1107,16 +1393,12 @@ export function ScenarioRegistry() {
                 ) : (
                   <FolderTreeList
                     folderOptions={folderOptions}
-                    folders={folders}
                     folderSummary={folderSummary}
                     selectedFolderId={selectedFolderId}
                     setSelectedFolderId={setSelectedFolderId}
                     startCreateFolder={startCreateFolder}
                     startEditFolder={startEditFolder}
                     removeFolder={removeFolder}
-                    applyDeleteFolder={applyDeleteFolder}
-                    confirmDeleteFolderId={confirmDeleteFolderId}
-                    setConfirmDeleteFolderId={setConfirmDeleteFolderId}
                   />
                 )}
               </div>
@@ -1136,6 +1418,18 @@ export function ScenarioRegistry() {
                   <button
                     type="button"
                     className="h-9 px-2.5 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                    onClick={openCollectionRunDialog}
+                    disabled={
+                      !selectedFolderId || collectionExportStats.exportableCount === 0
+                    }
+                    title="컬렉션 시나리오 전체 실행"
+                  >
+                    <Play className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">전체 실행</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="h-9 px-2.5 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
                     onClick={openCollectionExportDialog}
                     disabled={
                       !selectedFolderId || collectionExportStats.exportableCount === 0
@@ -1147,6 +1441,7 @@ export function ScenarioRegistry() {
                   </button>
                   <FinixPrimaryButton
                     onClick={startCreate}
+                    disabled={folders.length === 0}
                     className="h-9 px-3 w-auto rounded-sm text-sm"
                   >
                     <Plus className="w-4 h-4" />
@@ -1154,7 +1449,15 @@ export function ScenarioRegistry() {
                   </FinixPrimaryButton>
                 </div>
               </div>
-              <div className="overflow-auto">
+              <div className="flex flex-col lg:flex-row lg:items-stretch flex-1 min-h-0 overflow-hidden">
+                <div
+                  className={[
+                    "flex-1 min-w-0 overflow-auto",
+                    !previewCollapsed
+                      ? "lg:w-1/2 lg:max-h-[min(70vh,800px)]"
+                      : "w-full",
+                  ].join(" ")}
+                >
                 <Table>
                   <TableHeader className="bg-muted/60">
                     <TableRow className="hover:bg-transparent border-b border-border">
@@ -1187,23 +1490,31 @@ export function ScenarioRegistry() {
                         >
                           <div className="max-w-lg mx-auto space-y-4">
                             <div className="text-sm font-medium text-foreground">
-                              이 컬렉션에 등록된 시나리오가 없습니다.
+                              {scenarioListEmptyCopy.title}
                             </div>
-                            <div className="flex items-center justify-center pt-1">
-                              <FinixPrimaryButton
-                                onClick={startCreate}
-                                className="h-9 px-4 w-auto rounded-sm text-sm"
-                              >
-                                <Plus className="w-4 h-4" />
-                                시나리오 등록
-                              </FinixPrimaryButton>
-                            </div>
+                            {scenarioListEmptyCopy.detail ? (
+                              <div className="text-sm text-muted-foreground">
+                                {scenarioListEmptyCopy.detail}
+                              </div>
+                            ) : null}
+                            {scenarioListEmptyCopy.canRegister ? (
+                              <div className="flex items-center justify-center pt-1">
+                                <FinixPrimaryButton
+                                  onClick={startCreate}
+                                  className="h-9 px-4 w-auto rounded-sm text-sm"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  시나리오 등록
+                                </FinixPrimaryButton>
+                              </div>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>
                     ) : (
                       filtered.map((item) => {
                         const isSelected = item.id === selectedScenarioId;
+                        const rowActive = isSelected && !previewCollapsed;
                         const tcCount = item.selectedRuleTestcases?.length ?? 0;
                         return (
                         <TableRow
@@ -1211,7 +1522,11 @@ export function ScenarioRegistry() {
                           className={[
                             "border-b border-border cursor-pointer",
                             "hover:bg-muted/40",
-                            isSelected ? "bg-muted/50" : "",
+                            rowActive
+                              ? "bg-primary/5 border-l-2 border-l-primary pl-2 -ml-1"
+                              : isSelected
+                                ? "bg-muted/50"
+                                : "",
                           ].join(" ")}
                           onClick={() => togglePreviewFor(item.id)}
                         >
@@ -1229,16 +1544,7 @@ export function ScenarioRegistry() {
                             </div>
                           </TableCell>
                           <TableCell className="py-3 align-top">
-                            <span
-                              className={[
-                                "inline-flex items-center px-2.5 py-0.5 rounded-sm text-[11px] font-medium border",
-                                item.status === "active"
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                  : "bg-[#5b8cff]/10 text-[#3d6ff2] border-[#5b8cff]/25",
-                              ].join(" ")}
-                            >
-                              {item.status === "active" ? "Active" : "Draft"}
-                            </span>
+                            <FinixScenarioStatusBadge status={item.status} />
                           </TableCell>
                           <TableCell className="py-3 align-top text-xs text-muted-foreground">
                             {item.tags.slice(0, 2).join(", ")}
@@ -1257,7 +1563,8 @@ export function ScenarioRegistry() {
                                 navigate("/history");
                               }}
                               className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                              title="View Report"
+                              aria-label="실행 이력"
+                              title="실행 이력"
                             >
                               <BarChart3 className="w-4 h-4" />
                             </button>
@@ -1267,6 +1574,13 @@ export function ScenarioRegistry() {
                     )}
                   </TableBody>
                 </Table>
+                </div>
+                {!previewCollapsed ? (
+                  <ScenarioPreviewPanel
+                    selectedScenario={selectedScenario}
+                    onClose={() => setPreviewCollapsed(true)}
+                  />
+                ) : null}
               </div>
             </div>
           </div>
@@ -1298,16 +1612,12 @@ export function ScenarioRegistry() {
                     ) : (
                       <FolderTreeList
                         folderOptions={folderOptions}
-                        folders={folders}
                         folderSummary={folderSummary}
                         selectedFolderId={selectedFolderId}
                         setSelectedFolderId={setSelectedFolderId}
                         startCreateFolder={startCreateFolder}
                         startEditFolder={startEditFolder}
                         removeFolder={removeFolder}
-                        applyDeleteFolder={applyDeleteFolder}
-                        confirmDeleteFolderId={confirmDeleteFolderId}
-                        setConfirmDeleteFolderId={setConfirmDeleteFolderId}
                       />
                     )}
                   </div>
@@ -1332,6 +1642,19 @@ export function ScenarioRegistry() {
                       <button
                         type="button"
                         className="h-9 px-3 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+                        onClick={openCollectionRunDialog}
+                        disabled={
+                          !selectedFolderId ||
+                          collectionExportStats.exportableCount === 0
+                        }
+                        title="컬렉션 시나리오 전체 실행"
+                      >
+                        <Play className="w-4 h-4" />
+                        전체 실행
+                      </button>
+                      <button
+                        type="button"
+                        className="h-9 px-3 rounded-sm border border-border bg-card text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors inline-flex items-center gap-2 disabled:opacity-50"
                         onClick={openCollectionExportDialog}
                         disabled={
                           !selectedFolderId ||
@@ -1344,6 +1667,7 @@ export function ScenarioRegistry() {
                       </button>
                       <FinixPrimaryButton
                         onClick={startCreate}
+                        disabled={folders.length === 0}
                         className="h-9 px-3 w-auto rounded-sm text-sm"
                       >
                         <Plus className="w-4 h-4" />
@@ -1351,8 +1675,15 @@ export function ScenarioRegistry() {
                       </FinixPrimaryButton>
                     </div>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-hidden flex">
-                    <div className="flex-1 min-w-0 overflow-auto">
+                  <div className="flex flex-col lg:flex-row lg:items-stretch flex-1 min-h-0 overflow-hidden">
+                    <div
+                      className={[
+                        "flex-1 min-w-0 overflow-auto",
+                        !previewCollapsed
+                          ? "lg:w-1/2 lg:max-h-[min(70vh,800px)]"
+                          : "w-full",
+                      ].join(" ")}
+                    >
                       <Table>
                       <TableHeader className="bg-muted/60">
                         <TableRow className="hover:bg-transparent border-b border-border">
@@ -1385,23 +1716,31 @@ export function ScenarioRegistry() {
                             >
                               <div className="max-w-lg mx-auto space-y-4">
                                 <div className="text-sm font-medium text-foreground">
-                                  이 컬렉션에 등록된 시나리오가 없습니다.
+                                  {scenarioListEmptyCopy.title}
                                 </div>
-                                <div className="flex items-center justify-center pt-1">
-                                  <FinixPrimaryButton
-                                    onClick={startCreate}
-                                    className="h-9 px-4 w-auto rounded-sm text-sm"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                    시나리오 등록
-                                  </FinixPrimaryButton>
-                                </div>
+                                {scenarioListEmptyCopy.detail ? (
+                                  <div className="text-sm text-muted-foreground">
+                                    {scenarioListEmptyCopy.detail}
+                                  </div>
+                                ) : null}
+                                {scenarioListEmptyCopy.canRegister ? (
+                                  <div className="flex items-center justify-center pt-1">
+                                    <FinixPrimaryButton
+                                      onClick={startCreate}
+                                      className="h-9 px-4 w-auto rounded-sm text-sm"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                      시나리오 등록
+                                    </FinixPrimaryButton>
+                                  </div>
+                                ) : null}
                               </div>
                             </TableCell>
                           </TableRow>
                         ) : (
                           filtered.map((item) => {
                             const isSelected = item.id === selectedScenarioId;
+                            const rowActive = isSelected && !previewCollapsed;
                             const tcCount = item.selectedRuleTestcases?.length ?? 0;
                             return (
                             <TableRow
@@ -1409,7 +1748,11 @@ export function ScenarioRegistry() {
                               className={[
                                 "border-b border-border cursor-pointer",
                                 "hover:bg-muted/40",
-                                isSelected ? "bg-muted/50" : "",
+                                rowActive
+                                  ? "bg-primary/5 border-l-2 border-l-primary pl-2 -ml-1"
+                                  : isSelected
+                                    ? "bg-muted/50"
+                                    : "",
                               ].join(" ")}
                               onClick={() => togglePreviewFor(item.id)}
                             >
@@ -1427,16 +1770,7 @@ export function ScenarioRegistry() {
                                 </div>
                               </TableCell>
                               <TableCell className="py-3 align-top">
-                                <span
-                                  className={[
-                                    "inline-flex items-center px-2.5 py-0.5 rounded-sm text-[11px] font-medium border",
-                                    item.status === "active"
-                                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                      : "bg-[#5b8cff]/10 text-[#3d6ff2] border-[#5b8cff]/25",
-                                  ].join(" ")}
-                                >
-                                  {item.status === "active" ? "Active" : "Draft"}
-                                </span>
+                                <FinixScenarioStatusBadge status={item.status} />
                               </TableCell>
                               <TableCell className="py-3 align-top">
                                 <div className="flex flex-wrap gap-1 max-w-[220px]">
@@ -1473,6 +1807,25 @@ export function ScenarioRegistry() {
                                     title="편집"
                                   >
                                     <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openScenarioRunDialog(item);
+                                    }}
+                                    disabled={
+                                      runningId === item.id ||
+                                      !canRunRegistryScenario(item)
+                                    }
+                                    className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                    title={
+                                      canRunRegistryScenario(item)
+                                        ? "시나리오 실행"
+                                        : "DB 테스트 케이스가 포함된 시나리오만 실행 가능"
+                                    }
+                                  >
+                                    <Play className="w-4 h-4" />
                                   </button>
                                   <button
                                     type="button"
@@ -1527,16 +1880,19 @@ export function ScenarioRegistry() {
                     </Table>
                     </div>
 
-                    <ScenarioPreviewPanel
-                      previewCollapsed={previewCollapsed}
-                      setPreviewCollapsed={setPreviewCollapsed}
-                      selectedScenario={selectedScenario}
-                    />
+                    {!previewCollapsed ? (
+                      <ScenarioPreviewPanel
+                        selectedScenario={selectedScenario}
+                        onClose={() => setPreviewCollapsed(true)}
+                      />
+                    ) : null}
                   </div>
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
+        </div>
+
         </div>
 
       <Dialog
@@ -1635,7 +1991,7 @@ export function ScenarioRegistry() {
                   activeServiceCode={activeServiceCode}
                   onAdd={addRuleToSelected}
                   onRemove={removeRuleFromSelected}
-                  onAddAll={addAllRulesToSelected}
+                  onAddByCaseType={addRulesByCaseType}
                   onRemoveAll={removeAllRulesFromSelected}
                   parseDragRuleId={parseDragRuleId}
                 />
@@ -1670,8 +2026,8 @@ export function ScenarioRegistry() {
                       setStatus(e.target.value as RegistryStatus)
                     }
                   >
-                    <option value="draft">Draft</option>
-                    <option value="active">Active</option>
+                    <option value="draft">초안</option>
+                    <option value="active">운영</option>
                   </FinixUnderlineSelect>
                 </FinixField>
 
@@ -1679,12 +2035,17 @@ export function ScenarioRegistry() {
                   <FinixUnderlineSelect
                     value={folderId}
                     onChange={(e) => setFolderId(e.target.value)}
+                    disabled={folderOptions.length === 0}
                   >
-                    {folderOptions.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {`${"—".repeat(f.depth)} ${f.label}`}
-                      </option>
-                    ))}
+                    {folderOptions.length === 0 ? (
+                      <option value="">컬렉션을 먼저 만드세요</option>
+                    ) : (
+                      folderOptions.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {`${"—".repeat(f.depth)} ${f.label}`}
+                        </option>
+                      ))
+                    )}
                   </FinixUnderlineSelect>
                 </FinixField>
 
@@ -2081,6 +2442,161 @@ export function ScenarioRegistry() {
       </Dialog>
 
       <Dialog
+        open={scenarioRunTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) closeScenarioRunDialog();
+        }}
+      >
+        <DialogContent className="w-full max-w-md rounded-sm">
+          <DialogHeader>
+            <DialogTitle className="pr-10">시나리오 실행</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-1">
+                <span>{scenarioRunTarget?.title}</span>
+                <span className="block text-[11px] text-muted-foreground">
+                  변수 연결·헤더가 적용된 요청으로 실행합니다.
+                </span>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!scenarioRunLoading ? (
+            <ScenarioRunDialogForm
+              postmanConfig={scenarioRunDraft}
+              onPostmanConfigChange={setScenarioRunDraft}
+              mode={scenarioRunMode}
+              onModeChange={setScenarioRunMode}
+              baseUrlHint="baseUrl·헤더는 저장 후 이번 실행에 반영됩니다."
+            />
+          ) : null}
+
+          {scenarioRunLoading ? (
+            <div className="py-6">
+              <FinixLoading size="md" center label="시나리오 실행 중…" />
+            </div>
+          ) : scenarioRunError ? (
+            <p className="text-sm text-destructive">{scenarioRunError}</p>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
+              onClick={closeScenarioRunDialog}
+              disabled={scenarioRunLoading}
+            >
+              취소
+            </button>
+            <FinixPrimaryButton
+              onClick={() => void confirmScenarioRun()}
+              disabled={scenarioRunLoading || scenarioRunTarget === null}
+              className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
+            >
+              {scenarioRunLoading ? (
+                <>
+                  <FinixLoading size="sm" inline />
+                  실행 중…
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  실행
+                </>
+              )}
+            </FinixPrimaryButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={collectionRunOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCollectionRunDialog();
+        }}
+      >
+        <DialogContent className="w-full max-w-md rounded-sm">
+          <DialogHeader>
+            <DialogTitle className="pr-10">컬렉션 실행</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-1 text-sm">
+                <span>
+                  컬렉션 «
+                  {selectedFolderId
+                    ? getFolderLabel(folderOptions, selectedFolderId)
+                    : "—"}
+                  »의 시나리오{" "}
+                  <span className="font-medium text-foreground">
+                    {collectionExportStats.exportableCount}개
+                  </span>
+                  를 순서대로 실행합니다.
+                </span>
+                {collectionExportStats.skippedCount > 0 ? (
+                  <span className="block text-[11px] text-muted-foreground">
+                    DB 테스트 케이스가 없는 {collectionExportStats.skippedCount}
+                    개는 제외됩니다.
+                  </span>
+                ) : null}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!collectionRunLoading ? (
+            <ScenarioRunDialogForm
+              postmanConfig={collectionRunDraft}
+              onPostmanConfigChange={setCollectionRunDraft}
+              mode={collectionRunMode}
+              onModeChange={setCollectionRunMode}
+              baseUrlHint="baseUrl은 컬렉션 내 모든 시나리오 실행에 적용됩니다."
+            />
+          ) : null}
+
+          {collectionRunLoading ? (
+            <div className="py-6">
+              <FinixLoading
+                size="md"
+                center
+                label={
+                  collectionRunProgress
+                    ? `시나리오 ${collectionRunProgress.done}/${collectionRunProgress.total} 실행 중…`
+                    : "실행 중…"
+                }
+              />
+            </div>
+          ) : collectionRunError ? (
+            <p className="text-sm text-destructive">{collectionRunError}</p>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              type="button"
+              className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
+              onClick={closeCollectionRunDialog}
+              disabled={collectionRunLoading}
+            >
+              취소
+            </button>
+            <FinixPrimaryButton
+              onClick={() => void confirmCollectionRun()}
+              disabled={collectionRunLoading}
+              className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
+            >
+              {collectionRunLoading ? (
+                <>
+                  <FinixLoading size="sm" inline />
+                  실행 중…
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  전체 실행
+                </>
+              )}
+            </FinixPrimaryButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={ioDialog !== null}
         onOpenChange={(v) => {
           if (!v) {
@@ -2135,6 +2651,18 @@ export function ScenarioRegistry() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FolderDeleteAlertDialog
+        open={confirmDeleteFolderId != null}
+        folderName={folderPendingDelete?.name ?? null}
+        scenarioCount={folderDeleteScenarioCount}
+        confirmText={folderDeleteConfirmText}
+        onConfirmTextChange={setFolderDeleteConfirmText}
+        onOpenChange={(open) => {
+          if (!open) closeFolderDeleteDialog();
+        }}
+        onConfirm={applyDeleteFolder}
+      />
     </PageShell>
   );
 }

@@ -43,6 +43,20 @@ describe("scenarioRegistry/storage", () => {
     expect(loaded.selectedFolderId).toBe("f1");
   });
 
+  it("loads v2 with empty folders without re-seeding", () => {
+    const v2: ScenarioRegistryStateV2 = {
+      version: 2,
+      folders: [],
+      scenarios: [],
+    };
+    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(v2));
+    const loaded = loadRegistryState("u");
+    expect(loaded.folders).toEqual([]);
+    expect(loaded.scenarios).toEqual([]);
+    expect(loaded.selectedFolderId).toBeNull();
+    expect(loaded.hydrated).toBe(true);
+  });
+
   it("migrates v1 to v2", () => {
     const v1: ScenarioRegistryItem[] = [
       {

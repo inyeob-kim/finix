@@ -1,53 +1,39 @@
-"""Default FCC Postman request headers."""
+"""Default Postman request headers for FCC-style API collections."""
 
 from datetime import date
 
-from app.domain.postman_collection_config import PostmanCollectionConfig
+from app.domain.postman_collection_config import PostmanCollectionConfig, PostmanHeaderSpec
 from app.domain.postman_default_headers import (
     build_postman_request_headers,
     default_postman_header_specs,
     fcc_tx_date_today,
+    refresh_tx_dt_header_value,
 )
 
 
-def test_default_headers_include_fcc_channel_fields():
+def test_default_headers_content_type_only():
     rows = default_postman_header_specs()
-    keys = [r.key for r in rows]
-    assert keys[:5] == [
-        "Content-Type",
-        "instCd",
-        "deptId",
-        "txDt",
-        "staffId",
-    ]
-    assert "aprvlId" in keys
+    assert len(rows) == 1
+    assert rows[0].key == "Content-Type"
     assert rows[0].value == "application/json"
-    assert rows[1].value == "1001"
-    assert rows[2].value == "10001"
-    assert rows[3].value == fcc_tx_date_today()
-    assert rows[4].value == "1000013"
 
 
-def test_build_postman_request_headers_refreshes_tx_dt():
+def test_refresh_tx_dt_header_value_updates_stale_row():
     stale = [
-        row.model_copy(update={"value": "19990101"})
-        if row.key == "txDt"
-        else row
-        for row in default_postman_header_specs()
+        PostmanHeaderSpec(key="Content-Type", value="application/json"),
+        PostmanHeaderSpec(key="txDt", value="19990101"),
     ]
-    built = build_postman_request_headers(stale)
-    tx = next(h for h in built if h["key"] == "txDt")
-    assert tx["value"] == date.today().strftime("%Y%m%d")
+    refreshed = refresh_tx_dt_header_value(stale)
+    tx = next(r for r in refreshed if r.key == "txDt")
+    assert tx.value == date.today().strftime("%Y%m%d")
 
 
 def test_build_postman_request_headers_uses_config():
     cfg = PostmanCollectionConfig(default_headers=[])
     built = build_postman_request_headers(cfg.default_headers)
-    assert len(built) >= 8
-    assert built[0] == {"key": "Content-Type", "value": "application/json"}
+    assert built == []
 
 
-def test_empty_config_headers_falls_back_to_defaults():
+def test_empty_config_headers_falls_back_to_content_type():
     built = build_postman_request_headers(None)
-    assert any(h["key"] == "scrnId" for h in built)
-    assert next(h for h in built if h["key"] == "instCd")["value"] == "1001"
+    assert built == [{"key": "Content-Type", "value": "application/json"}]

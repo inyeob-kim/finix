@@ -14,12 +14,21 @@ def test_build_postman_collection_variables_merges_base_start_and_runtime():
         runtime_var_names=["arrIdNbr", "custId"],
     )
     keys = [r["key"] for r in rows]
-    assert keys == ["baseUrl", "custId", "arrIdNbr"]
+    assert keys[0] == "baseUrl"
+    assert "instCd" in keys
+    assert "custId" in keys
+    assert "arrIdNbr" in keys
     assert rows[0]["value"] == "https://api.test"
-    assert rows[1]["value"] == "C-1"
-    assert rows[2]["value"] == ""
+    cust = next(r for r in rows if r["key"] == "custId")
+    assert cust["value"] == "C-1"
+    arr = next(r for r in rows if r["key"] == "arrIdNbr")
+    assert arr["value"] == ""
 
 
-def test_build_postman_collection_variables_always_includes_base_url_key():
+def test_build_postman_collection_variables_includes_bxm_channel_defaults():
     rows = build_postman_collection_variables(None, runtime_var_names=[])
-    assert rows == [{"key": "baseUrl", "value": "", "type": "string"}]
+    keys = [r["key"] for r in rows]
+    assert keys[0] == "baseUrl"
+    assert "instCd" in keys
+    assert "chnlDscd" in keys
+    assert "lngCd" in keys

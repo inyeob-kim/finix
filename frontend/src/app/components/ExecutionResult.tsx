@@ -1,44 +1,51 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router";
-import {
-  CheckCircle2,
-  XCircle,
-  ChevronDown,
-  ChevronRight,
-  Lightbulb,
-} from "lucide-react";
-import { getExecution } from "@/api/executionApi";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { ArrowLeft, History, PlayCircle, RotateCw } from "lucide-react";
+import { getExecution, runScenarioExecution } from "@/api/executionApi";
+import { getScenario } from "@/api/scenarioApi";
 import { ApiError } from "@/api/client";
-import type { ExecutionDetailDto, ExecutionStepDto } from "@/api/types";
+import {
+  buildExecutionRerunPayload,
+  validateExecutionRerunPayload,
+} from "@/lib/executionRerun";
+import {
+  PAGE_SECTION_STACK_CLASS,
+} from "@/lib/finixShellLayout";
 import { PageShell } from "./PageShell";
-import { FinixLoadingPage } from "./ui/finix-loading";
-
-interface RowView {
-  step: string;
-  status: "passed" | "failed";
-  expected: unknown;
-  actual: unknown;
-  error?: string;
-}
-
-function mapSteps(rows: ExecutionStepDto[]): RowView[] {
-  return rows.map((s) => ({
-    step: s.step_label,
-    status: s.status,
-    expected: s.expected,
-    actual: s.actual,
-    error: s.error_message ?? undefined,
-  }));
-}
+import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
+import { ExecutionTimelinePanel } from "./execution/ExecutionTimelinePanel";
+import { PageActionButton } from "./ui/finix-page-action";
 
 export function ExecutionResult() {
   const { executionId: executionIdParam } = useParams();
   const executionId = Number(executionIdParam);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const backTo =
+    (location.state as { from?: string } | null)?.from ?? "/scenario-registry";
 
-  const [detail, setDetail] = useState<ExecutionDetailDto | null>(null);
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof getExecution>> | null>(null);
+  const [scenarioTitle, setScenarioTitle] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rerunning, setRerunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+  const [runError, setRunError] = useState<string | null>(null);
+
+  const loadDetail = useCallback(async (id: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getExecution(id);
+      setDetail(data);
+    } catch (e) {
+      setDetail(null);
+      setError(
+        e instanceof ApiError ? e.message : "결과를 불러오지 못했습니다.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!Number.isFinite(executionId)) {
@@ -46,50 +53,95 @@ export function ExecutionResult() {
       setLoading(false);
       return;
     }
+    setRerunning(false);
+    setRunError(null);
+    void loadDetail(executionId);
+  }, [executionId, loadDetail]);
+
+  useEffect(() => {
+    if (!detail?.scenario_id) {
+      setScenarioTitle(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const data = await getExecution(executionId);
-        if (!cancelled) {
-          setDetail(data);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof ApiError ? e.message : "결과를 불러오지 못했습니다.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        const scenario = await getScenario(detail.scenario_id!);
+        if (!cancelled) setScenarioTitle(scenario.title ?? null);
+      } catch {
+        if (!cancelled) setScenarioTitle(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [executionId]);
+  }, [detail?.scenario_id]);
 
-  const results = detail ? mapSteps(detail.steps) : [];
-  const summary = detail?.summary as { passed?: number; failed?: number } | undefined;
-  const passed =
-    summary?.passed ??
-    results.filter((r) => r.status === "passed").length;
-  const failed =
-    summary?.failed ??
-    results.filter((r) => r.status === "failed").length;
-
-  const toggleExpand = (index: number) => {
-    const next = new Set(expandedSteps);
-    if (next.has(index)) {
-      next.delete(index);
-    } else {
-      next.add(index);
+  const handleBack = () => {
+    if (backTo) {
+      navigate(backTo);
+      return;
     }
-    setExpandedSteps(next);
+    navigate(-1);
   };
+
+  const handleRunAgain = async () => {
+    if (!detail) return;
+    setRunError(null);
+    const payload = buildExecutionRerunPayload(detail);
+    if (!payload) {
+      setRunError("시나리오 ID가 없어 다시 실행할 수 없습니다.");
+      return;
+    }
+    const validationError = validateExecutionRerunPayload(payload);
+    if (validationError) {
+      setRunError(validationError);
+      return;
+    }
+    setRerunning(true);
+    try {
+      const result = await runScenarioExecution(payload);
+      navigate(`/execution-result/${result.id}`, {
+        state: { from: backTo },
+      });
+    } catch (e) {
+      setRunError(
+        e instanceof ApiError ? e.message : "다시 실행하지 못했습니다.",
+      );
+      setRerunning(false);
+    }
+  };
+
+  const canRerun = detail?.scenario_id != null;
+  const historyHref =
+    detail?.scenario_id != null
+      ? `/history?scenarioId=${detail.scenario_id}`
+      : "/history";
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {canRerun ? (
+        <PageActionButton
+          variant="primary"
+          onClick={() => void handleRunAgain()}
+          disabled={rerunning || loading}
+        >
+          <RotateCw className="w-4 h-4" />
+          다시 실행
+        </PageActionButton>
+      ) : null}
+      <PageActionButton
+        onClick={() => navigate(historyHref, { state: { from: location.pathname } })}
+      >
+        <History className="w-4 h-4" />
+        실행 이력
+      </PageActionButton>
+      <PageActionButton onClick={handleBack}>
+        <ArrowLeft className="w-4 h-4" />
+        뒤로
+      </PageActionButton>
+    </div>
+  );
 
   if (loading) {
     return <FinixLoadingPage label="결과를 불러오는 중…" />;
@@ -98,9 +150,10 @@ export function ExecutionResult() {
   if (error || !detail) {
     return (
       <PageShell
-        icon={<CheckCircle2 className="w-5 h-5" strokeWidth={2} />}
+        icon={<PlayCircle className="w-5 h-5" strokeWidth={2} />}
         title="실행 결과"
-        description="실행 요약과 단계별 비교(예상/실제)를 확인합니다."
+        description="Postman Run과 동일한 형식으로 테스트 결과를 확인합니다."
+        actions={actions}
       >
         <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive max-w-xl">
           {error ?? "결과를 찾을 수 없습니다."}
@@ -109,138 +162,37 @@ export function ExecutionResult() {
     );
   }
 
-  const ranAt = new Date(detail.created_at).toLocaleString("ko-KR");
+  const pageTitle = scenarioTitle?.trim()
+    ? `${scenarioTitle} — 실행 결과`
+    : `실행 결과 #${detail.id}`;
 
   return (
-    <PageShell
-      icon={<CheckCircle2 className="w-5 h-5" strokeWidth={2} />}
-      title="실행 결과"
-      description={`테스트 실행 완료: ${ranAt}`}
-    >
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-card border border-border rounded-sm p-6 shadow-sm">
-            <div className="text-sm text-muted-foreground mb-2">
-              전체 테스트
-            </div>
-            <div className="text-3xl">{results.length}</div>
+    <div className="relative flex flex-1 flex-col min-h-0 h-full">
+      <PageShell
+        icon={<PlayCircle className="w-5 h-5" strokeWidth={2} />}
+        title={pageTitle}
+        actions={actions}
+      >
+        <div className={PAGE_SECTION_STACK_CLASS}>
+        {runError ? (
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {runError}
           </div>
-          <div className="bg-card border border-border rounded-sm p-6 shadow-sm">
-            <div className="text-sm text-muted-foreground mb-2">성공</div>
-            <div className="text-3xl text-success">{passed}</div>
-          </div>
-          <div className="bg-card border border-border rounded-sm p-6 shadow-sm">
-            <div className="text-sm text-muted-foreground mb-2">실패</div>
-            <div className="text-3xl text-destructive">{failed}</div>
-          </div>
-      </div>
+        ) : null}
 
-        <div className="space-y-4">
-          <h3>테스트 단계</h3>
-          {results.map((result, index) => (
-            <div
-              key={`${result.step}-${index}`}
-              className="bg-card border border-border rounded-sm overflow-hidden shadow-sm"
-            >
-              <button
-                type="button"
-                onClick={() => toggleExpand(index)}
-                className="w-full flex items-center justify-between p-5 hover:bg-accent/5 transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  {result.status === "passed" ? (
-                    <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-destructive shrink-0" />
-                  )}
-                  <div className="text-left">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <h4>
-                        {index + 1}단계: {result.step}
-                      </h4>
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs ${
-                          result.status === "passed"
-                            ? "bg-success/10 text-success"
-                            : "bg-destructive/10 text-destructive"
-                        }`}
-                      >
-                        {result.status === "passed" ? "성공" : "실패"}
-                      </span>
-                    </div>
-                    {result.error && (
-                      <p className="text-sm text-destructive mt-1">
-                        {result.error}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {expandedSteps.has(index) ? (
-                  <ChevronDown className="w-5 h-5 text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
-                )}
-              </button>
-
-              {expandedSteps.has(index) && (
-                <div className="border-t border-border p-5 space-y-4 bg-secondary">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">
-                        예상 결과
-                      </label>
-                      <pre className="bg-card border border-border rounded-sm p-3 text-xs overflow-x-auto">
-                        <code>
-                          {JSON.stringify(result.expected, null, 2)}
-                        </code>
-                      </pre>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm text-muted-foreground">
-                        실제 결과
-                      </label>
-                      <pre className="bg-card border border-border rounded-sm p-3 text-xs overflow-x-auto">
-                        <code>
-                          {JSON.stringify(result.actual, null, 2)}
-                        </code>
-                      </pre>
-                      {typeof result.actual === "object" &&
-                      result.actual !== null &&
-                      "resolved_request_body" in result.actual ? (
-                        <div className="mt-2 space-y-1">
-                          <div className="text-[11px] font-medium text-muted-foreground">
-                            실행 시 요청 body
-                          </div>
-                          <pre className="bg-primary/5 border border-primary/20 rounded-sm p-2 text-xs overflow-x-auto">
-                            <code>
-                              {JSON.stringify(
-                                (result.actual as { resolved_request_body?: unknown })
-                                  .resolved_request_body,
-                                null,
-                                2,
-                              )}
-                            </code>
-                          </pre>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+        <ExecutionTimelinePanel detail={detail} />
         </div>
+      </PageShell>
 
-        {failed > 0 && (
-          <div className="bg-primary/5 border border-primary/20 rounded-md p-6 space-y-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Lightbulb className="w-5 h-5 text-primary" />
-              <h3>참고</h3>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              일부 단계가 예상과 다릅니다. 상세는 각 단계를 펼쳐 예상/실제 페이로드를 비교하세요.
-            </p>
-          </div>
-        )}
-    </PageShell>
+      {rerunning ? (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-background/80"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <FinixLoading size="lg" label="다시 실행 중…" center />
+        </div>
+      ) : null}
+    </div>
   );
 }

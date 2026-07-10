@@ -1,5 +1,7 @@
 """Async persistence for execution runs and step-level results."""
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -133,6 +135,9 @@ class ExecutionRepository:
         *,
         limit: int,
         offset: int,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        scenario_id: int | None = None,
     ) -> tuple[list[ExecutionRun], int]:
         """
         Page execution runs newest first.
@@ -140,15 +145,22 @@ class ExecutionRepository:
         Returns:
             Tuple of rows and total count.
         """
+        filters = []
+        if created_from is not None:
+            filters.append(ExecutionRun.created_at >= created_from)
+        if created_to is not None:
+            filters.append(ExecutionRun.created_at <= created_to)
+        if scenario_id is not None:
+            filters.append(ExecutionRun.scenario_id == scenario_id)
+
         count_stmt = select(func.count()).select_from(ExecutionRun)
-        total = int(
-            (await self._session.execute(count_stmt)).scalar_one(),
-        )
-        stmt = (
-            select(ExecutionRun)
-            .order_by(ExecutionRun.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        if filters:
+            count_stmt = count_stmt.where(*filters)
+        total = int((await self._session.execute(count_stmt)).scalar_one())
+
+        stmt = select(ExecutionRun).order_by(ExecutionRun.id.desc())
+        if filters:
+            stmt = stmt.where(*filters)
+        stmt = stmt.offset(offset).limit(limit)
         rows = list((await self._session.execute(stmt)).scalars().all())
         return rows, total

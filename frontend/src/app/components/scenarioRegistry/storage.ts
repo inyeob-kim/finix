@@ -27,7 +27,7 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
   const v2 = safeJsonParse<ScenarioRegistryStateV2>(
     localStorage.getItem(STORAGE_KEY_V2),
   );
-  if (v2?.version === 2 && (v2.folders?.length ?? 0) > 0) {
+  if (v2?.version === 2) {
     const folders = v2.folders ?? [];
     const scenarios = (v2.scenarios ?? []).map((x) => {
       const seq = ensureServiceSequence(x);

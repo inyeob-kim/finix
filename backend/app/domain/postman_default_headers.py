@@ -8,13 +8,6 @@ from app.domain.postman_collection_config import PostmanHeaderSpec
 
 _FCC_HEADER_TEMPLATE: tuple[tuple[str, str], ...] = (
     ("Content-Type", "application/json"),
-    ("instCd", "1001"),
-    ("deptId", "10001"),
-    ("txDt", ""),
-    ("staffId", "1000013"),
-    ("aprvlId", ""),
-    ("srvcCd", ""),
-    ("scrnId", ""),
 )
 
 
@@ -25,13 +18,10 @@ def fcc_tx_date_today() -> str:
 
 def default_postman_header_specs() -> list[PostmanHeaderSpec]:
     """Return a fresh copy of the platform default headers."""
-    today = fcc_tx_date_today()
-    rows: list[PostmanHeaderSpec] = []
-    for key, value in _FCC_HEADER_TEMPLATE:
-        rows.append(
-            PostmanHeaderSpec(key=key, value=today if key == "txDt" else value),
-        )
-    return rows
+    return [
+        PostmanHeaderSpec(key=key, value=value)
+        for key, value in _FCC_HEADER_TEMPLATE
+    ]
 
 
 def refresh_tx_dt_header_value(
@@ -52,7 +42,7 @@ def build_postman_request_headers(
     config_headers: list[PostmanHeaderSpec] | None = None,
 ) -> list[dict[str, str]]:
     """Build Postman Collection v2.1 ``request.header`` entries."""
-    rows = config_headers if config_headers else default_postman_header_specs()
+    rows = config_headers if config_headers is not None else default_postman_header_specs()
     rows = refresh_tx_dt_header_value(rows)
     out: list[dict[str, str]] = []
     seen: set[str] = set()

@@ -476,7 +476,7 @@ class TestCaseService:
         request_headers: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Build a Postman Collection v2.1 JSON document for one test case."""
-        from app.domain.postman_default_headers import build_postman_request_headers
+        from app.domain.postman_bxm_system_header import build_postman_export_request_headers
 
         body_raw = request_body if request_body is not None else loads_json(
             testcase.request_body_json, {},
@@ -484,7 +484,7 @@ class TestCaseService:
         headers = (
             request_headers
             if request_headers is not None
-            else build_postman_request_headers()
+            else build_postman_export_request_headers()
         )
         item: dict[str, Any] = {
             "name": testcase.name,
@@ -518,6 +518,12 @@ class TestCaseService:
         steps_json_override: str | None = None,
     ) -> dict[str, Any]:
         """Export all scenario test cases as one Postman collection."""
+        from app.domain.postman_bxm_system_header import (
+            bxm_item_srvc_cd_prerequest,
+            bxm_prerequest_collection_event,
+            build_postman_export_request_headers,
+            step_service_codes_from_steps,
+        )
         from app.domain.postman_chaining import (
             build_postman_request_body,
             merge_postman_events,
@@ -526,7 +532,6 @@ class TestCaseService:
             build_postman_collection_variables,
             collect_runtime_var_names_from_bindings,
         )
-        from app.domain.postman_default_headers import build_postman_request_headers
         from app.services.execution_simulator import simulate_response
         from app.services.scenario_run_resolver import (
             bindings_by_logical_step,
@@ -543,9 +548,8 @@ class TestCaseService:
 
         steps_json = steps_json_override if steps_json_override is not None else scenario.steps_json
         _raw_steps, postman_config = parse_steps_document(steps_json)
-        request_headers = build_postman_request_headers(
-            postman_config.default_headers if postman_config is not None else None,
-        )
+        request_headers = build_postman_export_request_headers()
+        step_service_codes = step_service_codes_from_steps(steps_json)
 
         use_native = native and resolved
         preview = None
@@ -590,15 +594,25 @@ class TestCaseService:
             else:
                 body = template
 
+            exp_body = loads_json(tc.expected_body_json, {})
+            if not isinstance(exp_body, dict):
+                exp_body = {}
+
             events = (
                 merge_postman_events(
                     extracts=extracts,
                     injects=injects,
                     expected_status=tc.expected_status,
+                    expected_body=exp_body,
+                    testcase_name=tc.name or "",
                 )
-                if use_native and (extracts or injects)
+                if use_native
                 else None
             )
+            svc_code = step_service_codes.get(logical_step)
+            svc_pre = bxm_item_srvc_cd_prerequest(svc_code) if svc_code else None
+            if svc_pre:
+                events = [svc_pre, *(events or [])]
             col = self.build_postman_collection(
                 tc,
                 request_body=body if isinstance(body, dict) else {},
@@ -623,6 +637,7 @@ class TestCaseService:
         }
         if collection_variables:
             payload["variable"] = collection_variables
+        payload["event"] = [bxm_prerequest_collection_event()]
         return payload
 
     @staticmethod

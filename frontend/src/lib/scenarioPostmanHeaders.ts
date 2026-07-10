@@ -8,13 +8,6 @@ export type PostmanHeaderRow = {
 
 const FCC_HEADER_TEMPLATE: ReadonlyArray<{ key: string; value: string }> = [
   { key: "Content-Type", value: "application/json" },
-  { key: "instCd", value: "1001" },
-  { key: "deptId", value: "10001" },
-  { key: "txDt", value: "" },
-  { key: "staffId", value: "1000013" },
-  { key: "aprvlId", value: "" },
-  { key: "srvcCd", value: "" },
-  { key: "scrnId", value: "" },
 ];
 
 /** FCC channel date header value (YYYYMMDD, local timezone). */
@@ -31,10 +24,7 @@ export function newHeaderRow(key = "", value = ""): PostmanHeaderRow {
 }
 
 export function defaultPostmanHeaderRows(): PostmanHeaderRow[] {
-  const today = fccTxDateToday();
-  return FCC_HEADER_TEMPLATE.map((row) =>
-    newHeaderRow(row.key, row.key === "txDt" ? today : row.value),
-  );
+  return FCC_HEADER_TEMPLATE.map((row) => newHeaderRow(row.key, row.value));
 }
 
 export function refreshTxDtHeader(headers: PostmanHeaderRow[]): PostmanHeaderRow[] {
@@ -55,7 +45,7 @@ export function isPostmanPlaceholderValue(value: string): boolean {
   return /^\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}$/.test(value.trim());
 }
 
-/** Replace old {{instCd}}-style FCC header rows with literal platform defaults. */
+/** Replace old {{instCd}}-style FCC header rows with minimal export headers. */
 export function migrateLegacyPostmanHeaders(
   headers: PostmanHeaderRow[],
 ): PostmanHeaderRow[] {

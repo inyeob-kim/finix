@@ -10,8 +10,9 @@ FINIX(Finance Intelligence eXecution)는 CBS 서비스 카탈로그, YAML 규칙
 |-----------|------|
 | `docs/manual/01-getting-started.md` | 로그인, 로컬 실행, DB vs 레지스트리 |
 | `docs/manual/02-scenario-ai-flow.md` | 홈 AI 시나리오, `/scenario/:id` |
-| `docs/manual/03-scenario-registry.md` | 시나리오 관리 localStorage |
-| `docs/manual/04-test-cases-and-execution.md` | TC 풀, 실행, 결과 화면 |
+| `docs/manual/03-scenario-registry.md` | 시나리오 레지스트리, 실행·Postman |
+| `docs/manual/04-test-cases-and-execution.md` | TC, Simulate/Live, 이력, 배치 결과 |
+| `docs/manual/14-scenario-bindings-and-postman.md` | 바인딩, Postman, Live 헤더 |
 | `docs/manual/05-service-catalog.md` | 카탈로그 import API |
 | `docs/manual/06-api-reference.md` | REST API 전체 목록 |
 | `docs/manual/07-glossary-and-faq.md` | 용어, FAQ, 알려진 제한 |
@@ -221,9 +222,11 @@ rules:
 
 ### 4. 시나리오 → 테스트케이스 → 실행
 
-1. 시나리오 `steps_json`에 서비스 스텝 정의
-2. `POST /api/v1/scenarios/{id}/test-cases/generate`로 스텝별 TC 생성
-3. `POST /api/v1/executions` 등으로 실행·이력 저장
+1. 시나리오 `steps_json`에 서비스 스텝·**inject/extract**·**postman** 설정
+2. `POST /api/v1/scenarios/{id}/test-cases/generate` 또는 풀 attach (`save-definition`)
+3. `POST /api/v1/executions` — `mode`: **simulate**(stub) 또는 **live**(httpx)
+4. 결과: `/execution-result/{id}` · 컬렉션 일괄: `/execution-batch?ids=`
+5. 이력: `GET /executions` → `/history` UI
 
 ## LLM 사용 정책
 
@@ -232,7 +235,8 @@ rules:
 | 시나리오 의도 파싱 | O | 실패 시 휴리스틱 fallback |
 | YAML 규칙 AI 생성 | O | temperature 낮음, 자가 검증·수리 루프 |
 | 테스트케이스 생성 | X | YAML 규칙 템플릿 기반 |
-| HTTP 실행 | X | 결정론적 |
+| HTTP 실행 (Simulate) | X | 결정론적 stub |
+| HTTP 실행 (Live) | X | httpx; LLM 미사용 |
 | 매뉴얼 챗 | O | RAG: 매뉴얼 chunk retrieval + 답변 |
 
 환경 변수: `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_EMBEDDING_MODEL`, `MANUAL_MD_PATH`

@@ -14,15 +14,15 @@ describe("scenarioPostmanConfigSummary", () => {
   it("detects customized headers", () => {
     const cfg = emptyPostmanConfig();
     cfg.defaultHeaders = [
-      ...defaultPostmanHeaderRows().slice(0, 3),
+      ...defaultPostmanHeaderRows(),
       { id: "x", key: "X-Custom", value: "1" },
     ];
     expect(headersMatchPlatformDefaults(cfg)).toBe(false);
   });
 
-  it("showEmptyCta when no baseUrl and no vars", () => {
+  it("showEmptyCta when no baseUrl and only platform channel vars", () => {
     expect(postmanCollectionCardSummary(emptyPostmanConfig()).showEmptyCta).toBe(
-      true,
+      false,
     );
     const withUrl = { ...emptyPostmanConfig(), baseUrl: "https://api.test" };
     expect(postmanCollectionCardSummary(withUrl).showEmptyCta).toBe(false);

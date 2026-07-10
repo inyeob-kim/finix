@@ -3,7 +3,7 @@
 :root {
   --font-size: 16px;
   --font-family: 'Pretendard Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --background: #F5F7FB;
+  --background: #FFFFFF;
   --foreground: #0F172A;
   --card: #FFFFFF;
   --card-foreground: #0F172A;
@@ -11,11 +11,11 @@
   --popover-foreground: #0F172A;
   --primary: #3B82F6;
   --primary-foreground: #FFFFFF;
-  --secondary: #F5F7FB;
+  --secondary: #FAFAFA;
   --secondary-foreground: #0F172A;
-  --muted: #EEF2FF;
+  --muted: #F5F5F5;
   --muted-foreground: #64748B;
-  --accent: #EEF2FF;
+  --accent: #F5F5F5;
   --accent-foreground: #0F172A;
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
@@ -29,52 +29,16 @@
   --font-weight-normal: 400;
   --ring: #3B82F6;
   --radius: 0.75rem;
-  --sidebar: #FFFFFF;
+  --sidebar: #FAFAFA;
   --sidebar-foreground: #0F172A;
   --sidebar-primary: #3B82F6;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #EEF2FF;
+  --sidebar-accent: #F5F5F5;
   --sidebar-accent-foreground: #0F172A;
   --sidebar-border: #E5E7EB;
   --sidebar-ring: #3B82F6;
 
   /* AI accent (Datadog-like purple) */
-  --ai: #8B5CF6;
-}
-
-.dark {
-  --background: #F5F7FB;
-  --foreground: #0F172A;
-  --card: #FFFFFF;
-  --card-foreground: #0F172A;
-  --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
-  --primary: #3B82F6;
-  --primary-foreground: #FFFFFF;
-  --secondary: #F5F7FB;
-  --secondary-foreground: #0F172A;
-  --muted: #EEF2FF;
-  --muted-foreground: #64748B;
-  --accent: #EEF2FF;
-  --accent-foreground: #0F172A;
-  --destructive: #EF4444;
-  --destructive-foreground: #FFFFFF;
-  --success: #22C55E;
-  --success-foreground: #FFFFFF;
-  --border: #E5E7EB;
-  --input: #FFFFFF;
-  --input-background: #FFFFFF;
-  --ring: #3B82F6;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #0F172A;
-  --sidebar-primary: #3B82F6;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #EEF2FF;
-  --sidebar-accent-foreground: #0F172A;
-  --sidebar-border: #E5E7EB;
-  --sidebar-ring: #3B82F6;
   --ai: #8B5CF6;
 }
 

@@ -1,5 +1,4 @@
 import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
-import { ConfirmPopover } from "./ConfirmPopover";
 import type { ScenarioRegistryFolder } from "../types";
 
 export type FolderOption = { id: string; label: string; depth: number };
@@ -7,28 +6,20 @@ export type FolderSummary = { count: number; successRate: number; lastUpdated: s
 
 export function FolderTreeList({
   folderOptions,
-  folders,
   folderSummary,
   selectedFolderId,
   setSelectedFolderId,
   startCreateFolder,
   startEditFolder,
   removeFolder,
-  applyDeleteFolder,
-  confirmDeleteFolderId,
-  setConfirmDeleteFolderId,
 }: {
   folderOptions: FolderOption[];
-  folders: ScenarioRegistryFolder[];
   folderSummary: Map<string, FolderSummary>;
   selectedFolderId: string | null;
   setSelectedFolderId: (id: string) => void;
   startCreateFolder: (parentId: string | null) => void;
   startEditFolder: (id: string) => void;
   removeFolder: (id: string) => void;
-  applyDeleteFolder: (idOverride?: string) => void;
-  confirmDeleteFolderId: string | null;
-  setConfirmDeleteFolderId: (id: string | null) => void;
 }) {
   return (
     <div className="space-y-1">
@@ -56,7 +47,7 @@ export function FolderTreeList({
               />
               <span className="min-w-0">
                 <div className="truncate text-sm">{f.label}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {(() => {
                     const s = folderSummary.get(f.id);
                     return s
@@ -82,33 +73,21 @@ export function FolderTreeList({
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
-            <ConfirmPopover
-              open={confirmDeleteFolderId === f.id}
-              onOpenChange={(v) => {
-                if (!v) setConfirmDeleteFolderId(null);
+            <button
+              type="button"
+              className="p-1.5 rounded-sm border border-transparent hover:bg-background hover:border-border text-muted-foreground hover:text-destructive"
+              title="삭제"
+              aria-label={`${f.label} 컬렉션 삭제`}
+              onClick={(e) => {
+                e.stopPropagation();
+                removeFolder(f.id);
               }}
-              anchor={
-                <button
-                  type="button"
-                  className="p-1.5 rounded-sm border border-transparent hover:bg-background hover:border-border text-muted-foreground hover:text-destructive"
-                  title="삭제"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeFolder(f.id);
-                  }}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              }
-              title="컬렉션을 삭제할까요?"
-              description={folders.find((x) => x.id === f.id)?.name ?? "—"}
-              onCancel={() => setConfirmDeleteFolderId(null)}
-              onConfirm={() => applyDeleteFolder(f.id)}
-            />
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         );
       })}
     </div>
   );
 }
-

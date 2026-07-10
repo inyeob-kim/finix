@@ -84,6 +84,17 @@ class Settings(BaseSettings):
             "provider prompt caching (Anthropic cache_control; OpenAI prefix reuse)."
         ),
     )
+    llm_embedding_api_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "OpenAI-compatible API key for /embeddings only. "
+            "Use when LLM_PROVIDER=anthropic for chat."
+        ),
+    )
+    llm_embedding_base_url: str | None = Field(
+        default=None,
+        description="Base URL for embedding API (defaults to OpenAI v1).",
+    )
     llm_embedding_model: str = Field(
         default="text-embedding-3-small",
         description="Embedding model for manual RAG chunk indexing.",

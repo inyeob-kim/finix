@@ -48,12 +48,14 @@ class ManualRagService:
         *,
         repo: ManualChunkRepository,
         llm: LlmClient,
+        embedding_llm: LlmClient,
         manual_path: str,
         manual_docs_dir: str | None,
         embedding_model: str,
     ) -> None:
         self._repo = repo
         self._llm = llm
+        self._embedding_llm = embedding_llm
         self._manual_path = manual_path
         self._manual_docs_dir = manual_docs_dir
         self._embedding_model = embedding_model
@@ -89,7 +91,7 @@ class ManualRagService:
         all_vectors: list[list[float]] = []
         for i in range(0, len(embed_inputs), _EMBED_BATCH):
             batch = embed_inputs[i : i + _EMBED_BATCH]
-            vectors = await self._llm.embed_texts(
+            vectors = await self._embedding_llm.embed_texts(
                 batch,
                 model=self._embedding_model,
             )
@@ -149,7 +151,7 @@ class ManualRagService:
             return []
 
         query_vec = (
-            await self._llm.embed_texts([query], model=self._embedding_model)
+            await self._embedding_llm.embed_texts([query], model=self._embedding_model)
         )[0]
         chunks = await self._repo.list_chunks_for_checksum(meta.source_checksum)
         scored: list[tuple[float, ManualChunk]] = []

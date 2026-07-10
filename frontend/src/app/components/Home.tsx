@@ -158,8 +158,8 @@ export function Home() {
                       setRuleVersion(e.target.value as "active" | "draft")
                     }
                   >
-                    <option value="active">Active</option>
-                    <option value="draft">Draft</option>
+                    <option value="active">운영</option>
+                    <option value="draft">초안</option>
                   </FinixUnderlineSelect>
                 </FinixField>
               </div>

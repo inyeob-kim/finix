@@ -171,3 +171,19 @@ export interface ExecutionDetailDto {
   created_at: string;
   steps: ExecutionStepDto[];
 }
+
+export interface ExecutionListItemDto {
+  id: number;
+  scenario_id: number | null;
+  base_url: string;
+  status: string;
+  summary: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ExecutionListResponseDto {
+  items: ExecutionListItemDto[];
+  total: number;
+  limit: number;
+  offset: number;
+}

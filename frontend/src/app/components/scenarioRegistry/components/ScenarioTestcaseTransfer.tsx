@@ -1,6 +1,16 @@
+import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import { ChevronLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
+import {
+  countScenarioCaseTypes,
+  filterScenarioCaseType,
+  resolveScenarioCaseType,
+  selectedCaseTypeSummary,
+  type ScenarioCaseType,
+  type ScenarioCaseTypeFilter,
+} from "@/lib/scenarioCaseTypeFilter";
 import { FinixLoading } from "../../ui/finix-loading";
+import { cn } from "../../ui/utils";
 import type { ScenarioRuleTestcaseRef } from "../types";
 
 type ScenarioTestcaseTransferProps = {
@@ -11,13 +21,60 @@ type ScenarioTestcaseTransferProps = {
   activeServiceCode?: string | null;
   onAdd: (row: ScenarioRuleTestcaseRef) => void;
   onRemove: (id: string) => void;
-  onAddAll: () => void;
+  onAddByCaseType: (caseType: ScenarioCaseType | "all") => void;
   onRemoveAll: () => void;
   parseDragRuleId: (e: DragEvent) => string | null;
 };
 
 const BTN_TRANSFER =
   "inline-flex items-center justify-center h-9 w-9 rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40 disabled:pointer-events-none";
+
+const BTN_BULK =
+  "inline-flex items-center justify-center min-h-9 px-2 rounded-sm border border-border bg-background text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap";
+
+function CaseTypeBadge({ caseType }: { caseType: ScenarioCaseType }) {
+  const isError = caseType === "E";
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-semibold uppercase shrink-0 px-1.5 py-0.5 rounded-sm border",
+        isError
+          ? "text-rose-700 dark:text-rose-300 border-rose-500/30 bg-rose-500/10"
+          : "text-emerald-700 dark:text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
+      )}
+    >
+      {caseType}
+    </span>
+  );
+}
+
+function FilterSegment({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex-1 min-w-0 rounded-sm px-2 py-1 text-[10px] font-medium transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm border border-border"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+      <span className="ml-1 tabular-nums opacity-80">{count}</span>
+    </button>
+  );
+}
 
 function TestcasePickRow({
   row,
@@ -28,6 +85,7 @@ function TestcasePickRow({
   onClick: () => void;
   variant: "pool" | "selected";
 }) {
+  const caseType = resolveScenarioCaseType(row);
   return (
     <li>
       <button
@@ -55,16 +113,15 @@ function TestcasePickRow({
                 ? `#${row.backendTestcaseId}`
                 : row.serviceCode}
           </span>
-          {variant === "selected" ? (
-            <ChevronLeft className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
-          ) : row.ruleType ? (
-            <span className="text-[10px] uppercase text-muted-foreground shrink-0">
-              {row.ruleType}
-            </span>
-          ) : null}
+          <div className="flex items-center gap-1 shrink-0">
+            <CaseTypeBadge caseType={caseType} />
+            {variant === "selected" ? (
+              <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
+            ) : null}
+          </div>
         </div>
         <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-          {row.title}
+          {row.description?.trim() || row.title}
         </div>
         <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
           {row.serviceCode}
@@ -82,10 +139,26 @@ export function ScenarioTestcaseTransfer({
   activeServiceCode,
   onAdd,
   onRemove,
-  onAddAll,
+  onAddByCaseType,
   onRemoveAll,
   parseDragRuleId,
 }: ScenarioTestcaseTransferProps) {
+  const [caseTypeFilter, setCaseTypeFilter] =
+    useState<ScenarioCaseTypeFilter>("all");
+
+  const poolCounts = useMemo(
+    () => countScenarioCaseTypes(leftRulePool),
+    [leftRulePool],
+  );
+  const filteredPool = useMemo(
+    () => filterScenarioCaseType(leftRulePool, caseTypeFilter),
+    [leftRulePool, caseTypeFilter],
+  );
+  const selectedSummary = useMemo(
+    () => selectedCaseTypeSummary(selectedRulePicks),
+    [selectedRulePicks],
+  );
+
   return (
     <div className="flex flex-col lg:flex-row gap-3 flex-1 min-h-[min(360px,42vh)]">
       <div
@@ -100,33 +173,57 @@ export function ScenarioTestcaseTransfer({
           if (id) onRemove(id);
         }}
       >
-        <div className="px-3 py-2 border-b border-border bg-muted/30 text-xs font-semibold text-muted-foreground flex items-center justify-between gap-2">
-          <span>
-            테스트 케이스 후보
-            {activeServiceCode ? (
-              <span className="font-mono font-normal text-primary ml-1">
-                · {activeServiceCode}
-              </span>
-            ) : null}
-          </span>
-          <span className="font-normal tabular-nums">{leftRulePool.length}</span>
+        <div className="px-3 py-2 border-b border-border bg-muted/30 space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground flex items-center justify-between gap-2">
+            <span>
+              테스트 케이스 후보
+              {activeServiceCode ? (
+                <span className="font-mono font-normal text-primary ml-1">
+                  · {activeServiceCode}
+                </span>
+              ) : null}
+            </span>
+            <span className="font-normal tabular-nums">{poolCounts.all}</span>
+          </div>
+          <div className="flex gap-1 rounded-sm bg-muted/50 p-0.5">
+            <FilterSegment
+              active={caseTypeFilter === "all"}
+              label="전체"
+              count={poolCounts.all}
+              onClick={() => setCaseTypeFilter("all")}
+            />
+            <FilterSegment
+              active={caseTypeFilter === "N"}
+              label="N"
+              count={poolCounts.N}
+              onClick={() => setCaseTypeFilter("N")}
+            />
+            <FilterSegment
+              active={caseTypeFilter === "E"}
+              label="E"
+              count={poolCounts.E}
+              onClick={() => setCaseTypeFilter("E")}
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 min-h-0">
           {rulePickLoading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <FinixLoading size="sm" label="목록 불러오는 중…" inline />
             </div>
-          ) : leftRulePool.length === 0 ? (
+          ) : filteredPool.length === 0 ? (
             <p className="text-sm text-muted-foreground px-2 py-6 text-center">
               {!hasServices
                 ? "먼저 서비스를 추가하세요."
                 : activeServiceCode
-                  ? `${activeServiceCode}에 적재된 후보가 없거나 모두 포함되었습니다. (시퀀스에서 서비스는 유지됩니다)`
+                  ? caseTypeFilter === "all"
+                    ? `${activeServiceCode}에 적재된 후보가 없거나 모두 포함되었습니다.`
+                    : `${activeServiceCode} · ${caseTypeFilter} 후보가 없습니다.`
                   : "시퀀스에서 서비스를 클릭해 후보를 필터하세요."}
             </p>
           ) : (
             <ul className="space-y-1">
-              {leftRulePool.map((r) => (
+              {filteredPool.map((r) => (
                 <TestcasePickRow
                   key={r.id}
                   row={r}
@@ -138,18 +235,36 @@ export function ScenarioTestcaseTransfer({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-          클릭·드래그로 포함 · 가운데 버튼으로 일괄 추가
+          클릭·드래그로 포함 · 가운데 버튼으로 N/E/전체 일괄 추가
         </p>
       </div>
 
       <div className="flex lg:flex-col items-center justify-center gap-2 shrink-0 py-1">
         <button
           type="button"
+          className={BTN_BULK}
+          title="Normal 케이스만 포함"
+          disabled={rulePickLoading || poolCounts.N === 0}
+          onClick={() => onAddByCaseType("N")}
+        >
+          N만
+        </button>
+        <button
+          type="button"
+          className={BTN_BULK}
+          title="Error 케이스만 포함"
+          disabled={rulePickLoading || poolCounts.E === 0}
+          onClick={() => onAddByCaseType("E")}
+        >
+          E만
+        </button>
+        <button
+          type="button"
           className={BTN_TRANSFER}
           title="후보 전체 포함"
           aria-label="후보 전체 포함"
           disabled={rulePickLoading || leftRulePool.length === 0}
-          onClick={onAddAll}
+          onClick={() => onAddByCaseType("all")}
         >
           <ChevronsRight className="w-4 h-4" />
         </button>
@@ -180,12 +295,17 @@ export function ScenarioTestcaseTransfer({
       >
         <div className="px-3 py-2 border-b border-border bg-muted/30 text-xs font-semibold text-muted-foreground flex items-center justify-between gap-2">
           <span>시나리오에 포함</span>
-          <span className="font-normal tabular-nums">{selectedRulePicks.length}</span>
+          <span className="font-normal tabular-nums text-[10px]">
+            {selectedRulePicks.length}
+            {selectedSummary ? (
+              <span className="text-muted-foreground ml-1">({selectedSummary})</span>
+            ) : null}
+          </span>
         </div>
         <div className="flex-1 overflow-y-auto p-2 min-h-0">
           {selectedRulePicks.length === 0 ? (
             <p className="text-sm text-muted-foreground px-2 py-6 text-center">
-              왼쪽에서 선택하거나 가운데 「전체 포함」을 누르세요.
+              왼쪽에서 선택하거나 가운데 「N만 / E만 / 전체」를 누르세요.
             </p>
           ) : (
             <ul className="space-y-1">

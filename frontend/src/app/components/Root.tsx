@@ -1,4 +1,5 @@
 import finixLogo from "@/assets/finix_logo_white.png";
+import { SHELL_HEADER_ROW_CLASS } from "@/lib/finixShellLayout";
 import {
   BookOpen,
   ChevronLeft,
@@ -13,6 +14,18 @@ import {
 import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuthStore } from "../auth/authStore";
+import { cn } from "./ui/utils";
+
+const navItemClass = (collapsed: boolean, isActive: boolean) =>
+  cn(
+    "group flex items-center py-2.5 rounded-sm transition-colors duration-200",
+    collapsed ? "justify-center px-0 w-full" : "gap-3 px-3",
+    isActive
+      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+      : cn(
+          "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+        ),
+  );
 
 export function Root() {
   const [collapsed, setCollapsed] = useState(false);
@@ -32,15 +45,18 @@ export function Root() {
     <div className="flex h-screen bg-background text-foreground">
       {/* Sidebar */}
       <aside
-        className={`flex flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ${
-          collapsed ? "w-16" : "w-64"
-        }`}
+        className={cn(
+          "flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-300",
+          collapsed ? "w-16" : "w-64",
+        )}
       >
         {/* Logo */}
         <div
-          className={`flex items-center border-b border-sidebar-border ${
-            collapsed ? "justify-center p-4" : "gap-2 px-4 py-5"
-          }`}
+          className={cn(
+            SHELL_HEADER_ROW_CLASS,
+            "bg-sidebar",
+            collapsed ? "justify-center" : "gap-2 px-4",
+          )}
         >
           <div className="size-8 shrink-0 overflow-hidden rounded-sm">
             <img
@@ -56,7 +72,7 @@ export function Root() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className={cn("flex-1 space-y-2", collapsed ? "p-2" : "p-4")}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -64,11 +80,7 @@ export function Root() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`group flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all duration-200 ${
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground hover:translate-x-[1px]"
-                }`}
+                className={navItemClass(collapsed, isActive)}
               >
                 <Icon className="w-5 h-5 shrink-0 transition-colors group-hover:text-sidebar-accent-foreground" />
                 {!collapsed && <span>{item.label}</span>}
@@ -78,10 +90,18 @@ export function Root() {
         </nav>
 
         {/* Bottom Section */}
-        <div className="p-4 border-t border-sidebar-border space-y-2">
+        <div
+          className={cn(
+            "space-y-2 border-t border-sidebar-border",
+            collapsed ? "p-2" : "p-4",
+          )}
+        >
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            className={cn(
+              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
+              collapsed ? "justify-center px-0" : "gap-3 px-3",
+            )}
           >
             <ChevronLeft
               className={`w-5 h-5 shrink-0 transition-transform ${
@@ -91,8 +111,13 @@ export function Root() {
             {!collapsed && <span>접기</span>}
           </button>
 
-          <div className="w-full flex items-center gap-3 px-3 py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+          <div
+            className={cn(
+              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
+              collapsed ? "justify-center px-0" : "gap-3 px-3",
+            )}
+          >
+            <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
               <User className="w-4 h-4 text-white" />
             </div>
             {!collapsed && (
@@ -109,7 +134,10 @@ export function Root() {
 
           <button
             type="button"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            className={cn(
+              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
+              collapsed ? "justify-center px-0" : "gap-3 px-3",
+            )}
             onClick={() => {
               if (isAuthenticated) {
                 logout();
@@ -130,13 +158,7 @@ export function Root() {
       </aside>
 
       {/* Main Content */}
-      <main
-        className={`flex-1 bg-secondary ${
-          location.pathname === "/manual"
-            ? "overflow-hidden flex flex-col min-h-0"
-            : "overflow-auto"
-        }`}
-      >
+      <main className="flex flex-1 flex-col min-h-0 overflow-hidden bg-background">
         <Outlet />
       </main>
     </div>

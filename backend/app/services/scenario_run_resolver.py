@@ -16,6 +16,7 @@ from app.domain.scenario_bindings import (
     parse_injects,
     parse_overrides,
 )
+from app.domain.step_http_result import StepHttpResult, coerce_step_http_result
 from app.models.testcase import TestCase
 from app.utils.json_text import loads_json
 from app.utils.scenario_steps_document import parse_steps_list
@@ -37,6 +38,10 @@ class ResolvedTestCaseStep:
     expected_response_body: dict[str, Any]
     actual_status: int | None = None
     actual_body: Any = None
+    context_after_step: dict[str, Any] | None = None
+    response_time_ms: int | None = None
+    response_size_bytes: int | None = None
+    request_url: str | None = None
 
 
 @dataclass(slots=True)
@@ -75,7 +80,7 @@ def resolve_scenario_run(
     steps_json: str | None,
     initial_context: dict[str, Any] | None = None,
     simulate_response: Callable[
-        [TestCase, dict[str, Any]], tuple[int, Any]
+        [TestCase, dict[str, Any]], StepHttpResult | tuple[int, Any]
     ]
     | None = None,
 ) -> ScenarioResolvePreview:
@@ -108,8 +113,17 @@ def resolve_scenario_run(
 
         actual_status: int | None = None
         actual_body: Any = None
+        response_time_ms: int | None = None
+        response_size_bytes: int | None = None
+        request_url: str | None = None
         if simulate_response is not None:
-            actual_status, actual_body = simulate_response(tc, resolved_body)
+            raw = simulate_response(tc, resolved_body)
+            http = coerce_step_http_result(raw)
+            actual_status = http.status
+            actual_body = http.body
+            response_time_ms = http.response_time_ms
+            response_size_bytes = http.response_size_bytes
+            request_url = http.request_url
             if isinstance(actual_body, dict):
                 context = apply_extracts(actual_body, context, extracts)
             else:
@@ -131,6 +145,10 @@ def resolve_scenario_run(
                 expected_response_body=expected_resp,
                 actual_status=actual_status,
                 actual_body=actual_body,
+                context_after_step=dict(context),
+                response_time_ms=response_time_ms,
+                response_size_bytes=response_size_bytes,
+                request_url=request_url,
             )
         )
 

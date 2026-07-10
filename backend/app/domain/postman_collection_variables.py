@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.domain.postman_bxm_system_header import ensure_bxm_start_vars
 from app.domain.postman_collection_config import PostmanCollectionConfig
 
 BASE_URL_KEY = "baseUrl"
@@ -13,7 +14,7 @@ def build_postman_collection_variables(
     runtime_var_names: list[str],
 ) -> list[dict[str, str]]:
     """
-    Merge baseUrl, start vars, and extract-driven runtime vars (empty initial value).
+    Merge baseUrl, BXM channel defaults, start vars, and extract-driven runtime vars.
 
     Later keys do not override earlier ones (start vars win over runtime names).
     """
@@ -29,7 +30,7 @@ def build_postman_collection_variables(
 
     cfg = config or PostmanCollectionConfig()
     add(BASE_URL_KEY, cfg.base_url.strip())
-    for row in cfg.start_vars:
+    for row in ensure_bxm_start_vars(cfg):
         add(row.key, row.value)
     for name in runtime_var_names:
         add(name, "")

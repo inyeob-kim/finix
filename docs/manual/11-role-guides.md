@@ -6,8 +6,9 @@
 
 1. **AI 시나리오 생성** (`/`) — 빠른 시나리오 초안
 2. **시나리오 편집** — 스텝 순서·서비스 코드 확정
-3. **테스트케이스** — TC 생성·**테스트 실행**·결과 확인
-4. **테스트 이력** — 참고용 (Mock 한계 인지)
+3. **테스트케이스** — TC 생성·**Simulate/Live 실행**·타임라인 결과
+4. **시나리오 레지스트리** — 컬렉션 **전체 실행** → `/execution-batch`
+5. **테스트 이력** — `GET /executions` 실데이터, 기간 필터
 
 ### 하지 않아도 되는 것
 
@@ -18,8 +19,8 @@
 
 - [ ] 대상 서비스 Active YAML 존재
 - [ ] materialize 후 TC request/expected 샘플 검토
-- [ ] 시나리오 실행 passed 비율 기록
-- [ ] 실패 스텝 expected vs actual 스크린샷
+- [ ] Simulate 통과 후 Live + baseUrl·헤더(`srvcCd`) 검증
+- [ ] 실패 스텝 expected vs actual·`resolved_request_body` 스크린샷
 
 ---
 

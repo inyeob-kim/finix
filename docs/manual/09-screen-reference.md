@@ -81,7 +81,8 @@
 |-------------|------|
 | 미리보기 패널 | 우측 Resizable 패널 |
 | Wand2 | 테스트케이스 생성 → `/test-case` (registry) |
-| Play / View Report | `/history` (Mock 연동) |
+| ▶ | 단건 실행 (baseUrl + Simulate/Live) → `/execution-result/{id}` |
+| Postman | Collection export (DB persist 후) |
 | 편집 | 등록 마법사 재진입 |
 | 삭제 | ConfirmPopover |
 
@@ -102,6 +103,16 @@
 | 시나리오명·설명·태그 | 메타 입력 |
 | 서비스별 규칙 TC pick | 풀 TC 또는 규칙 참조 선택 |
 | 저장 | localStorage persist |
+| Postman 설정 | baseUrl, 기본 헤더, 시작/collection 변수 |
+| 연결 마법사 | inject/extract 편집 |
+| AI 연결 제안 | suggest-bindings |
+
+### 컬렉션 툴바
+
+| 버튼 | 설명 |
+|------|------|
+| 전체 실행 | 컬렉션 내 시나리오 순차 실행 → `/execution-batch?ids=` |
+| Postman ZIP | 컬렉션 단위 export |
 
 ### 메트릭 카드 (상단)
 
@@ -146,30 +157,18 @@ Total Scenarios, AI Generated %, Success %, Coverage % — UI 계산값.
 
 ---
 
-## 테스트케이스 관리 (`/test-cases`) (로그인)
-
-| UI | 설명 |
-|----|------|
-| 서비스 콤보박스 | 검색·선택 |
-| 생성 메모 | TC 이름 suffix |
-| 기존 풀 삭제 후 재생성 | checkbox |
-| YAML에서 생성 | materialize |
-| 목록 새로고침 | GET list |
-| 행 ▶ | Input/Output JSON |
-| 열기 | `/test-case/:scenarioId` (연결된 경우) |
-
----
-
 ## 테스트케이스 (`/test-case/:scenarioId`)
 
 | UI | 설명 |
 |----|------|
 | TC 목록 (좌) | 선택 |
-| API 요청 / 예상 결과 | JSON pre |
-| 테스트케이스 생성 | generate |
-| 포스트맨으로보내기 | export postman |
-| 테스트 실행 | POST executions |
+| API 요청 / 예상 결과 | JSON |
+| 테스트케이스 생성 | `POST .../test-cases/generate` |
+| 포스트맨으로보내기 | Postman collection |
+| 테스트 실행 | 다이얼로그: baseUrl, **Simulate / Live** |
 | 뒤로 | 이전 화면 |
+
+> `/test-cases` 메뉴는 `/rules`로 리다이렉트됩니다. TC 풀 materialize는 규칙 화면에서 수행합니다.
 
 ---
 
@@ -177,8 +176,23 @@ Total Scenarios, AI Generated %, Success %, Coverage % — UI 계산값.
 
 | UI | 설명 |
 |----|------|
-| 요약 카드 | 전체/성공/실패 |
-| 스텝 아코디언 | expected vs actual |
+| 뒤로 | state.from 또는 레지스트리 |
+| 요약 | passed/failed, 시각, 시나리오명 |
+| 타임라인 툴바 | 실패만, 펼치기/접기 |
+| 스텝 | method, endpoint, URL, status badge |
+| JSON 패널 | expected/actual, 변경 필드만, diff |
+
+---
+
+## 배치 실행 결과 (`/execution-batch`) (로그인)
+
+| UI | 설명 |
+|----|------|
+| 뒤로 | 레지스트리 등 |
+| 요약 바 | 컬렉션명, 시나리오·스텝 집계 |
+| 사이드바 | execution별 시나리오 선택 |
+| 타임라인 | 선택 시나리오 스텝 상세 |
+| 단일 결과 화면 | `/execution-result/{id}` 링크 |
 
 ---
 
@@ -186,11 +200,11 @@ Total Scenarios, AI Generated %, Success %, Coverage % — UI 계산값.
 
 | UI | 설명 |
 |----|------|
-| 탭 | 시나리오 실행 이력 (활성), API/업무/에러 로그 (준비) |
-| 날짜·시간 | 필터 |
-| 조회 | Mock 데이터 갱신 |
-| 검색 | — |
-| 상세 | `/execution-result/:id` (ID 불일치 주의) |
+| 기간 프리셋 | 7일(기본), 오늘, 30일, 전체, 사용자 지정 |
+| 테이블 | execution id, 시나리오, passed/failed, 시각 |
+| 행 클릭 | `/execution-result/{id}` |
+| 시나리오 링크 | `/test-case/{scenarioId}` |
+| 데이터 | `GET /api/v1/executions` |
 
 ---
 

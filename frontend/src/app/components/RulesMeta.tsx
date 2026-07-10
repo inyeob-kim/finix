@@ -34,7 +34,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import {
+  PAGE_SECTION_STACK_CLASS,
+} from "@/lib/finixShellLayout";
 import { PageShell } from "./PageShell";
+import { TablePagination } from "./ui/finix-pagination";
 import {
   Table,
   TableBody,
@@ -96,30 +100,30 @@ function StatusPill({ status }: { status: string }) {
   const st = (status || "draft").toLowerCase();
   if (st === "active") {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200">
         <BadgeCheck className="w-3 h-3" />
-        Active
+        운영
       </span>
     );
   }
   if (st === "approved") {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-muted text-muted-foreground border border-border">
-        Approved
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-muted text-muted-foreground border border-border">
+        승인됨
       </span>
     );
   }
   if (st === "superseded") {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-muted/80 text-muted-foreground border border-border">
-        Superseded
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-muted/80 text-muted-foreground border border-border">
+        대체됨
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-primary/12 text-primary border border-primary/25">
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-primary/10 text-primary border border-primary/25">
       <GitPullRequest className="w-3 h-3" />
-      Draft
+      초안
     </span>
   );
 }
@@ -541,6 +545,8 @@ export function RulesMeta() {
       description="서비스별 규칙 번들(DB)을 조회·편집하고 드래프트 저장·승인·활성화합니다."
     >
 
+        <div className={PAGE_SECTION_STACK_CLASS}>
+
         <div className="rounded-md border border-primary/25 bg-primary/[0.06] shadow-sm overflow-hidden shrink-0">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             <div className="rounded-sm bg-primary/15 p-1.5 text-primary shrink-0">
@@ -612,7 +618,7 @@ export function RulesMeta() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="relative flex-1 min-w-[min(100%,12rem)]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
+              <FinixUnderlineInput
                 type="text"
                 value={query}
                 onChange={(e) => {
@@ -620,7 +626,7 @@ export function RulesMeta() {
                   setPage(1);
                 }}
                 placeholder="코드, 이름, 버전, 수정자 검색"
-                className="w-full h-9 pl-9 pr-9 rounded-sm border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/25"
+                className="h-9 pl-9 pr-9 bg-card"
               />
               {query ? (
                 <button
@@ -661,8 +667,8 @@ export function RulesMeta() {
                 }}
               >
                 <option value="">전체</option>
-                <option value="active">Active</option>
-                <option value="draft">Draft</option>
+                <option value="active">운영</option>
+                <option value="draft">초안</option>
                 <option value="approved">Approved</option>
               </FinixUnderlineSelect>
             </FinixField>
@@ -824,78 +830,30 @@ export function RulesMeta() {
           </Table>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground">
-            표시 중 {filteredSorted.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
-            –
-            {Math.min(currentPage * pageSize, filteredSorted.length)} /
-            총 {filteredSorted.length}건
-          </p>
-          <div className="flex flex-wrap items-center justify-end gap-4">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>페이지 크기</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="h-9 rounded-sm border border-border bg-card px-2 text-sm"
-              >
-                <option value={5}>5개씩</option>
-                <option value={10}>10개씩</option>
-                <option value={20}>20개씩</option>
-              </select>
-            </label>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="h-9 w-9 rounded-sm border border-border text-sm hover:bg-muted disabled:opacity-40"
-                disabled={currentPage <= 1}
-                onClick={() => setPage(1)}
-              >
-                «
-              </button>
-              <button
-                type="button"
-                className="h-9 w-9 rounded-sm border border-border text-sm hover:bg-muted disabled:opacity-40"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                ‹
-              </button>
-              {pagesToShow.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPage(p)}
-                  className={`h-9 min-w-[2.25rem] rounded-full text-sm font-medium transition-colors ${
-                    currentPage === p
-                      ? "bg-[#5b8cff] text-white"
-                      : "border border-transparent hover:bg-muted"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="h-9 w-9 rounded-sm border border-border text-sm hover:bg-muted disabled:opacity-40"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                ›
-              </button>
-              <button
-                type="button"
-                className="h-9 w-9 rounded-sm border border-border text-sm hover:bg-muted disabled:opacity-40"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage(totalPages)}
-              >
-                »
-              </button>
-            </div>
-          </div>
+        <TablePagination
+          summary={
+            <>
+              표시 중{" "}
+              {filteredSorted.length === 0
+                ? 0
+                : (currentPage - 1) * pageSize + 1}
+              –
+              {Math.min(currentPage * pageSize, filteredSorted.length)} / 총{" "}
+              {filteredSorted.length}건
+            </>
+          }
+          pageSize={pageSize}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pagesToShow={pagesToShow}
+          onPageChange={setPage}
+          controlsClassName="justify-end"
+        />
+
         </div>
 
       <Dialog

@@ -122,8 +122,7 @@ export function ManualChat() {
       icon={<BookOpen className="w-5 h-5" strokeWidth={2} />}
       title="매뉴얼"
       description="FINIX 설계·운영 문서를 기반으로 질문합니다."
-      containerClassName="flex-1 min-h-0 flex flex-col h-full"
-      contentClassName="flex flex-col flex-1 min-h-0"
+      bodyClassName="overflow-hidden flex flex-col min-h-0 pt-5"
     >
       <div className="w-full max-w-4xl mx-auto flex flex-col flex-1 min-h-0 min-h-[28rem]">
       <div className="flex flex-col flex-1 min-h-0 w-full rounded-sm border border-border bg-card shadow-sm overflow-hidden">

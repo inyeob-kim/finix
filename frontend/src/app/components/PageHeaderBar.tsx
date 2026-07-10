@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { SHELL_HEADER_ROW_CLASS, SHELL_HEADER_STICKY_CLASS } from "@/lib/finixShellLayout";
+import { cn } from "./ui/utils";
 
 type PageHeaderBarProps = {
   icon: ReactNode;
@@ -7,10 +9,7 @@ type PageHeaderBarProps = {
   actions?: ReactNode;
 };
 
-/**
- * 사이드바 로고 행(`flex items-center gap-3 p-6 border-b`)과 동일한 세로 높이·패딩을 맞춘 상단 헤더.
- * 설명은 줄 수를 늘리지 않도록 헤더 밖(같은 래퍼 아래)에 둔다.
- */
+/** Sidebar logo row와 동일한 세로 높이; 본문 스크롤 시에도 상단 고정. */
 export function PageHeaderBar({
   icon,
   title,
@@ -18,20 +17,22 @@ export function PageHeaderBar({
   actions,
 }: PageHeaderBarProps) {
   return (
-    <div className="-mx-6 md:-mx-8 shrink-0">
-      <header className="flex items-center gap-3 px-6 md:px-8 py-6 border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <div className={cn("-mx-6 md:-mx-8 bg-background", SHELL_HEADER_STICKY_CLASS)}>
+      <header
+        className={`${SHELL_HEADER_ROW_CLASS} gap-3 px-6 md:px-8 text-sidebar-foreground bg-background`}
+      >
         <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden text-primary [&_svg]:shrink-0">
           {icon}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <h1 className="text-lg tracking-tight truncate">{title}</h1>
+          <h1 className="text-base font-semibold tracking-tight truncate">{title}</h1>
         </div>
         {actions != null ? (
           <div className="flex shrink-0 items-center gap-2">{actions}</div>
         ) : null}
       </header>
       {description != null ? (
-        <div className="px-6 md:px-8 pt-3 text-sm text-muted-foreground leading-relaxed">
+        <div className="px-6 md:px-8 py-3 text-sm text-muted-foreground leading-relaxed border-b border-border bg-background">
           {description}
         </div>
       ) : null}

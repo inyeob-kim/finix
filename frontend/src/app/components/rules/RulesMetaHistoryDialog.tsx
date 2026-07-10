@@ -38,26 +38,26 @@ type Props = {
 function statusBadge(status: string, isActive: boolean) {
   if (isActive) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400">
+      <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
         <BadgeCheck className="w-3 h-3" />
-        Active
+        운영
       </span>
     );
   }
   const st = (status || "draft").toLowerCase();
   if (st === "superseded") {
-    return <span className="text-[11px] text-muted-foreground">Superseded</span>;
+    return <span className="text-xs text-muted-foreground">대체됨</span>;
   }
   if (st === "approved") {
-    return <span className="text-[11px] text-muted-foreground">Approved</span>;
+    return <span className="text-xs text-muted-foreground">승인됨</span>;
   }
   if (st === "active") {
-    return <span className="text-[11px] text-amber-700 dark:text-amber-400">Active (stale)</span>;
+    return <span className="text-xs text-amber-700">운영 (구버전)</span>;
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+    <span className="inline-flex items-center gap-1 text-xs text-primary">
       <GitPullRequest className="w-3 h-3" />
-      Draft
+      초안
     </span>
   );
 }

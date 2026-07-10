@@ -147,7 +147,7 @@ Content-Type: application/json
 
 ---
 
-## 실행
+## 실행 (Simulate)
 
 **Request**
 
@@ -157,9 +157,25 @@ Content-Type: application/json
 
 {
   "scenario_id": 12,
-  "base_url": ""
+  "base_url": "",
+  "mode": "simulate"
 }
 ```
+
+## 실행 (Live)
+
+```http
+POST /api/v1/executions
+Content-Type: application/json
+
+{
+  "scenario_id": 12,
+  "base_url": "http://3.35.90.196:8088",
+  "mode": "live"
+}
+```
+
+Live 시 시나리오 `postman.default_headers`(instCd, srvcCd 등)가 SUT로 전달됩니다.
 
 **Response** (요약)
 
@@ -167,21 +183,83 @@ Content-Type: application/json
 {
   "id": 3,
   "scenario_id": 12,
+  "base_url": "http://3.35.90.196:8088",
   "status": "completed",
-  "passed_count": 2,
-  "failed_count": 0,
+  "summary": { "passed": 1, "failed": 2, "mode": "live" },
   "steps": [
     {
       "step_index": 0,
-      "step_label": "PY027 ...",
+      "step_label": "[E] PY025-E-001 · ...",
       "testcase_id": 101,
-      "status": "passed",
-      "expected": { "status": 400, "body": { "...": "..." } },
-      "actual": { "status": 400, "body": { "...": "..." } },
-      "error_message": null
+      "status": "failed",
+      "expected": { "status": 400, "body": { "outcome": "error" } },
+      "actual": {
+        "status": 500,
+        "body": { "messageId": "AAPCME0072" },
+        "resolved_request_body": { "brnchId": "001", "dt": "20260604" }
+      },
+      "error_message": "예상 HTTP 400, 실제 500"
     }
-  ]
+  ],
+  "created_at": "2026-06-04T06:17:21Z"
 }
+```
+
+---
+
+## 실행 이력 목록
+
+```http
+GET /api/v1/executions?limit=20&offset=0&created_from=2026-06-01T00:00:00Z
+```
+
+```json
+{
+  "items": [
+    {
+      "id": 12,
+      "scenario_id": 10,
+      "base_url": "http://3.35.90.196:8088",
+      "status": "completed",
+      "summary": { "passed": 0, "failed": 5, "mode": "live" },
+      "created_at": "2026-06-04T06:17:23Z"
+    }
+  ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+---
+
+## save-definition (레지스트리 persist)
+
+```http
+POST /api/v1/scenarios/10/save-definition
+Content-Type: application/json
+
+{
+  "title": "AutoSweep 센터컷 조회",
+  "postman": {
+    "base_url": "http://3.35.90.196:8088",
+    "default_headers": [
+      { "key": "srvcCd", "value": "PY025" },
+      { "key": "instCd", "value": "1001" }
+    ],
+    "start_vars": [{ "key": "brnchId", "value": "001" }]
+  },
+  "per_step": [[101], [102]],
+  "mark_saved": true
+}
+```
+
+---
+
+## resolve-preview
+
+```http
+POST /api/v1/scenarios/10/resolve-preview?simulate_responses=true
 ```
 
 ---

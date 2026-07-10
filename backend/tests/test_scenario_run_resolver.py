@@ -63,6 +63,8 @@ def test_resolve_inject_from_prior_extract():
     assert preview.steps[0].resolved_request_body == {"x": 1}
     assert preview.steps[1].resolved_request_body["authToken"] == "abc"
     assert preview.context_after.get("token") == "abc"
+    assert preview.steps[0].context_after_step == {"token": "abc"}
+    assert preview.steps[1].context_after_step == {"token": "abc"}
     assert not preview.steps[1].inject_warnings
 
 

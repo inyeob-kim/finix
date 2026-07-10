@@ -3,7 +3,9 @@
 ## 인덱스 대상 파일
 
 - `docs/FINIX_MANUAL.md` (개요·아키텍처)
-- `docs/manual/*.md` (챕터 전부)
+- `docs/manual/*.md` (챕터 전부, 예: `14-scenario-bindings-and-postman.md`)
+
+**대규모 기능 변경 후**(Live 실행, 배치 결과, 이력 API, 바인딩 등) 반드시 재인덱싱하세요.
 
 환경 변수:
 
@@ -43,7 +45,7 @@ GET /api/v1/manual/status
 
 1. FAQ 제목에 사용자 질문 문장 그대로 사용
 2. 메뉴 경로 `/rules` 를 본문에 명시
-3. 「YAML 등록」「Active 활성화」「materialize」 키워드 반복
+3. 「YAML 등록」「Live 실행」「execution-batch」「AAPCME0072」 등 키워드 반복
 4. 한 섹션은 하나의 주제만 (헤더 단위 chunk)
 
 ## 스크립트
@@ -54,6 +56,25 @@ python scripts/reindex_manual.py
 ```
 
 `LLM_API_KEY`와 DB 연결 필요.
+
+### Embedding 프로바이더 (중요)
+
+매뉴얼 RAG 임베딩은 **OpenAI 호환 `/embeddings`** 가 필요합니다. `LLM_PROVIDER=anthropic` 만 설정된 경우 reindex가 실패합니다.
+
+| 설정 | 설명 |
+|------|------|
+| `LLM_PROVIDER=openai` | chat + embedding 동일 키 |
+| `LLM_EMBEDDING_API_KEY` | Anthropic chat + OpenAI embedding 분리 시 |
+| `LLM_EMBEDDING_BASE_URL` | 임베딩 전용 엔드포인트 (선택) |
+
+```bash
+# 예: Windows PowerShell (세션 한정)
+$env:LLM_PROVIDER="openai"
+cd backend
+python scripts/reindex_manual.py
+```
+
+또는 UI/ API: `POST /api/v1/manual/reindex` (동일 키 요구).
 
 ## 문제 해결
 
