@@ -23,6 +23,13 @@ export type LoadedRegistryState = {
   hydrated: boolean;
 };
 
+function stripLegacyScenarioFields(
+  item: ScenarioRegistryItem & { status?: unknown },
+): ScenarioRegistryItem {
+  const { status: _status, ...rest } = item;
+  return rest;
+}
+
 export function loadRegistryState(updatedBy: string): LoadedRegistryState {
   const v2 = safeJsonParse<ScenarioRegistryStateV2>(
     localStorage.getItem(STORAGE_KEY_V2),
@@ -31,10 +38,17 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
     const folders = v2.folders ?? [];
     const scenarios = (v2.scenarios ?? []).map((x) => {
       const seq = ensureServiceSequence(x);
-      if (Array.isArray((x as ScenarioRegistryItem).serviceSequence) && (x as ScenarioRegistryItem).serviceSequence.length > 0) {
-        return x;
-      }
-      return { ...(x as unknown as object), serviceSequence: seq } as ScenarioRegistryItem;
+      const base =
+        Array.isArray((x as ScenarioRegistryItem).serviceSequence) &&
+        (x as ScenarioRegistryItem).serviceSequence.length > 0
+          ? (x as ScenarioRegistryItem)
+          : ({
+              ...(x as unknown as object),
+              serviceSequence: seq,
+            } as ScenarioRegistryItem);
+      return stripLegacyScenarioFields(
+        base as ScenarioRegistryItem & { status?: unknown },
+      );
     });
     return {
       folders,
@@ -62,11 +76,13 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
     const migrated: ScenarioRegistryStateV2 = {
       version: 2,
       folders: [migratedRoot],
-      scenarios: v1.map((x) => ({
-        ...x,
-        folderId: migratedRoot.id,
-        serviceSequence: ensureServiceSequence(x),
-      })),
+      scenarios: v1.map((x) =>
+        stripLegacyScenarioFields({
+          ...x,
+          folderId: migratedRoot.id,
+          serviceSequence: ensureServiceSequence(x),
+        } as ScenarioRegistryItem & { status?: unknown }),
+      ),
     };
     localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(migrated));
     return {

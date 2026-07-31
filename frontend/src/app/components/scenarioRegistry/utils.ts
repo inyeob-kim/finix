@@ -1,4 +1,4 @@
-import type { RegistryStatus, ScenarioRegistryFolder, ScenarioRegistryStateV2 } from "./types";
+import type { ScenarioRegistryFolder, ScenarioRegistryStateV2 } from "./types";
 
 export function hash01(input: string) {
   let h = 2166136261;
@@ -72,7 +72,6 @@ export function defaultRegistryV2(updatedBy: string): ScenarioRegistryStateV2 {
           description:
             "필수 입력 누락, 날짜 범위 오류 등 대표 Negative 케이스를 표준 시나리오로 관리합니다.",
           tags: ["결제", "Input validation", "Negative"],
-          status: "active" as RegistryStatus,
           serviceSequence: [{ code: "PY016", name: "Request bank salary payment" }],
           createdAt: base,
           updatedAt: base,
@@ -84,7 +83,6 @@ export function defaultRegistryV2(updatedBy: string): ScenarioRegistryStateV2 {
           title: "정기예금 만기 전 해지(실패) 대체 처리",
           description: "만기 전 해지 불가 규칙과 대체 플로우를 포함합니다.",
           tags: ["예금", "해지", "Alternative"],
-          status: "draft" as RegistryStatus,
           serviceSequence: [{ code: "CM060", name: "정기예금 가입" }],
           createdAt: base,
           updatedAt: base,

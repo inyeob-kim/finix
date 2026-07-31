@@ -27,7 +27,6 @@ describe("scenarioRegistry/folderModel", () => {
         title: "T",
         description: "",
         tags: [],
-        status: "active",
         serviceSequence: [],
         createdAt: "t",
         updatedAt: "2026-01-01 00:00",

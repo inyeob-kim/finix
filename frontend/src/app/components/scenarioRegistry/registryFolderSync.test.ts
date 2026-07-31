@@ -30,7 +30,6 @@ const scenario = (folderId: string): ScenarioRegistryItem =>
     title: "T",
     description: "",
     tags: [],
-    status: "draft",
     serviceSequence: [],
     createdAt: "t",
     updatedAt: "t",

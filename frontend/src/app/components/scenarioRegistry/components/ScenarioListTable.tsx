@@ -12,7 +12,6 @@ import {
   FINIX_DATA_TABLE_GHOST_BTN_CLASS,
   FINIX_DATA_TABLE_ICON_BTN_CLASS,
 } from "../../ui/finix-data-table";
-import { FinixScenarioStatusBadge } from "../../ui/finix-status-badge";
 import { cn } from "../../ui/utils";
 import type { ScenarioRegistryItem } from "../types";
 import { ConfirmPopover } from "./ConfirmPopover";
@@ -69,7 +68,6 @@ export function ScenarioListTable({
       <FinixDataTableHeader>
         <FinixDataTableRow className="hover:bg-transparent">
           <FinixDataTableHead className="min-w-[220px]">시나리오</FinixDataTableHead>
-          <FinixDataTableHead>상태</FinixDataTableHead>
           <FinixDataTableHead>태그</FinixDataTableHead>
           <FinixDataTableHead>수정</FinixDataTableHead>
           <FinixDataTableHead>수정자</FinixDataTableHead>
@@ -86,7 +84,7 @@ export function ScenarioListTable({
         {items.length === 0 ? (
           <FinixDataTableRow>
             <FinixDataTableCell
-              colSpan={6}
+              colSpan={5}
               className="py-12 text-center text-muted-foreground text-sm"
             >
               <div className="max-w-lg mx-auto space-y-4">
@@ -137,9 +135,6 @@ export function ScenarioListTable({
                       테스트 케이스 {tcCount}개
                     </p>
                   </div>
-                </FinixDataTableCell>
-                <FinixDataTableCell className="align-top">
-                  <FinixScenarioStatusBadge status={item.status} />
                 </FinixDataTableCell>
                 <FinixDataTableCell className="align-top text-xs text-muted-foreground">
                   {item.tags.slice(0, 2).join(", ") || "—"}

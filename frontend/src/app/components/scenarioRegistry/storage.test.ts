@@ -65,7 +65,6 @@ describe("scenarioRegistry/storage", () => {
         title: "T",
         description: "D",
         tags: [],
-        status: "active",
         // legacy fields should be tolerated (as unknown)
         serviceSequence: [] as any,
         createdAt: "t",

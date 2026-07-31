@@ -1,5 +1,3 @@
-export type RegistryStatus = "draft" | "active";
-
 export type ServiceCatalogItem = {
   code: string;
   name: string;
@@ -41,7 +39,6 @@ export type ScenarioRegistryItem = {
   title: string;
   description: string;
   tags: string[];
-  status: RegistryStatus;
   serviceSequence: ServiceCatalogItem[];
   /** Persisted test cases (or legacy YAML rule picks) chosen in the wizard. */
   selectedRuleTestcases?: ScenarioRuleTestcaseRef[];
@@ -69,4 +66,3 @@ export type ServiceDraft = {
   code: string;
   name: string;
 };
-

@@ -89,7 +89,6 @@ import {
   resolveScenarioFolderId,
 } from "./scenarioRegistry/registryFolderSync";
 import type {
-    RegistryStatus,
     ScenarioRegistryFolder,
     ScenarioRegistryItem,
     ScenarioRegistryStateV2,
@@ -156,7 +155,6 @@ export function ScenarioRegistry() {
   const [items, setItems] = useState<ScenarioRegistryItem[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | RegistryStatus>("");
   const [tagFilter, setTagFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -168,7 +166,6 @@ export function ScenarioRegistry() {
   const [servicePickerCode, setServicePickerCode] = useState("");
   const [description, setDescription] = useState("");
   const [tagsText, setTagsText] = useState("");
-  const [status, setStatus] = useState<RegistryStatus>("draft");
   const [folderId, setFolderId] = useState<string>("");
   const [serviceDrafts, setServiceDrafts] = useState<ServiceDraft[]>([]);
   const [activeServiceCode, setActiveServiceCode] = useState<string | null>(null);
@@ -377,7 +374,6 @@ export function ScenarioRegistry() {
     return items
       .filter((i) => {
         if (selectedFolderId && i.folderId !== selectedFolderId) return false;
-        if (statusFilter && i.status !== statusFilter) return false;
         if (tagFilter && !i.tags.includes(tagFilter)) return false;
         if (!q) return true;
         return (
@@ -388,7 +384,7 @@ export function ScenarioRegistry() {
         );
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [items, query, statusFilter, tagFilter, selectedFolderId]);
+  }, [items, query, tagFilter, selectedFolderId]);
 
   const scenarioListEmptyCopy = useMemo(() => {
     if (folders.length === 0) {
@@ -634,7 +630,6 @@ export function ScenarioRegistry() {
     setServicePickerCode("");
     setDescription("");
     setTagsText("");
-    setStatus("draft");
     setFolderId(selectedFolderId ?? folders[0]?.id ?? "");
     setServiceDrafts([]);
     setActiveServiceCode(null);
@@ -664,7 +659,6 @@ export function ScenarioRegistry() {
     setServicePickerCode("");
     setDescription(item.description);
     setTagsText(item.tags.join(", "));
-    setStatus(item.status);
     setFolderId(item.folderId);
     const drafts = (item.serviceSequence ?? []).map((s) => ({
       id: newId(),
@@ -738,7 +732,6 @@ export function ScenarioRegistry() {
         title: trimmedTitle,
         description: description.trim(),
         tags: nextTags,
-        status,
         serviceSequence: nextSequence,
         selectedRuleTestcases:
           nextRulePicks.length > 0 ? nextRulePicks : undefined,
@@ -767,7 +760,6 @@ export function ScenarioRegistry() {
           title: trimmedTitle,
           description: description.trim(),
           tags: nextTags,
-          status,
           serviceSequence: nextSequence,
           selectedRuleTestcases:
             nextRulePicks.length > 0 ? nextRulePicks : undefined,
@@ -1307,18 +1299,6 @@ export function ScenarioRegistry() {
         <div className="bg-card border border-border rounded-sm overflow-hidden flex flex-col flex-1 min-h-0">
           <div className="px-4 py-3 border-b border-border flex flex-wrap items-end gap-6 shrink-0">
             <div className="flex flex-wrap items-end gap-6">
-              <FinixField label="상태" className="min-w-[10rem]">
-                <FinixUnderlineSelect
-                  value={statusFilter}
-                  onChange={(e) =>
-                    setStatusFilter(e.target.value as typeof statusFilter)
-                  }
-                >
-                  <option value="">전체</option>
-                  <option value="active">운영</option>
-                  <option value="draft">초안</option>
-                </FinixUnderlineSelect>
-              </FinixField>
               <FinixField label="태그" className="min-w-[12rem]">
                 <FinixUnderlineSelect
                   value={tagFilter}
@@ -1626,7 +1606,7 @@ export function ScenarioRegistry() {
                   ? "1/3 서비스 · 테스트 케이스 조립"
                   : scenarioWizardStep === 2
                     ? "2/3 런타임 컨텍스트 흐름"
-                    : "3/3 제목 · 상태 · 컬렉션 · 설명"}
+                    : "3/3 제목 · 컬렉션 · 설명"}
               </span>
             </DialogTitle>
           </DialogHeader>
@@ -1723,17 +1703,6 @@ export function ScenarioRegistry() {
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="예: 급여이체 입력 검증"
                   />
-                </FinixField>
-                <FinixField label="상태">
-                  <FinixUnderlineSelect
-                    value={status}
-                    onChange={(e) =>
-                      setStatus(e.target.value as RegistryStatus)
-                    }
-                  >
-                    <option value="draft">초안</option>
-                    <option value="active">운영</option>
-                  </FinixUnderlineSelect>
                 </FinixField>
 
                 <FinixField label="컬렉션(폴더)">

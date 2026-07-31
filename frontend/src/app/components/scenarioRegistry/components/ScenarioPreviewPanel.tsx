@@ -11,7 +11,6 @@ import {
   FinixFlowPill,
   FinixFlowStepCard,
 } from "../../ui/finix-flow";
-import { FinixScenarioStatusBadge } from "../../ui/finix-status-badge";
 import { cn } from "../../ui/utils";
 
 export function ScenarioPreviewPanel({
@@ -66,7 +65,6 @@ export function ScenarioPreviewPanel({
         {selectedScenario ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <FinixScenarioStatusBadge status={selectedScenario.status} />
               <span className="text-xs tabular-nums text-muted-foreground">
                 테스트 케이스 {steps.length}개
               </span>
