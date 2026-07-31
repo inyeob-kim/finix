@@ -128,7 +128,7 @@ export function ServiceCatalogCombobox({
           <FinixUnderlineInput
             ref={inputRef}
             value={displayValue}
-            disabled={disabled || options.length === 0 || loading}
+            disabled={disabled || (!loading && options.length === 0)}
             placeholder={
               loading
                 ? "목록 불러오는 중…"

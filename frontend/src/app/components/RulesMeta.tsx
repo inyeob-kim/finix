@@ -3,9 +3,7 @@ import { useSearchParams } from "react-router";
 import {
   ChevronDown,
   ChevronUp,
-  GitPullRequest,
   Layers,
-  CheckCircle2,
   RotateCw,
   Search,
   Sparkles,
@@ -25,7 +23,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -55,26 +52,25 @@ import { FinixLoading } from "./ui/finix-loading";
 import { RulesMetaHistoryDialog } from "./rules/RulesMetaHistoryDialog";
 import { RulesMetaHintButton } from "./rules/RulesMetaHintButton";
 import { RulesMetaTestCasesPanel } from "./rules/RulesMetaTestCasesPanel";
+import { YamlAiJobBanner } from "./rules/YamlAiJobBanner";
 import { YamlRulesEditPanel } from "./rules/YamlRulesEditPanel";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
 import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import {
   activateServiceRulesBundle,
   createServiceRulesDraft,
-  generateServiceRulesDraftFromSource,
   getServiceRulesBundle,
   updateServiceRulesDraft,
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
 import type { ServiceRuleBundleReadDto } from "@/api/types";
-import { useProgressiveWaitMessage } from "@/hooks/useProgressiveWaitMessage";
+import { useYamlAiJobStore, type YamlAiJob } from "@/app/stores/yamlAiJobStore";
 import {
   mergeSelectedWithBundle,
   type RuleRegistryItem,
   useRulesRegistry,
 } from "@/hooks/useRulesRegistry";
 import {
-  formatRegistryVersionSummary,
   registryStatusHint,
   registryVersionHint,
 } from "@/lib/formatRegistryVersions";
@@ -92,19 +88,11 @@ type SortKey =
   | "updated_desc"
   | "rules_desc";
 
-function statusLabelKo(status: string): string {
-  const st = (status || "draft").toLowerCase();
-  if (st === "active") return "운영";
-  if (st === "approved") return "승인됨";
-  if (st === "superseded") return "대체됨";
-  return "초안";
-}
-
 function StatusPill({ status }: { status: string }) {
   const st = (status || "draft").toLowerCase();
   if (st === "active") {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-100 text-emerald-900 border border-emerald-300">
         운영
       </span>
     );
@@ -124,8 +112,7 @@ function StatusPill({ status }: { status: string }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-primary/10 text-primary border border-primary/25">
-      <GitPullRequest className="w-3 h-3" />
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-amber-50 text-amber-900 border border-amber-300">
       초안
     </span>
   );
@@ -219,24 +206,40 @@ export function RulesMeta() {
   const [yamlAiUseDataPool, setYamlAiUseDataPool] = useState(false);
   const [yamlAiUseSwagger, setYamlAiUseSwagger] = useState(false);
   const [yamlAiAdvancedOpen, setYamlAiAdvancedOpen] = useState(false);
-  const [yamlAiSubmitting, setYamlAiSubmitting] = useState(false);
-  const yamlAiWaitMessage = useProgressiveWaitMessage(yamlAiSubmitting);
   const [yamlAiError, setYamlAiError] = useState<string | null>(null);
   const yamlAiServiceInputRef = useRef<HTMLInputElement>(null);
+  const yamlAiJobs = useYamlAiJobStore((s) => s.jobs);
+  const startYamlAiJob = useYamlAiJobStore((s) => s.startJob);
+  const dismissYamlAiJob = useYamlAiJobStore((s) => s.dismissJob);
 
   const focusYamlAiServiceSearch = useCallback(() => {
     window.setTimeout(() => {
-      yamlAiServiceInputRef.current?.focus();
-    }, 0);
+      const el = yamlAiServiceInputRef.current;
+      if (!el || el.disabled) return;
+      el.focus();
+      el.select?.();
+    }, 50);
   }, []);
 
   useEffect(() => {
-    if (!yamlAiOpen || yamlAiSubmitting) return;
+    if (!yamlAiOpen) return;
     focusYamlAiServiceSearch();
-  }, [yamlAiOpen, yamlAiSubmitting, yamlAiCatalogLoading, yamlAiPickerKey, focusYamlAiServiceSearch]);
-  const [yamlAiSuccessOpen, setYamlAiSuccessOpen] = useState(false);
-  const [yamlAiSuccessBundle, setYamlAiSuccessBundle] =
-    useState<ServiceRuleBundleReadDto | null>(null);
+  }, [yamlAiOpen, yamlAiCatalogLoading, yamlAiPickerKey, focusYamlAiServiceSearch]);
+
+  const prevYamlJobStatuses = useRef<Record<string, YamlAiJob["status"]>>({});
+  useEffect(() => {
+    const prev = prevYamlJobStatuses.current;
+    let shouldReload = false;
+    for (const job of yamlAiJobs) {
+      if (job.status === "success" && prev[job.id] === "running") {
+        shouldReload = true;
+      }
+    }
+    prevYamlJobStatuses.current = Object.fromEntries(
+      yamlAiJobs.map((j) => [j.id, j.status]),
+    );
+    if (shouldReload) void reloadRegistry();
+  }, [yamlAiJobs, reloadRegistry]);
 
   const uniqueVersions = useMemo(() => {
     const s = new Set(
@@ -508,7 +511,7 @@ export function RulesMeta() {
     }
   };
 
-  const submitYamlFromSource = async () => {
+  const submitYamlFromSource = () => {
     const code = yamlAiService.trim();
     const src = yamlAiSource.trim();
     if (!code) {
@@ -521,29 +524,18 @@ export function RulesMeta() {
       );
       return;
     }
-    setYamlAiSubmitting(true);
     setYamlAiError(null);
-    try {
-      const bundle = await generateServiceRulesDraftFromSource(code, {
-        source_code: yamlAiSource,
-        source_version: yamlAiSourceVersion.trim() || null,
-        hints: yamlAiHints.trim() || null,
-        created_by: user?.username ?? null,
-        use_data_pool: yamlAiUseDataPool,
-        use_swagger: yamlAiUseSwagger,
-      });
-      await reloadRegistry();
-      resetYamlAiForm();
-      setYamlAiOpen(false);
-      setYamlAiSuccessBundle(bundle);
-      setYamlAiSuccessOpen(true);
-    } catch (e) {
-      setYamlAiError(
-        e instanceof ApiError ? e.message : "YAML 등록에 실패했습니다.",
-      );
-    } finally {
-      setYamlAiSubmitting(false);
-    }
+    startYamlAiJob({
+      serviceCode: code,
+      source_code: yamlAiSource,
+      source_version: yamlAiSourceVersion.trim() || null,
+      hints: yamlAiHints.trim() || null,
+      created_by: user?.username ?? null,
+      use_data_pool: yamlAiUseDataPool,
+      use_swagger: yamlAiUseSwagger,
+    });
+    resetYamlAiForm();
+    setYamlAiOpen(false);
   };
 
   const resetYamlAiForm = () => {
@@ -559,15 +551,8 @@ export function RulesMeta() {
 
   const closeYamlAi = (open: boolean) => {
     if (open) return;
-    if (yamlAiSubmitting) return;
     setYamlAiOpen(false);
     resetYamlAiForm();
-  };
-
-  const closeYamlAiSuccess = (open: boolean) => {
-    if (open) return;
-    setYamlAiSuccessOpen(false);
-    setYamlAiSuccessBundle(null);
   };
 
   const openYamlAiDialog = () => {
@@ -578,11 +563,10 @@ export function RulesMeta() {
     setYamlAiError(null);
   };
 
-  const openSuccessDraft = () => {
-    const bundle = yamlAiSuccessBundle;
+  const openJobDraft = (job: YamlAiJob) => {
+    const bundle = job.bundle;
     if (!bundle) return;
-    setYamlAiSuccessOpen(false);
-    setYamlAiSuccessBundle(null);
+    dismissYamlAiJob(job.id);
     const row =
       registry.find((r) => r.serviceCode === bundle.service_code) ??
       bundleToRegistryItem(bundle);
@@ -601,6 +585,11 @@ export function RulesMeta() {
       icon={<Layers className="w-5 h-5" strokeWidth={2} />}
       title="YAML 규칙"
       bodyClassName="overflow-hidden flex flex-col pt-3"
+      actions={
+        yamlAiJobs.length > 0 ? (
+          <YamlAiJobBanner onOpenBundle={openJobDraft} />
+        ) : undefined
+      }
     >
 
         <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -869,7 +858,7 @@ export function RulesMeta() {
               <DialogHeader
                 className={cn(
                   "px-6 border-b border-border shrink-0 text-left",
-                  yamlRuleFocusEdit ? "pt-4 pb-3" : "pt-5 pb-4 space-y-2",
+                  yamlRuleFocusEdit ? "pt-4 pb-3" : "pt-5 pb-4",
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2 pr-10">
@@ -886,65 +875,31 @@ export function RulesMeta() {
                   </span>
                   <StatusPill status={selected.status} />
                 </div>
-                {!yamlRuleFocusEdit ? (
-                  <DialogDescription asChild>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span title={registryVersionHint(selected)}>
-                        {formatRegistryVersionSummary(selected)}
-                      </span>
-                      <span className="text-border">·</span>
-                      <span className="tabular-nums">규칙 {selected.rules}건</span>
-                      {selected.sourceVersion && selected.sourceVersion !== "—" ? (
-                        <>
-                          <span className="text-border">·</span>
-                          <span
-                            className="font-mono truncate max-w-[14rem]"
-                            title={selected.sourceVersion}
-                          >
-                            소스 {selected.sourceVersion}
-                          </span>
-                        </>
-                      ) : null}
-                      <span className="text-border">·</span>
-                      <span>{selected.lastUpdatedAt}</span>
-                      <span className="text-border">·</span>
-                      <button
-                        type="button"
-                        className="font-medium text-primary hover:underline"
-                        onClick={() => openHistory(selected)}
-                      >
-                        버전 이력 ({selected.versionCount})
-                      </button>
-                    </div>
-                  </DialogDescription>
-                ) : null}
               </DialogHeader>
 
               {!yamlRuleFocusEdit ? (
-              <div className="px-6 pt-3 shrink-0">
-                <div className="inline-flex rounded-sm border border-border bg-muted/30 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("yaml")}
-                    className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
-                      activeTab === "yaml"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    YAML 편집
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("testcases")}
-                    className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
-                      activeTab === "testcases"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    테스트케이스
-                  </button>
+              <div className="px-6 pt-1 shrink-0">
+                <div className="flex gap-1 border-b border-border">
+                  {(
+                    [
+                      { id: "yaml" as const, label: "YAML 편집" },
+                      { id: "testcases" as const, label: "테스트케이스" },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setActiveTab(t.id)}
+                      className={cn(
+                        "px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors",
+                        activeTab === t.id
+                          ? "border-primary text-foreground font-medium"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
                 </div>
               </div>
               ) : null}
@@ -994,6 +949,7 @@ export function RulesMeta() {
                     editSaving,
                     editLoading,
                     selected.status,
+                    hasUnsavedChanges,
                   );
                   const saveDisabled = saveDisabledReason != null;
                   const newVersionReason = getNewVersionDisabledReason(
@@ -1181,43 +1137,15 @@ export function RulesMeta() {
             e.preventDefault();
             focusYamlAiServiceSearch();
           }}
-          onInteractOutside={(e) => {
-            if (yamlAiSubmitting) e.preventDefault();
-          }}
-          onEscapeKeyDown={(e) => {
-            if (yamlAiSubmitting) e.preventDefault();
-          }}
         >
-          <DialogHeader className="px-6 pt-6 pb-3 border-b border-border text-left space-y-1 shrink-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b border-border text-left shrink-0">
             <DialogTitle className="text-lg font-semibold">
               소스에서 YAML 생성
             </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm text-left">
-              카탈로그 서비스를 선택한 뒤 컨트롤러·서비스·검증기 소스를 붙여넣으세요.
-              LLM이 템플릿 YAML을 만들고 서버 검증 후 초안 번들로 저장합니다.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="relative flex-1 min-h-0 flex flex-col">
-            {yamlAiSubmitting ? (
-              <div
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-[1px]"
-                aria-live="polite"
-                aria-busy="true"
-              >
-                <FinixLoading size="lg" label="YAML 생성 및 등록 중…" />
-                <p className="text-xs text-muted-foreground -mt-1 text-center max-w-sm px-4 whitespace-pre-line">
-                  {yamlAiWaitMessage}
-                </p>
-              </div>
-            ) : null}
-
-            <div
-              className={cn(
-                "px-6 py-4 space-y-4 overflow-y-auto flex-1 min-h-0",
-                yamlAiSubmitting && "pointer-events-none opacity-60",
-              )}
-            >
+            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1 min-h-0">
               {yamlAiError || yamlAiCatalogError ? (
                 <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2">
                   {yamlAiError ?? yamlAiCatalogError}
@@ -1234,7 +1162,7 @@ export function RulesMeta() {
                   value={yamlAiService}
                   onValueChange={setYamlAiService}
                   loading={yamlAiCatalogLoading}
-                  disabled={yamlAiCatalog.length === 0 || yamlAiSubmitting}
+                  inputRef={yamlAiServiceInputRef}
                 />
               </FinixField>
 
@@ -1250,7 +1178,6 @@ export function RulesMeta() {
                     spellCheck={false}
                     className="min-h-[220px] font-mono text-[12px]"
                     placeholder="여기에 관련 소스를 붙여넣으세요…"
-                    disabled={yamlAiSubmitting}
                   />
                 </FinixField>
                 <p
@@ -1271,6 +1198,48 @@ export function RulesMeta() {
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={yamlAiUseDataPool}
+                      onChange={(e) => setYamlAiUseDataPool(e.target.checked)}
+                    />
+                    <span>
+                      <span className="font-medium">Data Pool 참조</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        Happy 샘플 필드를 힌트로만 주입합니다.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={yamlAiUseSwagger}
+                      onChange={(e) => setYamlAiUseSwagger(e.target.checked)}
+                    />
+                    <span>
+                      <span className="font-medium">Swagger/OpenAPI 참조</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        등록된 operation 힌트만 추가합니다.{" "}
+                        <a
+                          href="/openapi"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-2 hover:text-foreground"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          스펙 등록 (새 탭)
+                        </a>
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
               <div className="rounded-sm border border-border bg-muted/20 overflow-hidden">
                 <button
                   type="button"
@@ -1278,9 +1247,9 @@ export function RulesMeta() {
                   onClick={() => setYamlAiAdvancedOpen((o) => !o)}
                   aria-expanded={yamlAiAdvancedOpen}
                 >
-                  <span>고급 옵션</span>
+                  <span>옵션</span>
                   <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                    소스 버전 · 힌트 · 플러그인
+                    소스 버전 · 힌트
                     {yamlAiAdvancedOpen ? (
                       <ChevronUp className="w-4 h-4" />
                     ) : (
@@ -1297,7 +1266,6 @@ export function RulesMeta() {
                       <FinixUnderlineInput
                         value={yamlAiSourceVersion}
                         onChange={(e) => setYamlAiSourceVersion(e.target.value)}
-                        disabled={yamlAiSubmitting}
                       />
                     </FinixField>
 
@@ -1310,65 +1278,8 @@ export function RulesMeta() {
                         onChange={(e) => setYamlAiHints(e.target.value)}
                         rows={2}
                         className="min-h-[3rem]"
-                        disabled={yamlAiSubmitting}
                       />
                     </FinixField>
-
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-foreground">
-                        선택 플러그인
-                      </p>
-                      <p className="text-[11px] text-muted-foreground -mt-1">
-                        없으면 자동으로 건너뜁니다. 힌트만 주입하며 필수는 아닙니다.
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={yamlAiUseDataPool}
-                            onChange={(e) =>
-                              setYamlAiUseDataPool(e.target.checked)
-                            }
-                            disabled={yamlAiSubmitting}
-                          />
-                          <span>
-                            <span className="font-medium">Data Pool 참조</span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              Happy 샘플 필드를 힌트로만 주입합니다.
-                            </span>
-                          </span>
-                        </label>
-                        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={yamlAiUseSwagger}
-                            onChange={(e) =>
-                              setYamlAiUseSwagger(e.target.checked)
-                            }
-                            disabled={yamlAiSubmitting}
-                          />
-                          <span>
-                            <span className="font-medium">
-                              Swagger/OpenAPI 참조
-                            </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              등록된 operation 힌트만 추가합니다.{" "}
-                              <a
-                                href="/openapi"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline underline-offset-2 hover:text-foreground"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                스펙 등록 (새 탭)
-                              </a>
-                            </span>
-                          </span>
-                        </label>
-                      </div>
-                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1378,8 +1289,7 @@ export function RulesMeta() {
           <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 flex-row justify-end gap-2 shrink-0">
             <button
               type="button"
-              className="h-10 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
-              disabled={yamlAiSubmitting}
+              className="h-10 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
               onClick={() => closeYamlAi(false)}
             >
               닫기
@@ -1388,69 +1298,12 @@ export function RulesMeta() {
               type="button"
               className="h-10 px-4 w-auto gap-2"
               disabled={
-                yamlAiSubmitting ||
-                yamlAiCatalogLoading ||
-                !yamlAiService ||
-                !yamlAiSourceReady
+                yamlAiCatalogLoading || !yamlAiService || !yamlAiSourceReady
               }
-              onClick={() => void submitYamlFromSource()}
+              onClick={() => submitYamlFromSource()}
             >
-              {yamlAiSubmitting ? (
-                <FinixLoading size="sm" inline />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
+              <Sparkles className="w-4 h-4" />
               초안 생성
-            </FinixPrimaryButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={yamlAiSuccessOpen} onOpenChange={closeYamlAiSuccess}>
-        <DialogContent className="sm:max-w-md gap-0 p-0 overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-2 text-left space-y-2">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="w-6 h-6 shrink-0" />
-              <DialogTitle className="text-lg font-semibold">
-                초안 등록 완료
-              </DialogTitle>
-            </div>
-            <DialogDescription className="text-sm text-left">
-              YAML 초안이 등록되었습니다. 바로 열어 검토·활성화할 수 있습니다.
-            </DialogDescription>
-          </DialogHeader>
-          {yamlAiSuccessBundle ? (
-            <div className="px-6 pb-2 text-sm space-y-2">
-              <p className="text-muted-foreground">
-                서비스{" "}
-                <span className="font-mono font-medium text-foreground">
-                  {yamlAiSuccessBundle.service_code}
-                </span>
-                {yamlAiSuccessBundle.service_name_snapshot
-                  ? ` · ${yamlAiSuccessBundle.service_name_snapshot}`
-                  : null}
-              </p>
-              <p className="text-xs font-mono text-muted-foreground">
-                bundle #{yamlAiSuccessBundle.id} · 버전 v
-                {yamlAiSuccessBundle.version} ·{" "}
-                {statusLabelKo(yamlAiSuccessBundle.status)}
-              </p>
-            </div>
-          ) : null}
-          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 flex-row justify-end gap-2">
-            <button
-              type="button"
-              className="h-10 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
-              onClick={() => closeYamlAiSuccess(false)}
-            >
-              나중에
-            </button>
-            <FinixPrimaryButton
-              type="button"
-              className="h-10 px-6 w-auto"
-              onClick={openSuccessDraft}
-            >
-              이 초안 열기
             </FinixPrimaryButton>
           </DialogFooter>
         </DialogContent>

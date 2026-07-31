@@ -3,6 +3,7 @@ export function getSaveDraftDisabledReason(
   editSaving: boolean,
   editLoading: boolean,
   status: string,
+  hasUnsavedChanges = true,
 ): string | null {
   if (editSaving) {
     return "저장 처리 중입니다. 잠시만 기다려 주세요.";
@@ -12,6 +13,9 @@ export function getSaveDraftDisabledReason(
   }
   const st = (status || "").trim().toLowerCase();
   if (st === "draft") {
+    if (!hasUnsavedChanges) {
+      return "변경된 내용이 없습니다.";
+    }
     return null;
   }
   if (st === "active") {

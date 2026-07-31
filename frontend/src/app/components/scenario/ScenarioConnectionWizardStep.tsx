@@ -4,20 +4,15 @@ import {
   buildScenarioStepsWithBindings,
   emptyStepBinding,
   stripBindingPathForInput,
-  removeInjectByPath,
-  removeInjectByVar,
-  upsertExtract,
   upsertInject,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
 import {
-  buildVariableFlowLanes,
-  fieldVarNameFromPath,
-} from "@/lib/scenarioConnectionUx";
-import {
-  removeExtractAndDependentInjects,
-  renameExtractVarInScenario,
-} from "@/lib/extractVarNaming";
+  applyVarLink,
+  removeVarLink,
+  type BindingCanvasEdge,
+} from "@/lib/scenarioBindingCanvas";
+import { START_VAR_STEP_INDEX } from "@/lib/scenarioConnectionUx";
 import {
   buildPerStepFromRunSteps,
   buildRunStepsFromPicks,
@@ -28,13 +23,16 @@ import {
   type RuntimeFlowException,
 } from "@/lib/scenarioRuntimeContext";
 import { useScenarioFlowPreview } from "@/hooks/useScenarioFlowPreview";
-import { ScenarioRuntimeTimeline } from "./ScenarioRuntimeTimeline";
 import { ScenarioFlowExceptionsPanel } from "./ScenarioFlowExceptionsPanel";
 import { ScenarioExecutionValuesCollapsible } from "./ScenarioExecutionValuesCollapsible";
-import { ScenarioVariableFlowStrip } from "./ScenarioVariableFlowStrip";
-import { ScenarioCollectionVarsSummary } from "./ScenarioCollectionVarsSummary";
 import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
 import { startVarKeysFromConfig } from "@/lib/scenarioPostmanVariables";
+import { ScenarioBindingCanvas } from "./bindingCanvas/ScenarioBindingCanvas";
+import {
+  ScenarioBindingLinkDrawer,
+  type LinkDraft,
+} from "./bindingCanvas/ScenarioBindingLinkDrawer";
+import { cn } from "../ui/utils";
 
 type Props = {
   selectedRuleTestcases: ScenarioRuleTestcaseRef[];
@@ -45,23 +43,6 @@ type Props = {
   onOpenCollectionVars: () => void;
 };
 
-function suggestedFocusStepIndex(
-  runSteps: ReturnType<typeof buildRunStepsFromPicks>,
-  bindings: StepBindingsByStepKey,
-): number | null {
-  if (runSteps.length === 0) return null;
-  const lanes = buildVariableFlowLanes(runSteps, bindings);
-  if (lanes.length === 0) return 0;
-  for (const lane of lanes) {
-    if (lane.hops.length === 0 && lane.fromStepIndex >= 0) {
-      return lane.fromStepIndex;
-    }
-    const broken = lane.hops.find((h) => !h.linked);
-    if (broken) return broken.toStepIndex;
-  }
-  return null;
-}
-
 export function ScenarioConnectionWizardStep({
   selectedRuleTestcases,
   serviceDrafts,
@@ -70,7 +51,13 @@ export function ScenarioConnectionWizardStep({
   postmanConfig,
   onOpenCollectionVars,
 }: Props) {
-  const [focusStepIndex, setFocusStepIndex] = useState<number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingEdge, setEditingEdge] = useState<BindingCanvasEdge | null>(null);
+  const [linkSeed, setLinkSeed] = useState<Partial<LinkDraft> | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
+  const [overridesOpen, setOverridesOpen] = useState(false);
+
   const startVarKeys = useMemo(
     () => startVarKeysFromConfig(postmanConfig),
     [postmanConfig],
@@ -109,86 +96,61 @@ export function ScenarioConnectionWizardStep({
     [runSteps, bindings, startVarKeys],
   );
 
-  const hintStepIndex = useMemo(
-    () => suggestedFocusStepIndex(runSteps, bindings),
-    [runSteps, bindings],
-  );
-
   const { preview, loading: previewLoading } = useScenarioFlowPreview(
     apiSteps,
     perStep,
     runSteps.length >= 1,
   );
 
-  const handleInjectReuse = (
-    stepIndex: number,
-    requestPath: string,
-    runtimeVar: string,
-  ) => {
-    const step = runSteps[stepIndex];
-    if (!step) return;
-    onBindingsChange((prev) =>
-      upsertInject(prev, step.stepKey, runtimeVar, requestPath),
-    );
-  };
-
-  const handleDefineExtract = (
-    sourceStepIndex: number,
-    responsePath: string,
-    varName?: string,
-  ) => {
-    const step = runSteps[sourceStepIndex];
-    if (!step) return;
-    const name = (varName ?? fieldVarNameFromPath(responsePath)).trim();
-    if (!name) return;
-    onBindingsChange((prev) =>
-      upsertExtract(prev, step.stepKey, name, responsePath),
-    );
-  };
-
-  const handleRenameExtract = (
-    sourceStepIndex: number,
-    responsePath: string,
-    newVarName: string,
-  ) => {
-    onBindingsChange((prev) =>
-      renameExtractVarInScenario(
-        runSteps,
-        prev,
-        sourceStepIndex,
-        responsePath,
-        newVarName,
-      ),
-    );
-  };
-
-  const handleDisconnectInject = (
-    stepIndex: number,
-    requestPath: string,
-    runtimeVar?: string,
-  ) => {
-    const step = runSteps[stepIndex];
-    if (!step) return;
-    onBindingsChange((prev) => {
-      let next = removeInjectByPath(prev, step.stepKey, requestPath);
-      const v = runtimeVar?.trim();
-      if (v) next = removeInjectByVar(next, step.stepKey, v);
-      return next;
+  const openAddLink = (seed?: {
+    fromStepIndex?: number;
+    toStepIndex?: number;
+  }) => {
+    setEditingEdge(null);
+    setSelectedEdgeId(null);
+    setLinkSeed({
+      fromStepIndex: seed?.fromStepIndex,
+      toStepIndex: seed?.toStepIndex,
     });
+    setDrawerOpen(true);
   };
 
-  const handleDisconnectExtract = (
-    sourceStepIndex: number,
-    responsePath: string,
-  ) => {
-    onBindingsChange((prev) =>
-      removeExtractAndDependentInjects(
-        runSteps,
-        prev,
-        sourceStepIndex,
-        responsePath,
-      ),
-    );
+  const openEditEdge = (edge: BindingCanvasEdge) => {
+    if (edge.kind !== "var") {
+      setOverridesOpen(true);
+      return;
+    }
+    setEditingEdge(edge);
+    setSelectedEdgeId(edge.id);
+    setLinkSeed(null);
+    setDrawerOpen(true);
+  };
+
+  const handleApplyLink = (draft: LinkDraft) => {
+    onBindingsChange((prev) => {
+      let next = prev;
+      if (editingEdge) {
+        next = removeVarLink(next, runSteps, editingEdge);
+      }
+      return applyVarLink(next, runSteps, {
+        fromStepIndex: draft.fromStepIndex,
+        toStepIndex: draft.toStepIndex,
+        varName: draft.varName,
+        responsePath: draft.responsePath,
+        requestPath: draft.requestPath,
+      });
+    });
+    setDrawerOpen(false);
+    setEditingEdge(null);
+    setSelectedEdgeId(null);
+  };
+
+  const handleDeleteLink = () => {
+    if (!editingEdge) return;
+    onBindingsChange((prev) => removeVarLink(prev, runSteps, editingEdge));
+    setDrawerOpen(false);
+    setEditingEdge(null);
+    setSelectedEdgeId(null);
   };
 
   const handleApplyRecovery = (ex: RuntimeFlowException) => {
@@ -211,45 +173,69 @@ export function ScenarioConnectionWizardStep({
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 gap-2">
-      <p className="text-[11px] text-muted-foreground shrink-0 px-0.5">
-        {runSteps.length >= 2
-          ? "컬렉션 변수 또는 1번 ↑ 응답 → 이후 ↓ 요청 연결"
-          : "컬렉션 변수·body 고정값으로 요청 구성"}
-      </p>
-      <ScenarioCollectionVarsSummary
-        config={postmanConfig}
-        onManage={onOpenCollectionVars}
-      />
-      <ScenarioVariableFlowStrip
-        runSteps={runSteps}
-        bindings={bindings}
-        startVarKeys={startVarKeys}
-        onBindingsChange={onBindingsChange}
-        onFocusStep={setFocusStepIndex}
-      />
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-0.5 px-0.5 pb-4 space-y-2">
-        <ScenarioRuntimeTimeline
-          runSteps={runSteps}
-          bindings={bindings}
-          startVarKeys={startVarKeys}
-          focusStepIndex={focusStepIndex}
-          hintStepIndex={hintStepIndex}
-          onInjectReuse={handleInjectReuse}
-          onDisconnectInject={handleDisconnectInject}
-          onDefineExtract={handleDefineExtract}
-          onRenameExtract={(sourceStepIndex, responsePath, newVar) => {
-            handleRenameExtract(sourceStepIndex, responsePath, newVar);
-            setFocusStepIndex(null);
-          }}
-          onDisconnectExtract={handleDisconnectExtract}
-        />
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 overflow-hidden rounded-md border border-border",
+          drawerOpen ? "flex-col lg:flex-row" : "flex-col",
+        )}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ScenarioBindingCanvas
+            runSteps={runSteps}
+            bindings={bindings}
+            startVarKeys={startVarKeys}
+            selectedEdgeId={selectedEdgeId}
+            selectedStepIndex={selectedStepIndex}
+            onSelectEdge={openEditEdge}
+            onAddLink={openAddLink}
+            onOpenCollectionVars={onOpenCollectionVars}
+            onOpenOverrides={() => setOverridesOpen(true)}
+            onSelectStep={setSelectedStepIndex}
+          />
+        </div>
+        {drawerOpen ? (
+          <ScenarioBindingLinkDrawer
+            open={drawerOpen}
+            runSteps={runSteps}
+            startVarKeys={startVarKeys}
+            initial={
+              linkSeed ??
+              (editingEdge
+                ? {
+                    fromStepIndex: editingEdge.fromStepIndex,
+                    toStepIndex: editingEdge.toStepIndex,
+                    varName: editingEdge.varName,
+                    responsePath: editingEdge.responsePath,
+                    requestPath: editingEdge.requestPath,
+                  }
+                : {
+                    fromStepIndex:
+                      startVarKeys.length > 0 ? START_VAR_STEP_INDEX : 0,
+                    toStepIndex: Math.min(1, runSteps.length - 1),
+                  })
+            }
+            editingEdge={editingEdge}
+            onClose={() => {
+              setDrawerOpen(false);
+              setEditingEdge(null);
+              setSelectedEdgeId(null);
+            }}
+            onApply={handleApplyLink}
+            onDelete={editingEdge ? handleDeleteLink : undefined}
+          />
+        ) : null}
+      </div>
 
+      <div className="shrink-0 space-y-2 overflow-y-auto max-h-[30%]">
         {runSteps.length >= 2 ? (
           <ScenarioFlowExceptionsPanel
             exceptions={flowExceptions}
             onApplyRecovery={handleApplyRecovery}
-            onFocusStep={setFocusStepIndex}
+            onFocusStep={(idx) => {
+              setSelectedStepIndex(idx);
+              openAddLink({ toStepIndex: idx });
+            }}
           />
         ) : null}
 
@@ -259,6 +245,7 @@ export function ScenarioConnectionWizardStep({
           onBindingsChange={onBindingsChange}
           preview={preview}
           previewLoading={previewLoading}
+          defaultOpen={overridesOpen}
         />
       </div>
     </div>

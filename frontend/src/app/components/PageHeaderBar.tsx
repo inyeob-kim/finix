@@ -32,7 +32,7 @@ export function PageHeaderBar({
         ) : null}
       </header>
       {description != null ? (
-        <div className="px-6 md:px-8 py-3 text-sm text-muted-foreground leading-relaxed border-b border-border bg-background">
+        <div className="px-6 md:px-8 py-2.5 text-sm text-muted-foreground leading-relaxed border-b border-border bg-background">
           {description}
         </div>
       ) : null}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Check, Copy, GitPullRequest, Pencil } from "lucide-react";
+import { BadgeCheck, Check, Copy, Pencil } from "lucide-react";
 import {
   getServiceRulesBundle,
   listServiceRulesVersions,
@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "../ui/table";
 import { RulesMetaBundleDelete } from "./RulesMetaBundleDelete";
+import { FinixPrimaryButton } from "../ui/finix-button";
 
 type Props = {
   item: RuleRegistryItem | null;
@@ -38,7 +39,7 @@ type Props = {
 function statusBadge(status: string, isActive: boolean) {
   if (isActive) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-medium bg-emerald-100 text-emerald-900 border border-emerald-300">
         <BadgeCheck className="w-3 h-3" />
         운영
       </span>
@@ -46,17 +47,28 @@ function statusBadge(status: string, isActive: boolean) {
   }
   const st = (status || "draft").toLowerCase();
   if (st === "superseded") {
-    return <span className="text-xs text-muted-foreground">대체됨</span>;
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs text-muted-foreground border border-border bg-muted/60">
+        대체됨
+      </span>
+    );
   }
   if (st === "approved") {
-    return <span className="text-xs text-muted-foreground">승인됨</span>;
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs text-muted-foreground border border-border bg-muted/60">
+        승인됨
+      </span>
+    );
   }
   if (st === "active") {
-    return <span className="text-xs text-amber-700">운영 (구버전)</span>;
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-slate-100 text-slate-700 border border-slate-300">
+        운영 (구버전)
+      </span>
+    );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-primary">
-      <GitPullRequest className="w-3 h-3" />
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300">
       초안
     </span>
   );
@@ -300,9 +312,9 @@ export function RulesMetaHistoryDialog({
               onDeleted={handleDeleted}
             />
           ) : null}
-          <button
+          <FinixPrimaryButton
             type="button"
-            className="h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1.5"
+            className="h-9 px-3 text-sm rounded-sm w-auto gap-1.5"
             disabled={selectedId == null}
             onClick={() => {
               if (selectedId == null) return;
@@ -312,7 +324,7 @@ export function RulesMetaHistoryDialog({
           >
             <Pencil className="w-3.5 h-3.5" />
             이 버전으로 편집
-          </button>
+          </FinixPrimaryButton>
           <button
             type="button"
             className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"

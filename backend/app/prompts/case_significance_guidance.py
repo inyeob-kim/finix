@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 CASE_SIGNIFICANCE_GUIDANCE = """\
@@ -54,6 +53,9 @@ _LOW_VALUE_TITLE_PHRASES: tuple[str, ...] = (
     "response fields are populated",
     "observable transaction fields",
     "transaction output",
+    "거래 출력 조립",
+    "관측 가능한 거래 필드",
+    "응답 필드를 채운다",
 )
 
 _LOW_VALUE_VALIDATION_TARGET_PHRASES: tuple[str, ...] = (
@@ -78,6 +80,43 @@ _BUSINESS_SNIPPET_MARKERS: tuple[str, ...] = (
     "error",
     "return ",
     "?",
+)
+
+# Titles that name a distinct user/business outcome — do not treat as filler N.
+_BUSINESS_OUTCOME_MARKERS: tuple[str, ...] = (
+    "per input",
+    "per submitted",
+    "per account",
+    "one result",
+    "list size",
+    "each registration",
+    "each item",
+    "reconcile",
+    "schedule",
+    "repayment",
+    "inquiry returns",
+    "registration returns",
+    "cancellation",
+    "transfer returns",
+    "제출 계좌마다",
+    "결과 행",
+    "목록 크기",
+    "상환스케줄",
+    "대사",
+    "해지",
+    "취소",
+    "등록",
+    "조회",
+    "승인",
+    "거절",
+    "자동이체",
+    "약정",
+    "이체",
+    "상환",
+    "처리된다",
+    "반환한다",
+    "요청이",
+    "성공적",
 )
 
 
@@ -107,11 +146,22 @@ def _snippet_is_trivial_output_only(snippet: str) -> bool:
     return not any(marker in s for marker in _BUSINESS_SNIPPET_MARKERS)
 
 
+def _has_business_outcome_signal(*texts: str) -> bool:
+    for raw in texts:
+        t = _normalize(raw)
+        if not t:
+            continue
+        if any(kw in t for kw in _BUSINESS_OUTCOME_MARKERS):
+            return True
+    return False
+
+
 def is_low_value_case(rule: dict[str, Any]) -> bool:
     """
     Heuristic: True when a rule is likely implementation-noise, not a business scenario.
 
     Used at validate/save boundaries and LLM repair loops.
+    Low-value Normal cases should be dropped, not fail the whole YAML document.
     """
     rtype = str(rule.get("rule_type") or "").strip().upper()
     if rtype != "N":
@@ -133,28 +183,10 @@ def is_low_value_case(rule: dict[str, Any]) -> bool:
     vt_generic = any(p in vt for p in _LOW_VALUE_VALIDATION_TARGET_PHRASES)
     trivial_assertions = _assertions_are_trivial_only(assertions_list)
     trivial_snippet = _snippet_is_trivial_output_only(snippet)
+    business_signal = _has_business_outcome_signal(title, desc, vt)
 
-    # List/count business outcomes are allowed when title/description state business intent.
-    list_business = any(
-        kw in title or kw in desc or kw in vt
-        for kw in (
-            "per input",
-            "per submitted",
-            "per account",
-            "one result",
-            "list size",
-            "each registration",
-            "each item",
-            "reconcile",
-            "schedule",
-            "repayment",
-            "inquiry returns",
-            "registration returns",
-            "cancellation",
-            "transfer returns",
-        )
-    )
-    if list_business:
+    # Concrete business outcomes are never treated as filler, even if evidence is out.set-heavy.
+    if business_signal and not title_generic:
         return False
 
     if title_generic:
@@ -167,14 +199,22 @@ def is_low_value_case(rule: dict[str, Any]) -> bool:
         return False
 
     if trivial_snippet and trivial_assertions and len(assertions_list) <= 3:
-        if vt_generic or len(title) < 40:
+        if vt_generic:
+            return True
+        # Short English/generic titles without business markers only.
+        if len(title) < 40 and not business_signal:
             return True
 
     return False
 
 
 def validate_rule_case_significance(*, idx: int, rule: dict[str, Any]) -> None:
-    """Raise InvalidInputError when a rule lacks independent business significance."""
+    """
+    Raise InvalidInputError when a rule lacks independent business significance.
+
+    Prefer dropping via is_low_value_case during validate_and_prepare_yaml;
+    this remains for explicit callers/tests.
+    """
     from app.core.exceptions import InvalidInputError
 
     if not is_low_value_case(rule):

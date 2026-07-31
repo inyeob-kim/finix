@@ -124,8 +124,8 @@ dto:
 rules:
   - case_id: "PY016-E-001"
     rule_type: "E"
-    title: "Missing payment date prevents salary transfer request"
-    description: "The service rejects the request when payment date is absent because scheduling and settlement require a valid payment date."
+    title: "지급일 누락 시 급여이체 요청이 거절된다"
+    description: "지급일이 없으면 지급 일정과 정산을 수행할 수 없어 서비스를 거절한다."
     input:
       custId: null
       regList:
@@ -144,8 +144,8 @@ rules:
       snippet: "throw new BizApplicationException(\"AAPARE0001\", ...)"
   - case_id: "PY016-E-002"
     rule_type: "E"
-    title: "Payment date on or before transaction date is rejected"
-    description: "The service blocks the transfer when payment date is not after the transaction date, enforcing the business rule that payout must be scheduled forward."
+    title: "지급일이 거래일 이하면 이체가 거절된다"
+    description: "지급일이 거래일보다 이후가 아니면 선지급 규칙을 위반하므로 이체를 차단한다."
     input:
       custId: "CUST001"
     expect:
@@ -162,8 +162,8 @@ rules:
       snippet: "throw new BizApplicationException(\"BAPPYE0008\")"
   - case_id: "PY016-N-001"
     rule_type: "N"
-    title: "Successful salary transfer returns transaction date and time"
-    description: "After a valid request is accepted, the service returns transaction date and time on the response so the channel can confirm when the transfer was recorded."
+    title: "급여이체 성공 시 거래일시가 응답에 포함된다"
+    description: "유효한 요청이 접수되면 채널이 처리 시점을 확인할 수 있도록 거래일자와 거래시각을 반환한다."
     input:
       custId: "CUST001"
     expect:
@@ -181,8 +181,8 @@ rules:
       snippet: "out.setTxDt(...); out.setTxHms(...)"
   - case_id: "PY016-N-002"
     rule_type: "N"
-    title: "Registration list returns one result row per submitted account"
-    description: "When multiple target accounts are submitted, the service returns a result list with one entry per input row so the caller can reconcile each registration outcome."
+    title: "등록 목록은 제출 계좌마다 결과 행을 반환한다"
+    description: "여러 대상 계좌를 제출하면 입력 행별로 결과를 맞춰볼 수 있도록 결과 목록을 반환한다."
     input:
       custId: "CUST001"
       regList:
@@ -221,7 +221,8 @@ def schema_hard_requirements() -> str:
         "- Each case MUST include ALL of: case_id, rule_type, title, description, input, expect, "
         "assertions, tags, source_evidence\n"
         "- title and description MUST follow the Title and description quality rules in the system "
-        "prompt (business-oriented, specific, scannable; never vague or field-only titles).\n"
+        "prompt (Korean, business-oriented, specific, scannable; never English-only, vague, or "
+        "field-only titles).\n"
         "- Each case's input MUST be a complete map of the service In DTO / OMM: include every "
         "request property key; use null for unused fields in that case (never omit keys that exist "
         "on the DTO).\n"
@@ -261,8 +262,8 @@ def build_system_prompt() -> str:
         "based on service metadata and the user's objective.\n"
         "Exclude framework/DI/logging noise; consolidate related behavior; do not invent HTTP "
         "status codes; use assertions: [] when no confident assertion exists.\n"
-        "Write titles and descriptions so a business user understands each case from the list "
-        "view without opening YAML.\n"
+        "Write Korean titles and descriptions so a business user understands each case from the "
+        "list view without opening YAML.\n"
         "Prefer fewer high-value cases; omit implementation-noise rules entirely.\n\n"
         f"{schema_hard_requirements()}\n"
         f"{CASE_SIGNIFICANCE_GUIDANCE}\n\n"

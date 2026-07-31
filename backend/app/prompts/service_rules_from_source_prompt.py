@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import yaml
 
+from app.prompts.case_significance_guidance import CASE_SIGNIFICANCE_GUIDANCE
 from app.prompts.service_rules_yaml_prompt import (
     GENERALIZATION_RULES_FOR_ALL_SERVICES,
     INPUT_AND_ASSERTION_GUIDANCE,
@@ -11,193 +13,63 @@ from app.prompts.service_rules_yaml_prompt import (
     ServiceMetaForRules,
     schema_hard_requirements,
 )
-from app.prompts.case_significance_guidance import CASE_SIGNIFICANCE_GUIDANCE
 from app.prompts.title_description_guidance import TITLE_AND_DESCRIPTION_GUIDANCE
 
-BUSINESS_ORIENTED_EXTRACTION_GLOBAL = """\
-BUSINESS-ORIENTED EXTRACTION (applies to every Java/Kotlin service class)
+# 1. 핵심 지침 (중복 제거 및 명확화)
+CORE_BUSINESS_EXTRACTION_GUIDANCE = """\
+## CORE EXTRACTION PRINCIPLES (Business-Oriented Only)
 
-[Global objective]
-Extract rules by business meaning, not by implementation mechanics. Prefer fewer, clearer
-rules that QA, analysts, and automation can use.
+1. NO TECHNICAL NOISE:
+   - NEVER emit rules for Spring wiring, bean initialization, DI, logging, or generic getters/setters.
+   - Ignore micro-steps; only focus on business outcomes visible to customers/QA.
 
-1) Exclude technical implementation details
-Do NOT emit cases for framework or infrastructure-only behavior, including:
-- Spring bean initialization, lazy init, dependency injection, ApplicationContext / getBean(...)
-- Service-locator or wiring whose sole purpose is retrieving another bean
-- Logging setup, generic getters that only return injected dependencies
-- Annotations and metadata by themselves (use them only as hints for real business constraints)
+2. CONSOLIDATION (Key Requirement):
+   - Merge multiple field assignments or repetitive steps realizing ONE business action into a SINGLE rule.
+   - Prefer fewer, strong, and highly readable rules over line-by-line coverage.
 
-2) Implicit exception rules (business-relevant only)
-When the source calls methods that may fail and failure is not caught locally, you MAY infer
-business-relevant error cases only when the failure mode is clear from naming, Javadoc, or
-domain conventions (e.g. entity not found, approval rejected, invalid id, parse failures,
-external service failure). Do NOT invent error codes or HTTP layers not evidenced in source.
+3. STRICT ERROR & STATUS HANDLING:
+   - Emit Error (E) cases ONLY when source explicitly throws/documents a business exception.
+   - Set `expect.http_status` to `null` or omit if not strictly defined in source.
+   - Do NOT invent validation rules or error codes not supported by the code.
 
-3) Consolidate overly granular rules
-Do NOT create one rule per setter or trivial step. Merge related assignments that realize ONE
-business outcome (e.g. one approval call, one transaction creation, one domain action) into a
-single rule with a cohesive business-oriented title, a distinct description (why + what),
-and validation_target.
-
-4) HTTP status (expect.http_status)
-If the source or an attached spec does NOT state an HTTP status, set expect.http_status to null
-or omit the key. Do NOT guess 200, 400, 404, or 500.
-
-5) Assertions
-Each assertion should validate a concrete business outcome. Avoid repeating the same generic
-assertion across unrelated rules. If no assertion can be stated confidently, use an empty list:
-assertions: []
-
-6) Prioritize business-relevant topics
-Favor: input validation, required fields, lookups and lookup failures, status transitions,
-transaction/approval flows, defaults with business effect, business exceptions, end-to-end
-user-visible outcomes. Simple mechanical output mapping alone is NOT a topic.
-
-7) Reduce noise and duplication
-Merge repetitive or overlapping logic. There is NO quota — prefer fewer strong cases over
-padding with setter-level or output-assembly-only rules.
-
-8) Output quality
-Each rule should state: what business behavior, under which condition, what outcome or error,
-and source_evidence pointing to real code. The bundle should be readable without walking every
-line of implementation.
+4. LANGUAGE & FORMAT:
+   - `title` and `description` MUST be in **Korean (한글)**.
+   - `title`: Scannable business outcome (condition + expected behavior).
+   - `description`: Objective & business context (Why + What).
 """
-
 
 SOURCE_ANALYSIS_CHECKLIST = """\
-Analyze the pasted service source for BUSINESS-observable behavior. Inspect (when relevant):
-1. Public entry / execute methods and documented contracts (Javadoc, @throws)
-2. Validation and guard clauses that affect customer-visible outcomes
-3. Branches that change business results (not optional logging-only paths)
-4. BizApplicationException and other business exceptions with codes or clear semantics
-5. Downstream calls whose failure or result matters to the business response
-6. Input reads (in.getXXX()) that drive validation, defaults, or branching
-7. Output assembly (out.setXXX) only when grouped into a consolidated business outcome
-8. Comments that state real business constraints
-
-Do NOT treat every private helper, every setter, or every framework hook as its own rule.
-Consolidate. Only emit cases that are justified by observable source (or clearly implied
-business failures per section 2 above).
-"""
-
-
-SOURCE_INTERPRETATION_AND_QUALITY_GUIDANCE = """\
-Absolute prohibitions:
-- Do NOT emit rules for Spring wiring, bean factories, context lookups, or DI-only getters.
-- Do NOT create Error cases (E) for conditions that only skip optional work without throwing.
-- NEVER invent validation rules not supported by the pasted source.
-
-Source interpretation:
-- If a conditional does NOT throw or return a documented business error, do NOT create E for it.
-- Optional features (SMS, notification, audit) → Normal (N) only when the source ties them to
-  a testable outcome; otherwise omit micro-rules.
-- Consolidate multiple out.setXXX lines that populate one business result into one N case when
-  assertions can describe that outcome together.
-
-title and description (all cases):
-- title: scannable business outcome (condition + expected behavior); never generic or field-only.
-- description: why the case exists and what the service should do; do not repeat the title verbatim.
-
-validation_target (for rule_type=N):
-- MUST be a clear business statement (what success means for the customer/domain).
-
-Output consistency:
-- NEVER include minimal_input or severity.
-- Every Normal case MUST include expect.validation_target.
-- Every case MUST include source_evidence.method and source_evidence.snippet.
-
-Quality goals:
-- Business clarity beats raw line-by-line coverage.
-- Prefer consolidated rules over exhaustive per-line rules.
-- Returning null or skipping optional processing is NOT an error unless the source says it is.
-"""
-
-
-BUSINESS_ORIENTED_CASE_EXTRACTION_RULES = """\
-BUSINESS-ORIENTED CASE EXTRACTION RULES
-
-Primary objective:
-- Capture complete BUSINESS behavior (validation, domain errors, approvals, transactions,
-  meaningful outputs) while excluding framework noise.
-
-Case granularity:
-- One case per DISTINCT business rule or user-visible outcome — not per implementation line.
-- Merge related field assignments and a single domain action into ONE case.
-- Split only when two behaviors are independently testable and business-meaningful.
-
-Input and lookups:
-- Cover input validation and required fields when the source enforces them.
-- Cover lookup / parse / enum conversion failures when failure modes are clear (see global §2).
-
-Output and side effects:
-- Group output assembly into consolidated N cases where possible instead of one case per setter.
-
-Implicit failures:
-- When a call clearly implies not-found, rejected approval, parse errors, etc., you may add E
-  cases with error_code ONLY if the source or comments supply a code or you can quote the throw
-  site; otherwise prefer N with validation_target describing the risk, or omit.
-
-Completeness self-check (before final output):
-1. Every business exception path with a code in source → E case?
-2. Every documented validation → E or N as appropriate?
-3. Major success paths (transaction, approval, creation) → consolidated N cases?
-4. No rules left that only mirror Spring/DI/logging?
-5. http_status null unless explicitly known?
-6. Assertions non-generic and non-duplicated across unrelated rules (or empty if unsure)?
-7. No case exists only for simple output assembly or not_null filler?
-"""
-
-
-BUSINESS_COVERAGE_TARGETS = """\
-BUSINESS COVERAGE TARGETS (significance over volume)
-
-- No minimum or target case count. Include only business-justified rules.
-- Simple service: often 3–6 strong cases; medium orchestration may need more — never pad with noise.
-
-Error cases (E):
-- Emit E ONLY when the source throws a business/validation exception or documents a failure
-  that maps to an error outcome you can evidence.
-
-Normal cases (N):
-- Prefer fewer N cases that each assert a whole business outcome over many N cases per setter.
-
-If the pasted class is mostly wiring with little domain logic, produce only the few rules that
-are truly business-relevant — do NOT pad with technical cases.
+## SOURCE CODE ANALYSIS CHECKLIST
+1. Public methods & Javadoc/@throws contracts
+2. Input validation & guard clauses affecting business outcomes
+3. Business branching logic (ignore logging-only branches)
+4. Explicit business exceptions (BizApplicationException, etc.)
+5. Consolidated output assembly (Group related `out.setXXX` into ONE outcome)
 """
 
 
 def build_system_prompt_from_source() -> str:
+    """Optimized system prompt with deduped constraints and clear hierarchy."""
     return (
         "You are a senior QA engineer for a financial/banking API platform.\n"
-        "The user pastes BACKEND SERVICE SOURCE CODE (e.g. Java/Spring, Kotlin).\n"
-        "Your job: extract BUSINESS-MEANINGFUL validation and domain rules so downstream tools can\n"
-        "build HTTP tests from structured YAML — not to mirror every implementation line.\n\n"
-        "Primary goal: business clarity and consolidated coverage.\n"
-        "- Prefer consolidated rules over per-setter micro-rules.\n"
-        "- Exclude framework/DI/logging-only behavior.\n"
-        "- Use null or omit expect.http_status when the source does not state an HTTP code.\n"
-        "- Use assertions: [] when no confident assertion exists; otherwise assert specific outcomes.\n\n"
-        f"{schema_hard_requirements()}\n"
-        "- Do NOT invent cases that are not directly supported by the pasted source code.\n\n"
-        f"{TITLE_AND_DESCRIPTION_GUIDANCE}\n\n"
-        f"{CASE_SIGNIFICANCE_GUIDANCE}\n\n"
-        f"{BUSINESS_ORIENTED_EXTRACTION_GLOBAL}\n\n"
-        f"{SOURCE_INTERPRETATION_AND_QUALITY_GUIDANCE}\n\n"
-        f"{BUSINESS_ORIENTED_CASE_EXTRACTION_RULES}\n\n"
-        f"{BUSINESS_COVERAGE_TARGETS}\n\n"
-        f"{GENERALIZATION_RULES_FOR_ALL_SERVICES}\n\n"
-        f"{INPUT_AND_ASSERTION_GUIDANCE}\n"
+        "Your role is to analyze pasted backend source code (Java/Kotlin) and extract "
+        "BUSINESS-MEANINGFUL validation and domain rules into structured YAML.\n\n"
+        f"{CORE_BUSINESS_EXTRACTION_GUIDANCE}\n\n"
+        f"### SCHEMA HARD REQUIREMENTS\n{schema_hard_requirements()}\n\n"
+        f"### TITLE & DESCRIPTION GUIDANCE\n{TITLE_AND_DESCRIPTION_GUIDANCE}\n\n"
+        f"### CASE SIGNIFICANCE GUIDANCE\n{CASE_SIGNIFICANCE_GUIDANCE}\n\n"
+        f"### GENERALIZATION RULES\n{GENERALIZATION_RULES_FOR_ALL_SERVICES}\n\n"
+        f"### INPUT & ASSERTION GUIDANCE\n{INPUT_AND_ASSERTION_GUIDANCE}\n"
     )
 
 
 def build_yaml_ai_cached_system_prompt_from_source() -> str:
-    """Static system + checklist + template for provider prompt caching (source YAML AI)."""
+    """Static system + checklist + template for provider prompt caching."""
     return (
         f"{build_system_prompt_from_source()}\n\n"
         f"{SOURCE_ANALYSIS_CHECKLIST}\n\n"
-        "Structural YAML example (adapt field names and cases to the service and source; "
-        "prefer consolidated business rules; do not copy dummy values blindly):\n"
+        "### STRUCTURAL YAML EXAMPLE\n"
+        "(Adapt to source code; consolidate business rules; do not copy dummy values directly):\n"
         f"{YAML_TEMPLATE_EXAMPLE}"
     )
 
@@ -216,46 +88,45 @@ def build_user_prompt_from_source(
         "in_dto": service.in_dto,
         "out_dto": service.out_dto,
     }
-    parts: list[str] = []
-    parts.append("Service metadata (JSON) — you MUST align YAML service_code/service_name with this:")
-    parts.append(json.dumps(meta, ensure_ascii=False))
+
+    # 💡 TIP: JSON 대신 YAML 형식으로 Metadata를 전달하면 LLM의 Output 포맷 일치율이 향상됩니다.
+    meta_yaml = yaml.dump(meta, allow_unicode=True, sort_keys=False)
+
+    user_prompt_parts = [
+        "### SERVICE METADATA (YAML)",
+        "Align output YAML `service_code` and `service_name` strictly with this:",
+        meta_yaml,
+    ]
+
     if hints and hints.strip():
-        parts.append("")
-        parts.append("Additional hints from the user:")
-        parts.append(hints.strip())
-    parts.append("")
-    parts.append("Pasted source code:")
-    parts.append(source_code.rstrip())
-    parts.append("")
-    parts.append(
-        "Generate ONE YAML document using the structural example from the system prompt. "
-        "Prioritize consolidated business rules; avoid framework noise."
+        user_prompt_parts.extend(["\n### USER HINTS", hints.strip()])
+
+    user_prompt_parts.extend(
+        [
+            "\n### PASTED SOURCE CODE",
+            source_code.rstrip(),
+            "\n---",
+            "Generate ONE valid YAML document based on system instructions.",
+            "Prioritize consolidated business logic and eliminate framework noise.",
+        ]
     )
-    return "\n".join(parts)
+
+    return "\n".join(user_prompt_parts)
 
 
 def build_repair_user_prompt(*, validation_error: str, invalid_yaml: str) -> str:
+    """Targeted repair prompt with critical safety guards against secondary failures."""
     return (
-        "The previous YAML failed validation with the following error:\n"
-        f"{validation_error.strip()}\n\n"
-        "Invalid YAML:\n"
-        f"{invalid_yaml.rstrip()}\n\n"
-        "Correct the YAML while preserving all valid cases.\n"
-        "If validation failed on title/description: rewrite with business-oriented, specific "
-        "wording (condition + outcome); avoid generic titles and raw DTO field names.\n"
-        "If validation failed on case significance: remove or merge low-value Normal cases "
-        "(simple output assembly, not_null-only filler); keep distinct business scenarios only.\n"
-        "Use case_id (not rule_id), input (not minimal_input), rule_type E or N only.\n"
-        "Do NOT include severity.\n"
-        "Error cases must have expect.error_code; Normal cases must have expect.validation_target.\n"
-        "Error cases with a non-empty assertions list: first assertion MUST match $.error_code to "
-        "expect.error_code.\n"
-        "assertions may be an empty list when no confident assertion exists.\n"
-        "expect.http_status may be null or omitted when the source does not define HTTP status.\n"
-        "Assertions must use real output DTO fields only; do not invent synthetic JSON paths.\n"
-        "Use not_null/not_empty when enum or constant literal values are not visible in source.\n"
-        "Normalize input: root fields at top level, list item fields inside arrays only.\n"
-        "Each rule's input must list every In DTO / OMM property (null when not used for that case).\n"
-        "tags must contain only: input, business.\n"
-        "Return YAML only. Do not include explanations or markdown fences."
+        "The generated YAML failed schema validation. Fix the reported errors and return ONLY the corrected raw YAML.\n\n"
+        f"### VALIDATION ERROR\n{validation_error.strip()}\n\n"
+        f"### INVALID YAML\n{invalid_yaml.rstrip()}\n\n"
+        "### STRICT REPAIR CRITERIA\n"
+        "1. Fix the EXACT validation error while preserving all existing valid business cases.\n"
+        "2. Language: `title` and `description` MUST be in Korean (한글).\n"
+        "3. Schema Keys: Use `case_id` (not `rule_id`), `input` (not `minimal_input`), `rule_type` (E or N only).\n"
+        "4. Expectations:\n"
+        "   - Error case (E): MUST have `expect.error_code`.\n"
+        "   - Normal case (N): MUST have `expect.validation_target`.\n"
+        "5. Assertions: Must match exact real DTO fields only. First assertion for E case MUST validate `$.error_code`.\n"
+        "6. Do NOT include explanations, comments, or Markdown fences (```yaml). Output raw YAML only."
     )

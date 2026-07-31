@@ -83,6 +83,55 @@ export function dumpYamlRulesDocument(doc: YamlRulesDocument): string {
   });
 }
 
+export function dumpYamlRule(rule: YamlRuleRecord): string {
+  return yaml.dump(rule, {
+    lineWidth: 100,
+    noRefs: true,
+    sortKeys: false,
+  });
+}
+
+export function parseYamlRule(
+  text: string,
+): { ok: true; rule: YamlRuleRecord } | { ok: false; error: string } {
+  const trimmed = (text || "").trim();
+  if (!trimmed) {
+    return { ok: false, error: "케이스 YAML이 비어 있습니다." };
+  }
+  try {
+    const loaded = yaml.load(trimmed);
+    if (!loaded || typeof loaded !== "object" || Array.isArray(loaded)) {
+      return { ok: false, error: "케이스는 YAML 객체여야 합니다." };
+    }
+    return { ok: true, rule: loaded as YamlRuleRecord };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "케이스 YAML 파싱 실패";
+    return { ok: false, error: msg };
+  }
+}
+
+export function replaceRuleAtIndex(
+  text: string,
+  index: number,
+  rule: YamlRuleRecord,
+): ParseYamlResult & { text?: string } {
+  const parsed = parseYamlRulesDocument(text);
+  if (!parsed.ok) return parsed;
+  const rules = parsed.doc.rules;
+  if (!Array.isArray(rules)) {
+    return { ok: false, error: "rules 배열이 없습니다." };
+  }
+  if (!rules[index] || typeof rules[index] !== "object") {
+    return { ok: false, error: `rules[${index}]를 찾을 수 없습니다.` };
+  }
+  rules[index] = rule;
+  return {
+    ok: true,
+    doc: parsed.doc,
+    text: dumpYamlRulesDocument(parsed.doc),
+  };
+}
+
 export function formatYamlRulesText(text: string): ParseYamlResult & { text?: string } {
   const parsed = parseYamlRulesDocument(text);
   if (!parsed.ok) return parsed;

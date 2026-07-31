@@ -1,9 +1,8 @@
 from app.core.exceptions import InvalidInputError
 
-_GOOD_TITLE = "Missing customer ID returns validation error"
+_GOOD_TITLE = "고객 ID 누락 시 검증 오류를 반환한다"
 _GOOD_DESC = (
-    "The service rejects the request when customer ID is missing "
-    "because identification is required."
+    "고객 ID가 없으면 대상을 식별할 수 없어 요청을 거절한다."
 )
 from app.services.service_rules_service import (
     autofill_missing_assertions,
@@ -18,8 +17,8 @@ def _case_rule(
     case_id: str,
     rule_type: str,
     *,
-    title: str = "Missing customer ID returns validation error",
-    description: str = "The service rejects the request when customer ID is missing because identification is required.",
+    title: str = "고객 ID 누락 시 검증 오류를 반환한다",
+    description: str = "고객 ID가 없으면 대상을 식별할 수 없어 요청을 거절한다.",
     assertions: str | None = None,
     error_code: str = "ERR001",
     outcome: str = "error",
@@ -86,8 +85,8 @@ def test_validate_and_prepare_yaml_normalizes_duplicate_case_ids():
     yaml_text = f"""
 service_code: PY016
 rules:
-{_case_rule("PY016-E-001", "E", title="Missing payment date prevents transfer")}
-{_case_rule("PY016-E-001", "E", title="Invalid account number is rejected")}
+{_case_rule("PY016-E-001", "E", title="지급일 누락 시 이체가 거절된다")}
+{_case_rule("PY016-E-001", "E", title="잘못된 계좌번호는 거절된다")}
 {_case_rule("PY016-N-001", "N", tags='["business"]')}
 """
     canonical, payload = validate_and_prepare_yaml(yaml_text)
@@ -345,8 +344,8 @@ dto:
 rules:
   - case_id: PY016-E-001
     rule_type: E
-    title: Missing customer identifier returns business error
-    description: Source documents error without HTTP mapping; rejection is driven by domain validation.
+    title: 고객 식별자 누락 시 업무 오류를 반환한다
+    description: HTTP 매핑 없이 도메인 검증으로 거절되는 케이스를 문서화한다.
     input:
       custId: null
     expect:
@@ -359,8 +358,8 @@ rules:
       snippet: "throw new BizApplicationException(\\"E1\\")"
   - case_id: PY016-N-001
     rule_type: N
-    title: Customer inquiry returns identifier on successful processing
-    description: Happy path without HTTP code in spec; response includes core identifiers for the channel.
+    title: 고객 조회 성공 시 식별자를 반환한다
+    description: HTTP 코드가 명세에 없어도 채널용 핵심 식별자가 응답에 포함된다.
     input:
       custId: "C1"
     expect:
@@ -408,8 +407,8 @@ rules:
       snippet: "x"
   - case_id: PY016-N-001
     rule_type: N
-    title: Account balance inquiry returns available balance
-    description: Normal path verifies balance field is returned for a valid account request.
+    title: 계좌 잔액 조회 시 가용잔액을 반환한다
+    description: 정상 경로에서 유효한 계좌 요청에 대해 잔액 필드가 반환되는지 검증한다.
     input: {{}}
     expect:
       outcome: success

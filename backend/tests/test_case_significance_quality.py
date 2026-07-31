@@ -41,8 +41,8 @@ def test_is_low_value_detects_output_assembly_filler():
 def test_is_low_value_allows_list_reconciliation_case():
     rule = {
         "rule_type": "N",
-        "title": "Registration list returns one result row per submitted account",
-        "description": "When multiple accounts are submitted, each row gets a matching result entry.",
+        "title": "등록 목록은 제출 계좌마다 결과 행을 반환한다",
+        "description": "여러 계좌를 제출하면 입력 행별로 맞춰볼 수 있는 결과 항목을 반환한다.",
         "expect": {
             "outcome": "success",
             "validation_target": "output list size matches input list size",
@@ -56,16 +56,39 @@ def test_is_low_value_allows_list_reconciliation_case():
     assert not is_low_value_case(rule)
 
 
-def test_validate_and_prepare_yaml_rejects_low_value_normal_case():
+def test_is_low_value_allows_korean_cancellation_success_case():
+    """PY030-style business N must not be rejected as filler."""
+    rule = {
+        "rule_type": "N",
+        "title": "활성 약정의 자동이체 해지 요청이 성공적으로 처리된다",
+        "description": (
+            "활성 상태의 약정에 대해 자동이체 해지를 요청하면 "
+            "업무적으로 해지가 완료된 결과를 반환한다."
+        ),
+        "expect": {
+            "outcome": "success",
+            "validation_target": "자동이체 해지 처리 결과가 반환된다",
+        },
+        "assertions": [{"path": "$.procRslt", "op": "not_null"}],
+        "source_evidence": {
+            "method": "cancelAutoTransfer",
+            "snippet": "out.setProcRslt(rslt); out.setTxDt(txDt);",
+        },
+    }
+    assert not is_low_value_case(rule)
+
+
+def test_validate_and_prepare_yaml_drops_low_value_normal_case():
     yaml_text = f"""
 service_code: PY016
 service_name: Example
 rules:
 {_case_rule("PY016-E-001", "E")}
+{_case_rule("PY016-N-001", "N")}
   - case_id: PY016-N-099
     rule_type: N
-    title: Transaction output assembly
-    description: Successful processing populates observable transaction fields on the response.
+    title: 거래 출력 조립으로 응답 필드를 채운다
+    description: 성공 처리 시 응답의 관측 가능한 거래 필드를 채운다.
     input:
       custId: "C1"
     expect:
@@ -80,8 +103,45 @@ rules:
       method: buildOutput
       snippet: "out.setTxDt(...); out.setTxHms(...)"
 """
+    _, payload = validate_and_prepare_yaml(yaml_text)
+    case_ids = [r.get("case_id") for r in payload["rules"]]
+    assert "PY016-N-099" not in case_ids
+    assert "PY016-E-001" in case_ids
+    assert "PY016-N-001" in case_ids
+
+
+def test_validate_and_prepare_yaml_soft_drops_one_bad_rule():
+    yaml_text = f"""
+service_code: PY016
+service_name: Example
+rules:
+{_case_rule("PY016-E-001", "E")}
+{_case_rule("PY016-N-001", "N")}
+  - case_id: PY016-N-050
+    rule_type: N
+    title: x
+    description: too short
+    input: {{}}
+    expect:
+      outcome: success
+      validation_target: ok path
+    assertions: []
+    tags: ["business"]
+    source_evidence:
+      method: m
+      snippet: "ok"
+"""
     with pytest.raises(InvalidInputError):
         validate_and_prepare_yaml(yaml_text)
+
+    _, payload = validate_and_prepare_yaml(
+        yaml_text,
+        soft_drop_invalid_rules=True,
+    )
+    case_ids = [r.get("case_id") for r in payload["rules"]]
+    assert "PY016-N-050" not in case_ids
+    assert "PY016-E-001" in case_ids
+    assert "PY016-N-001" in case_ids
 
 
 def test_validate_rule_case_significance_raises():

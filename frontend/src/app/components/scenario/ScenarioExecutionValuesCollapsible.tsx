@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { ScenarioResolvePreviewDto } from "@/api/types";
 import type { StepBindingsByStepKey } from "@/lib/scenarioBindings";
@@ -17,6 +17,7 @@ type Props = {
   onBindingsChange: (next: StepBindingsByStepKey) => void;
   preview: ScenarioResolvePreviewDto | null;
   previewLoading?: boolean;
+  defaultOpen?: boolean;
 };
 
 export function ScenarioExecutionValuesCollapsible({
@@ -25,8 +26,14 @@ export function ScenarioExecutionValuesCollapsible({
   onBindingsChange,
   preview,
   previewLoading,
+  defaultOpen = false,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
   const overrideCount = runSteps.reduce((n, s) => {
     const cfg = bindings[s.stepKey];
     return n + (cfg?.overrides?.length ?? 0);

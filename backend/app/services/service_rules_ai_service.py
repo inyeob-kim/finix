@@ -145,6 +145,7 @@ class ServiceRulesAiService:
                 canonical, _ = validate_and_prepare_yaml(
                     yaml_text,
                     input_skeleton=input_skeleton,
+                    soft_drop_invalid_rules=True,
                 )
                 return canonical
             except InvalidInputError as e:

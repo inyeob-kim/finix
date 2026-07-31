@@ -94,4 +94,11 @@ export const yamlEditorTheme = EditorView.theme({
     color: "hsl(262 55% 42%)",
     fontWeight: "600",
   },
+  ".cm-yaml-error-line": {
+    backgroundColor: "hsl(0 84% 60% / 0.12)",
+  },
+  ".cm-yaml-error-line .cm-gutterElement": {
+    color: "hsl(0 72% 45%)",
+    fontWeight: "700",
+  },
 });

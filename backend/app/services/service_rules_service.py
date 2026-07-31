@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import yaml
 
-from app.prompts.case_significance_guidance import validate_rule_case_significance
+from app.prompts.case_significance_guidance import is_low_value_case
 from app.prompts.title_description_guidance import validate_rule_title_description
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.models.service_rule_bundle import ServiceRuleBundle
 from app.repositories.service_rules_repo import ServiceRulesRepository
+
+logger = logging.getLogger(__name__)
 
 
 def _sha256_text(text: str) -> str:
@@ -231,148 +234,199 @@ def _validate_assertion(idx: int, aidx: int, assertion: Any) -> None:
         raise InvalidInputError(f"rules[{idx}].assertions[{aidx}].op가 필요합니다.")
 
 
-def _validate_rules_structure(payload: dict[str, Any]) -> None:
+def _validate_one_rule(idx: int, r: dict[str, Any], seen: set[str]) -> None:
+    """Validate a single rule object; raises InvalidInputError on failure."""
+    cid = r.get("case_id")
+    if not (isinstance(cid, str) and cid.strip()):
+        raise InvalidInputError(f"rules[{idx}].case_id가 필요합니다.")
+    cid2 = cid.strip()
+    if cid2 in seen:
+        raise InvalidInputError(f"case_id 중복: {cid2}")
+    seen.add(cid2)
+
+    rtype = r.get("rule_type")
+    if not (isinstance(rtype, str) and rtype.strip()):
+        raise InvalidInputError(f"rules[{idx}].rule_type가 필요합니다.")
+    rtype_norm = rtype.strip()
+    if rtype_norm not in _RULE_TYPES:
+        raise InvalidInputError(
+            f"rules[{idx}].rule_type는 E|N 중 하나여야 합니다."
+        )
+
+    title = r.get("title")
+    description = r.get("description")
+    if not (isinstance(title, str) and title.strip()):
+        raise InvalidInputError(f"rules[{idx}].title이 필요합니다.")
+    if not (isinstance(description, str) and description.strip()):
+        raise InvalidInputError(f"rules[{idx}].description이 필요합니다.")
+    validate_rule_title_description(
+        idx=idx,
+        title=title.strip(),
+        description=description.strip(),
+    )
+
+    rule_input = r.get("input")
+    if not isinstance(rule_input, dict):
+        raise InvalidInputError(f"rules[{idx}].input은 object(map) 형태여야 합니다.")
+
+    for meta_key in ("extract", "use"):
+        block = r.get(meta_key)
+        if block is None:
+            continue
+        if not isinstance(block, dict):
+            raise InvalidInputError(
+                f"rules[{idx}].{meta_key}는 object(map) 형태여야 합니다.",
+            )
+        if "auto" in block and not isinstance(block.get("auto"), bool):
+            raise InvalidInputError(
+                f"rules[{idx}].{meta_key}.auto는 true|false 여야 합니다.",
+            )
+
+    assertions = r.get("assertions")
+    if not isinstance(assertions, list):
+        raise InvalidInputError(f"rules[{idx}].assertions는 list 형태여야 합니다.")
+    for aidx, assertion in enumerate(assertions):
+        _validate_assertion(idx, aidx, assertion)
+
+    tags = r.get("tags")
+    if not isinstance(tags, list) or not tags:
+        raise InvalidInputError(f"rules[{idx}].tags는 비어 있지 않은 list여야 합니다.")
+    for tidx, tag in enumerate(tags):
+        tag_norm = str(tag).strip().lower()
+        if tag_norm not in _ALLOWED_TAGS:
+            raise InvalidInputError(
+                f"rules[{idx}].tags[{tidx}]는 input|business 중 하나여야 합니다."
+            )
+
+    expect = r.get("expect")
+    if not isinstance(expect, dict):
+        raise InvalidInputError(f"rules[{idx}].expect는 object(map) 형태여야 합니다.")
+    outcome = expect.get("outcome")
+    if not (isinstance(outcome, str) and outcome.strip() in {"error", "success"}):
+        raise InvalidInputError(
+            f"rules[{idx}].expect.outcome은 error|success 여야 합니다."
+        )
+    http_status = expect.get("http_status")
+    if http_status is not None and http_status != "":
+        try:
+            int(http_status)
+        except (TypeError, ValueError) as e:
+            raise InvalidInputError(
+                f"rules[{idx}].expect.http_status는 정수 또는 null 이어야 합니다."
+            ) from e
+
+    if rtype_norm == "E":
+        error_code = expect.get("error_code")
+        if not (isinstance(error_code, str) and error_code.strip()):
+            raise InvalidInputError(
+                f"rules[{idx}].expect.error_code가 필요합니다 (rule_type=E)."
+            )
+        if assertions:
+            first = assertions[0] if assertions else None
+            if isinstance(first, dict):
+                first_value = first.get("value")
+                if str(first.get("path") or "").strip() != "$.error_code" or str(
+                    first_value
+                ).strip() != error_code.strip():
+                    raise InvalidInputError(
+                        f"rules[{idx}].assertions[0]은 expect.error_code와 일치하는 "
+                        "$.error_code 검증이어야 합니다."
+                    )
+    else:
+        validation_target = expect.get("validation_target")
+        if not (isinstance(validation_target, str) and validation_target.strip()):
+            raise InvalidInputError(
+                f"rules[{idx}].expect.validation_target이 필요합니다 (rule_type=N)."
+            )
+
+    evidence = r.get("source_evidence")
+    if not isinstance(evidence, dict):
+        raise InvalidInputError(
+            f"rules[{idx}].source_evidence는 object(map) 형태여야 합니다."
+        )
+    method = evidence.get("method")
+    snippet = evidence.get("snippet")
+    if not (isinstance(method, str) and method.strip()):
+        raise InvalidInputError(
+            f"rules[{idx}].source_evidence.method가 필요합니다."
+        )
+    if not (isinstance(snippet, str) and snippet.strip()):
+        raise InvalidInputError(
+            f"rules[{idx}].source_evidence.snippet이 필요합니다."
+        )
+
+
+def _validate_rules_structure(
+    payload: dict[str, Any],
+    *,
+    soft_drop_invalid_rules: bool = False,
+) -> None:
+    """
+    Validate rules list.
+
+    - Low-value Normal filler cases are always dropped (not a hard document failure).
+    - When soft_drop_invalid_rules=True (AI generation), per-rule validation errors
+      drop that case and continue so one bad case cannot abort the whole YAML.
+    """
     rules = payload.get("rules") or []
     if not isinstance(rules, list):
         raise InvalidInputError("YAML의 rules는 list 형태여야 합니다.")
     if not rules:
         raise InvalidInputError("YAML의 rules는 비어 있을 수 없습니다.")
 
+    kept: list[Any] = []
     seen: set[str] = set()
     for idx, r in enumerate(rules):
         if not isinstance(r, dict):
-            raise InvalidInputError(f"rules[{idx}]는 object(map) 형태여야 합니다.")
-
-        cid = r.get("case_id")
-        if not (isinstance(cid, str) and cid.strip()):
-            raise InvalidInputError(f"rules[{idx}].case_id가 필요합니다.")
-        cid2 = cid.strip()
-        if cid2 in seen:
-            raise InvalidInputError(f"case_id 중복: {cid2}")
-        seen.add(cid2)
-
-        rtype = r.get("rule_type")
-        if not (isinstance(rtype, str) and rtype.strip()):
-            raise InvalidInputError(f"rules[{idx}].rule_type가 필요합니다.")
-        rtype_norm = rtype.strip()
-        if rtype_norm not in _RULE_TYPES:
-            raise InvalidInputError(
-                f"rules[{idx}].rule_type는 E|N 중 하나여야 합니다."
-            )
-
-        title = r.get("title")
-        description = r.get("description")
-        if not (isinstance(title, str) and title.strip()):
-            raise InvalidInputError(f"rules[{idx}].title이 필요합니다.")
-        if not (isinstance(description, str) and description.strip()):
-            raise InvalidInputError(f"rules[{idx}].description이 필요합니다.")
-        validate_rule_title_description(
-            idx=idx,
-            title=title.strip(),
-            description=description.strip(),
-        )
-        validate_rule_case_significance(idx=idx, rule=r)
-
-        rule_input = r.get("input")
-        if not isinstance(rule_input, dict):
-            raise InvalidInputError(f"rules[{idx}].input은 object(map) 형태여야 합니다.")
-
-        for meta_key in ("extract", "use"):
-            block = r.get(meta_key)
-            if block is None:
+            msg = f"rules[{idx}]는 object(map) 형태여야 합니다."
+            if soft_drop_invalid_rules:
+                logger.warning("Dropping invalid rule: %s", msg)
                 continue
-            if not isinstance(block, dict):
-                raise InvalidInputError(
-                    f"rules[{idx}].{meta_key}는 object(map) 형태여야 합니다.",
-                )
-            if "auto" in block and not isinstance(block.get("auto"), bool):
-                raise InvalidInputError(
-                    f"rules[{idx}].{meta_key}.auto는 true|false 여야 합니다.",
-                )
+            raise InvalidInputError(msg)
 
-        assertions = r.get("assertions")
-        if not isinstance(assertions, list):
-            raise InvalidInputError(f"rules[{idx}].assertions는 list 형태여야 합니다.")
-        for aidx, assertion in enumerate(assertions):
-            _validate_assertion(idx, aidx, assertion)
-
-        tags = r.get("tags")
-        if not isinstance(tags, list) or not tags:
-            raise InvalidInputError(f"rules[{idx}].tags는 비어 있지 않은 list여야 합니다.")
-        for tidx, tag in enumerate(tags):
-            tag_norm = str(tag).strip().lower()
-            if tag_norm not in _ALLOWED_TAGS:
-                raise InvalidInputError(
-                    f"rules[{idx}].tags[{tidx}]는 input|business 중 하나여야 합니다."
-                )
-
-        expect = r.get("expect")
-        if not isinstance(expect, dict):
-            raise InvalidInputError(f"rules[{idx}].expect는 object(map) 형태여야 합니다.")
-        outcome = expect.get("outcome")
-        if not (isinstance(outcome, str) and outcome.strip() in {"error", "success"}):
-            raise InvalidInputError(
-                f"rules[{idx}].expect.outcome은 error|success 여야 합니다."
+        if is_low_value_case(r):
+            title = str(r.get("title") or "").strip() or f"rules[{idx}]"
+            logger.info(
+                "Dropping low-value Normal case rules[%s] «%s»",
+                idx,
+                title,
             )
-        http_status = expect.get("http_status")
-        if http_status is not None and http_status != "":
-            try:
-                int(http_status)
-            except (TypeError, ValueError) as e:
-                raise InvalidInputError(
-                    f"rules[{idx}].expect.http_status는 정수 또는 null 이어야 합니다."
-                ) from e
+            continue
 
-        if rtype_norm == "E":
-            error_code = expect.get("error_code")
-            if not (isinstance(error_code, str) and error_code.strip()):
-                raise InvalidInputError(
-                    f"rules[{idx}].expect.error_code가 필요합니다 (rule_type=E)."
+        try:
+            _validate_one_rule(len(kept), r, seen)
+        except InvalidInputError as e:
+            if soft_drop_invalid_rules:
+                logger.warning(
+                    "Dropping invalid rule rules[%s]: %s",
+                    idx,
+                    e,
                 )
-            if assertions:
-                first = assertions[0] if assertions else None
-                if isinstance(first, dict):
-                    first_value = first.get("value")
-                    if str(first.get("path") or "").strip() != "$.error_code" or str(
-                        first_value
-                    ).strip() != error_code.strip():
-                        raise InvalidInputError(
-                            f"rules[{idx}].assertions[0]은 expect.error_code와 일치하는 "
-                            "$.error_code 검증이어야 합니다."
-                        )
-        else:
-            validation_target = expect.get("validation_target")
-            if not (isinstance(validation_target, str) and validation_target.strip()):
-                raise InvalidInputError(
-                    f"rules[{idx}].expect.validation_target이 필요합니다 (rule_type=N)."
-                )
+                continue
+            raise
+        kept.append(r)
 
-        evidence = r.get("source_evidence")
-        if not isinstance(evidence, dict):
-            raise InvalidInputError(
-                f"rules[{idx}].source_evidence는 object(map) 형태여야 합니다."
-            )
-        method = evidence.get("method")
-        snippet = evidence.get("snippet")
-        if not (isinstance(method, str) and method.strip()):
-            raise InvalidInputError(
-                f"rules[{idx}].source_evidence.method가 필요합니다."
-            )
-        if not (isinstance(snippet, str) and snippet.strip()):
-            raise InvalidInputError(
-                f"rules[{idx}].source_evidence.snippet이 필요합니다."
-            )
+    payload["rules"] = kept
+    if not kept:
+        raise InvalidInputError(
+            "유효한 rules가 없습니다. 모든 케이스가 저가치이거나 검증에 실패했습니다."
+        )
 
-    types_present = {str(r.get("rule_type")).strip() for r in rules if isinstance(r, dict)}
+    types_present = {
+        str(r.get("rule_type")).strip() for r in kept if isinstance(r, dict)
+    }
     missing = _RULE_TYPES - types_present
     if missing:
-        raise InvalidInputError(f"rules에 필수 rule_type이 누락되었습니다: {sorted(missing)}")
+        raise InvalidInputError(
+            f"rules에 필수 rule_type이 누락되었습니다: {sorted(missing)}"
+        )
 
 
 def validate_and_prepare_yaml(
     yaml_text: str,
     *,
     input_skeleton: dict[str, Any] | None = None,
+    soft_drop_invalid_rules: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Parse YAML, normalize, auto-fix, validate structure, return canonical text."""
     payload = _parse_yaml_document(yaml_text)
@@ -382,7 +436,10 @@ def validate_and_prepare_yaml(
     payload = autofill_missing_assertions(payload)
     if input_skeleton:
         merge_rule_inputs_with_skeleton(payload, input_skeleton)
-    _validate_rules_structure(payload)
+    _validate_rules_structure(
+        payload,
+        soft_drop_invalid_rules=soft_drop_invalid_rules,
+    )
     canonical = yaml.dump(
         payload,
         allow_unicode=True,

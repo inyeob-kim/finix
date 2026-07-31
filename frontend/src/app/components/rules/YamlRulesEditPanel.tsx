@@ -7,10 +7,11 @@ import {
   formatYamlRulesText,
   type YamlCaseType,
 } from "@/lib/yamlRulesDocument";
+import { toYamlDiagnostic, type YamlDiagnostic } from "@/lib/yamlDiagnostic";
 import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixLoading } from "../ui/finix-loading";
 import { cn } from "../ui/utils";
-import { YamlRulesCodeEditor } from "./YamlRulesCodeEditor";
+import { YamlRulesCaseSourceEditor } from "./YamlRulesCaseSourceEditor";
 import { YamlRulesFieldsForm } from "./YamlRulesFieldsForm";
 
 type YamlEditSubTab = "source" | "fields";
@@ -46,6 +47,8 @@ export function YamlRulesEditPanel({
   const [expandRuleIndex, setExpandRuleIndex] = useState<number | null>(null);
   const [expandRuleToken, setExpandRuleToken] = useState(0);
   const [fieldsRuleEditing, setFieldsRuleEditing] = useState(false);
+  const [sourceDiagnostic, setSourceDiagnostic] =
+    useState<YamlDiagnostic | null>(null);
 
   const focusEdit = subTab === "fields" && fieldsRuleEditing;
 
@@ -70,12 +73,15 @@ export function YamlRulesEditPanel({
   const handleFormat = () => {
     const result = formatYamlRulesText(yamlText);
     if (!result.ok) {
-      onError(result.error);
+      setSubTab("source");
+      setSourceDiagnostic(toYamlDiagnostic(result.error));
+      onError(null);
       return;
     }
     if (result.text) {
       onYamlChange(result.text);
       onNotice("YAML을 정리했습니다.");
+      setSourceDiagnostic(null);
       onError(null);
     }
   };
@@ -84,15 +90,17 @@ export function YamlRulesEditPanel({
     if (!serviceCode.trim()) return;
     setValidating(true);
     onError(null);
+    setSourceDiagnostic(null);
     try {
       const res = await validateServiceRulesYaml(serviceCode, yamlText);
       onNotice(
         `검증 통과 · 규칙 ${res.rule_count}개${res.service_name ? ` · ${res.service_name}` : ""}`,
       );
     } catch (e) {
-      onError(
-        e instanceof ApiError ? e.message : "YAML 검증에 실패했습니다.",
-      );
+      const raw =
+        e instanceof ApiError ? e.message : "YAML 검증에 실패했습니다.";
+      setSubTab("source");
+      setSourceDiagnostic(toYamlDiagnostic(raw));
     } finally {
       setValidating(false);
     }
@@ -101,10 +109,15 @@ export function YamlRulesEditPanel({
   const handleAddRule = () => {
     const result = appendBlankRule(yamlText, newRuleType, serviceCode);
     if (!result.ok || !result.text) {
-      onError(result.ok ? "케이스 추가 실패" : result.error);
+      setSubTab("source");
+      setSourceDiagnostic(
+        toYamlDiagnostic(result.ok ? "케이스 추가 실패" : result.error),
+      );
+      onError(null);
       return;
     }
     onYamlChange(result.text);
+    setSourceDiagnostic(null);
     onError(null);
     setSubTab("fields");
     onNotice(
@@ -133,29 +146,27 @@ export function YamlRulesEditPanel({
       {!focusEdit ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="inline-flex rounded-sm border border-border bg-muted/30 p-0.5">
-              <button
-                type="button"
-                onClick={() => setSubTab("source")}
-                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  subTab === "source"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                YAML 소스
-              </button>
-              <button
-                type="button"
-                onClick={() => setSubTab("fields")}
-                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  subTab === "fields"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                입력/기대값
-              </button>
+            <div className="flex gap-1 rounded-sm border border-border p-0.5">
+              {(
+                [
+                  { id: "source" as const, label: "YAML 소스" },
+                  { id: "fields" as const, label: "입력/기대값" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSubTab(t.id)}
+                  className={cn(
+                    "h-8 px-3 text-xs rounded-sm",
+                    subTab === t.id
+                      ? "bg-primary/15 text-foreground"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -249,12 +260,15 @@ export function YamlRulesEditPanel({
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {subTab === "source" ? (
-          <YamlRulesCodeEditor
-            value={yamlText}
-            onChange={onYamlChange}
+          <YamlRulesCaseSourceEditor
+            yamlText={yamlText}
+            onYamlChange={(text) => {
+              setSourceDiagnostic(null);
+              onYamlChange(text);
+            }}
             disabled={disabled}
-            fillHeight
-            className="h-full"
+            externalDiagnostic={sourceDiagnostic}
+            onClearExternalDiagnostic={() => setSourceDiagnostic(null)}
           />
         ) : (
           <YamlRulesFieldsForm

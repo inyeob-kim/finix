@@ -428,16 +428,6 @@ export function YamlRulesFieldsForm({
         )}
         aria-hidden={isEditing}
       >
-      <p className="text-xs text-muted-foreground leading-relaxed shrink-0">
-        행을 클릭하면 편집 화면으로 이동합니다. title·description·{" "}
-        <span className="font-semibold text-orange-700 dark:text-orange-400">
-          input
-        </span>
-        ·{" "}
-        <span className="font-semibold text-blue-700 dark:text-blue-400">expect</span>
-        · tags를 수정합니다. 저장·검증은 YAML 소스 탭에서 하세요.
-      </p>
-
       {fieldError ? (
         <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-xs px-3 py-2 shrink-0">
           {fieldError}
