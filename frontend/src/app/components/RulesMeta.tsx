@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BadgeCheck,
   ChevronDown,
   ChevronUp,
   GitPullRequest,
@@ -106,7 +105,6 @@ function StatusPill({ status }: { status: string }) {
   if (st === "active") {
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200">
-        <BadgeCheck className="w-3 h-3" />
         운영
       </span>
     );

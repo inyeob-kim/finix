@@ -58,7 +58,7 @@ export function ScenarioPreviewPanel({
               </div>
             </div>
 
-            <div className="rounded-sm border border-border bg-card p-4 shadow-sm space-y-2">
+            <div className="rounded-sm border border-border bg-card p-4 space-y-2">
               <div className="text-sm font-medium">테스트 케이스 플로우</div>
               {(selectedScenario.selectedRuleTestcases ?? []).length === 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -118,7 +118,7 @@ export function ScenarioPreviewPanel({
             ) : null}
 
             {selectedScenario.description?.trim() ? (
-              <div className="rounded-sm border border-border bg-card p-4 shadow-sm">
+              <div className="rounded-sm border border-border bg-card p-4">
                 <div className="text-sm font-medium">설명</div>
                 <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">
                   {selectedScenario.description}
@@ -127,7 +127,7 @@ export function ScenarioPreviewPanel({
             ) : null}
 
             {(selectedScenario.tags ?? []).length > 0 ? (
-              <div className="rounded-sm border border-border bg-card p-4 shadow-sm">
+              <div className="rounded-sm border border-border bg-card p-4">
                 <div className="text-sm font-medium">태그</div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {selectedScenario.tags.map((t) => (
