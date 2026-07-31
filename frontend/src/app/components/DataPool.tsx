@@ -162,7 +162,6 @@ export function DataPool() {
     <PageShell
       icon={<Database className="w-5 h-5" strokeWidth={2} />}
       title="데이터 풀"
-      description="실거래 샘플 조회·승격과 로그 적재를 한곳에서 관리합니다."
       actions={
         mainTab === "samples" ? (
           <button

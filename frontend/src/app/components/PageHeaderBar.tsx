@@ -19,7 +19,7 @@ export function PageHeaderBar({
   return (
     <div className={cn("-mx-6 md:-mx-8 bg-background", SHELL_HEADER_STICKY_CLASS)}>
       <header
-        className={`${SHELL_HEADER_ROW_CLASS} gap-3 px-6 md:px-8 text-sidebar-foreground bg-background`}
+        className={`${SHELL_HEADER_ROW_CLASS} gap-3 px-6 md:px-8 text-foreground bg-background`}
       >
         <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden text-primary [&_svg]:shrink-0">
           {icon}

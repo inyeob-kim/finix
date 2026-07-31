@@ -9,36 +9,52 @@
   --card-foreground: #0F172A;
   --popover: #FFFFFF;
   --popover-foreground: #0F172A;
-  --primary: #3B82F6;
+  /* Teal accent — workbench reference */
+  --primary: #0D9488;
   --primary-foreground: #FFFFFF;
-  --secondary: #FAFAFA;
+  --secondary: #F8FAFC;
   --secondary-foreground: #0F172A;
-  --muted: #F5F5F5;
+  --muted: #F1F5F9;
   --muted-foreground: #64748B;
-  --accent: #F5F5F5;
+  --accent: #F1F5F9;
   --accent-foreground: #0F172A;
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
-  --success: #22C55E;
+  --success: #16A34A;
   --success-foreground: #FFFFFF;
-  --border: #E5E7EB;
+  --border: #E2E8F0;
   --input: #FFFFFF;
   --input-background: #FFFFFF;
-  --switch-background: #E5E7EB;
+  --switch-background: #E2E8F0;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #3B82F6;
-  --radius: 0.75rem;
+  --ring: #14B8A6;
+  --radius: 0.5rem;
+  /* Light chrome for page header / secondary panels */
   --sidebar: #FAFAFA;
   --sidebar-foreground: #0F172A;
-  --sidebar-primary: #3B82F6;
+  --sidebar-primary: #0D9488;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F5F5F5;
+  --sidebar-accent: #F1F5F9;
   --sidebar-accent-foreground: #0F172A;
-  --sidebar-border: #E5E7EB;
-  --sidebar-ring: #3B82F6;
+  --sidebar-border: #E2E8F0;
+  --sidebar-ring: #14B8A6;
 
-  /* AI accent (Datadog-like purple) */
+  /* Dark icon rail (Root) */
+  --nav-rail: #1A1D24;
+  --nav-rail-foreground: #A1A1AA;
+  --nav-rail-border: #2A2F3A;
+  --nav-rail-active-from: #14B8A6;
+  --nav-rail-active-to: #0EA5E9;
+
+  /* Flow canvas */
+  --canvas: #F1F5F9;
+  --canvas-dot: #CBD5E1;
+  --flow-loop: #8B5CF6;
+  --flow-data: #F97316;
+  --flow-start: #475569;
+
+  /* AI accent */
   --ai: #8B5CF6;
 }
 
@@ -79,6 +95,14 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-ai: var(--ai);
+  --color-nav-rail: var(--nav-rail);
+  --color-nav-rail-foreground: var(--nav-rail-foreground);
+  --color-nav-rail-border: var(--nav-rail-border);
+  --color-canvas: var(--canvas);
+  --color-canvas-dot: var(--canvas-dot);
+  --color-flow-loop: var(--flow-loop);
+  --color-flow-data: var(--flow-data);
+  --color-flow-start: var(--flow-start);
 }
 
 @layer base {
@@ -140,5 +164,17 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+@layer utilities {
+  .finix-dot-canvas {
+    background-color: var(--canvas);
+    background-image: radial-gradient(
+      circle,
+      var(--canvas-dot) 1px,
+      transparent 1px
+    );
+    background-size: 14px 14px;
   }
 }

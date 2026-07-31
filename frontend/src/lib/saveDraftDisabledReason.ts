@@ -21,7 +21,7 @@ export function getSaveDraftDisabledReason(
     return "과거 운영 버전은 수정·덮어쓰기할 수 없습니다. 「새 버전 만들기」를 사용하세요.";
   }
   if (st === "approved") {
-    return "승인된 버전은 덮어쓸 수 없습니다. 「새 버전 만들기」를 사용하세요.";
+    return "이 버전은 덮어쓸 수 없습니다. 「새 버전 만들기」를 사용하세요.";
   }
   return `현재 상태(${status || "—"})에서는 같은 버전에 저장할 수 없습니다. 「새 버전 만들기」를 사용하세요.`;
 }

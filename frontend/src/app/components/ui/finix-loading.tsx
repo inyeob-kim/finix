@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Lottie from "lottie-react";
 import { Loader2 } from "lucide-react";
-import finixLoadingAnimation from "@/assets/finix_loading.json";
+import finixLoadingAnimation from "@/assets/finix-loading-new.json";
 import { cn } from "./utils";
 
 const SIZE_PX = {

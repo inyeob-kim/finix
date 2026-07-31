@@ -89,7 +89,6 @@ export function OpenApiImport() {
     <PageShell
       icon={<FileJson2 className="w-5 h-5" strokeWidth={2} />}
       title="API 스펙"
-      description="YAML Draft의 Swagger 참조용입니다. 소스 규칙 추출을 대체하지 않으며, 등록된 operation만 힌트로 쓰입니다."
       actions={
         <div className="flex flex-wrap gap-2">
           <Link

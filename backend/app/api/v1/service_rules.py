@@ -64,7 +64,7 @@ def _to_read(
 async def list_rules_registry(
     service: ServiceRulesService = Depends(get_service_rules_service),
     query: str | None = Query(default=None),
-    status: str | None = Query(default=None, description="active, draft, or approved"),
+    status: str | None = Query(default=None, description="active or draft"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ServiceRuleRegistryListResponse:
@@ -262,23 +262,6 @@ async def generate_draft_from_source(
         use_swagger=payload.use_swagger,
     )
     return _to_read(bundle, include_yaml=True, include_rules=True)
-
-
-@router.post(
-    "/{service_code}/{bundle_id}/approve",
-    response_model=ServiceRuleBundleRead,
-    summary="Approve rules bundle",
-)
-async def approve_bundle(
-    service_code: str,  # kept in path for clarity, validated via service layer
-    bundle_id: int,
-    service: ServiceRulesService = Depends(get_service_rules_service),
-) -> ServiceRuleBundleRead:
-    bundle = await service.approve(bundle_id)
-    if bundle.service_code != (service_code or "").strip():
-        # Prevent cross-service approvals via path mismatch.
-        raise ValueError("service_code mismatch")
-    return _to_read(bundle)
 
 
 @router.post(

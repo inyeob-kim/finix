@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   ChevronDown,
   ChevronUp,
@@ -59,7 +60,6 @@ import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
 import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import {
   activateServiceRulesBundle,
-  approveServiceRulesBundle,
   createServiceRulesDraft,
   generateServiceRulesDraftFromSource,
   getServiceRulesBundle,
@@ -163,15 +163,23 @@ function bundleToRegistryItem(bundle: ServiceRuleBundleReadDto): RuleRegistryIte
   };
 }
 
+function statusFilterFromSearch(raw: string | null): "" | "active" | "draft" {
+  if (raw === "active" || raw === "draft") return raw;
+  return "";
+}
+
 export function RulesMeta() {
   const { user } = useAuthStore();
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<RuleRegistryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"yaml" | "testcases">("yaml");
   const [yamlText, setYamlText] = useState("");
   const [baselineYamlText, setBaselineYamlText] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"" | "active" | "draft" | "approved">("");
+  const [statusFilter, setStatusFilter] = useState<"" | "active" | "draft">(() =>
+    statusFilterFromSearch(searchParams.get("status")),
+  );
   const [versionFilter, setVersionFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated_desc");
   const [page, setPage] = useState(1);
@@ -185,6 +193,10 @@ export function RulesMeta() {
   const [yamlCopyDone, setYamlCopyDone] = useState(false);
   const [yamlRuleFocusEdit, setYamlRuleFocusEdit] = useState(false);
   const [historyItem, setHistoryItem] = useState<RuleRegistryItem | null>(null);
+
+  useEffect(() => {
+    setStatusFilter(statusFilterFromSearch(searchParams.get("status")));
+  }, [searchParams]);
 
   const {
     registry,
@@ -417,7 +429,7 @@ export function RulesMeta() {
     if (!selected) return false;
     if ((selected.status || "").toLowerCase() !== "draft") {
       setEditError(
-        "활성·승인 번들은 덮어쓸 수 없습니다. 「새 버전 만들기」를 사용하세요.",
+        "운영 번들은 덮어쓸 수 없습니다. 「새 버전 만들기」를 사용하세요.",
       );
       return false;
     }
@@ -467,24 +479,6 @@ export function RulesMeta() {
       setEditError(
         e instanceof ApiError ? e.message : "새 버전 만들기에 실패했습니다.",
       );
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const runApprove = async () => {
-    if (!selected) return;
-    setEditSaving(true);
-    setEditError(null);
-    try {
-      const bundle = await approveServiceRulesBundle(
-        selected.serviceCode,
-        selected.bundleId,
-      );
-      const items = await reloadRegistry();
-      applySavedBundle(bundle, "승인되었습니다.", items);
-    } catch (e) {
-      setEditError(e instanceof ApiError ? e.message : "승인에 실패했습니다.");
     } finally {
       setEditSaving(false);
     }
@@ -679,7 +673,6 @@ export function RulesMeta() {
                 <option value="">전체</option>
                 <option value="active">운영</option>
                 <option value="draft">초안</option>
-                <option value="approved">승인됨</option>
               </FinixUnderlineSelect>
             </FinixField>
 
@@ -1066,17 +1059,6 @@ export function RulesMeta() {
                             </button>
                           )}
                         </RulesMetaHintButton>
-                      ) : null}
-
-                      {isDraftBundle ? (
-                        <button
-                          type="button"
-                          className={SECONDARY_BTN_CLASS}
-                          disabled={lifecycleDisabled}
-                          onClick={() => void runApprove()}
-                        >
-                          승인
-                        </button>
                       ) : null}
 
                       {!isActiveBundle ? (

@@ -7,6 +7,11 @@ import {
   type ExecutionResultFilter,
   type ExecutionStepViewModel,
 } from "@/lib/executionStepView";
+import {
+  FinixDotCanvas,
+  FinixFlowPill,
+  FinixFlowStepCard,
+} from "../ui/finix-flow";
 import { ExecutionRequestResultRow } from "./ExecutionRequestResultRow";
 import { ExecutionRunFilterTabs } from "./ExecutionRunFilterTabs";
 import { ExecutionRunSummaryBar } from "./ExecutionRunSummaryBar";
@@ -70,12 +75,62 @@ export function ExecutionTimelinePanel({ detail }: Props) {
     <div className="space-y-4">
       <ExecutionRunSummaryBar detail={detail} summary={summary} />
 
-      <div className="rounded-sm border border-border bg-card shadow-sm overflow-hidden">
-        <div className="px-4 py-2 border-b border-border bg-muted/15 flex flex-wrap items-center justify-between gap-2">
+      {steps.length > 0 ? (
+        <FinixDotCanvas className="overflow-x-auto p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <FinixFlowPill tone="loop">Loop</FinixFlowPill>
+            <span className="text-[11px] text-muted-foreground">
+              Scenario Execution Result
+            </span>
+          </div>
+          <div className="flex min-w-min items-center gap-0">
+            <FinixFlowPill tone="start">Start</FinixFlowPill>
+            <div className="mx-2 h-px w-5 shrink-0 bg-primary/40" />
+            <div className="flex items-start gap-3 rounded-md border border-flow-loop/40 bg-card/70 p-3">
+              {steps.map((step, idx) => (
+                <div key={`${step.stepIndex}-${idx}`} className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="text-left transition-opacity hover:opacity-90"
+                    onClick={() => toggleStepDetail(idx)}
+                  >
+                    <FinixFlowStepCard
+                      order={idx + 1}
+                      title={step.label}
+                      subtitle={
+                        [step.method, step.endpoint].filter(Boolean).join(" ") ||
+                        undefined
+                      }
+                      status={
+                        step.status === "passed"
+                          ? "passed"
+                          : step.status === "failed"
+                            ? "failed"
+                            : "idle"
+                      }
+                      className={cn(
+                        selectedStepIndex === idx && "ring-2 ring-primary/40",
+                      )}
+                    />
+                  </button>
+                  {idx < steps.length - 1 ? (
+                    <div className="h-px w-5 shrink-0 bg-primary/40" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <div className="mx-2 h-px w-5 shrink-0 bg-primary/40" />
+            <FinixFlowPill tone="end">End</FinixFlowPill>
+          </div>
+        </FinixDotCanvas>
+      ) : null}
+
+      <div className="overflow-hidden rounded-md border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/15 px-4 py-2">
           <p className="text-xs text-muted-foreground">
-            {ranAt}에 실행 · #{detail.id}
+            테스트 케이스 결과 · {ranAt} · #{detail.id}
           </p>
-          <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer text-muted-foreground">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
             <input
               type="checkbox"
               checked={changesOnly}
@@ -86,7 +141,7 @@ export function ExecutionTimelinePanel({ detail }: Props) {
           </label>
         </div>
 
-        <div className="px-4 pt-2 border-b border-border lg:border-b-0">
+        <div className="border-b border-border px-4 pt-2 lg:border-b-0">
           <ExecutionRunFilterTabs
             filter={filter}
             onFilterChange={setFilter}
@@ -105,11 +160,11 @@ export function ExecutionTimelinePanel({ detail }: Props) {
                 : "w-full",
             )}
           >
-            <div className="text-[11px] font-medium text-muted-foreground py-2">
+            <div className="py-2 text-[11px] font-medium text-muted-foreground">
               반복 1
             </div>
             {visibleSteps.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
+              <p className="py-8 text-center text-sm text-muted-foreground">
                 {filter === "failed"
                   ? "실패한 요청이 없습니다."
                   : filter === "passed"

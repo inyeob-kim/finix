@@ -178,16 +178,6 @@ export async function validateServiceRulesYaml(
   );
 }
 
-export async function approveServiceRulesBundle(
-  serviceCode: string,
-  bundleId: number,
-): Promise<ServiceRuleBundleReadDto> {
-  return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/${bundleId}/approve`,
-    { method: "POST" },
-  );
-}
-
 export async function activateServiceRulesBundle(
   serviceCode: string,
   bundleId: number,

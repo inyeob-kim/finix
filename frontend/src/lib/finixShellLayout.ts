@@ -4,7 +4,7 @@ export const SHELL_HEADER_HEIGHT_CLASS = "h-[4.5rem]";
 export const SHELL_HEADER_ROW_CLASS = [
   "flex items-center shrink-0",
   SHELL_HEADER_HEIGHT_CLASS,
-  "border-b border-sidebar-border",
+  "border-b border-border",
 ].join(" ");
 
 /** Page header stays above scrolling main content. */
@@ -17,3 +17,5 @@ export const PAGE_SECTION_STACK_CLASS = "flex flex-col gap-5";
 export const TABLE_PAGINATION_FOOTER_CLASS =
   "pt-4 border-t border-border/60 flex flex-wrap items-center justify-between gap-4";
 
+/** Narrow dark icon rail width (Root). */
+export const NAV_RAIL_WIDTH_CLASS = "w-14";

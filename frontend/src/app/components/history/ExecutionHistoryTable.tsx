@@ -1,37 +1,38 @@
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
-import { CircleCheck, CircleX, Clock, Monitor } from "lucide-react";
-import type { ExecutionHistoryRow, ExecutionHistoryStatus } from "@/lib/executionHistoryView";
-import { cn } from "../ui/utils";
+import { Monitor } from "lucide-react";
+import type {
+  ExecutionHistoryRow,
+  ExecutionHistoryStatus,
+} from "@/lib/executionHistoryView";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
+  FinixDataTable,
+  FinixDataTableBody,
+  FinixDataTableCell,
+  FinixDataTableFrame,
+  FinixDataTableHead,
+  FinixDataTableHeader,
+  FinixDataTableRow,
+  FINIX_DATA_TABLE_GHOST_BTN_CLASS,
+} from "../ui/finix-data-table";
 
-function StatusBadge({ status }: { status: ExecutionHistoryStatus }) {
+function StatusPill({ status }: { status: ExecutionHistoryStatus }) {
   if (status === "running") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[12px] font-medium whitespace-nowrap bg-primary/15 text-primary border border-primary/25">
-        <Clock className="w-3 h-3" />
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-primary/10 text-primary border border-primary/20">
         진행
       </span>
     );
   }
   if (status === "success") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[12px] font-medium whitespace-nowrap bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800">
-        <CircleCheck className="w-3 h-3" />
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200">
         성공
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[12px] font-medium whitespace-nowrap bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900">
-      <CircleX className="w-3 h-3" />
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-red-50 text-red-800 border border-red-200">
       실패
     </span>
   );
@@ -55,112 +56,96 @@ export function ExecutionHistoryTable({
   };
 
   return (
-    <div className="bg-card border border-border rounded-sm overflow-hidden shadow-sm">
-      <Table>
-        <TableHeader className="bg-muted/60">
-          <TableRow className="hover:bg-transparent border-b border-border">
-            <TableHead className="text-xs font-semibold text-muted-foreground w-[88px]">
-              상태
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground w-[72px]">
-              실행 ID
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground min-w-[160px]">
-              발생 일시
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground min-w-[180px]">
-              시나리오
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground w-[100px]">
-              모드
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground min-w-[140px]">
-              Base URL
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground text-right w-[88px]">
+    <FinixDataTableFrame>
+      <FinixDataTable>
+        <FinixDataTableHeader>
+          <FinixDataTableRow className="hover:bg-transparent">
+            <FinixDataTableHead className="w-[72px]">상태</FinixDataTableHead>
+            <FinixDataTableHead className="w-[72px]">실행 ID</FinixDataTableHead>
+            <FinixDataTableHead className="min-w-[160px]">발생 일시</FinixDataTableHead>
+            <FinixDataTableHead className="min-w-[180px]">시나리오</FinixDataTableHead>
+            <FinixDataTableHead className="w-[100px]">모드</FinixDataTableHead>
+            <FinixDataTableHead className="min-w-[140px]">Base URL</FinixDataTableHead>
+            <FinixDataTableHead className="w-[88px] text-right">
               성공/실패
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground min-w-[140px]">
-              요약
-            </TableHead>
-            <TableHead className="text-xs font-semibold text-muted-foreground w-[72px]">
-              결과
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+            </FinixDataTableHead>
+            <FinixDataTableHead className="min-w-[140px]">요약</FinixDataTableHead>
+            <FinixDataTableHead className="w-[56px] text-right">결과</FinixDataTableHead>
+          </FinixDataTableRow>
+        </FinixDataTableHeader>
+        <FinixDataTableBody>
           {rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={9} className="py-8">
+            <FinixDataTableRow>
+              <FinixDataTableCell colSpan={9} className="py-8">
                 {emptySlot ?? (
                   <p className="text-center text-muted-foreground text-sm">
                     {emptyMessage}
                   </p>
                 )}
-              </TableCell>
-            </TableRow>
+              </FinixDataTableCell>
+            </FinixDataTableRow>
           ) : (
             rows.map((item) => (
-              <TableRow
+              <FinixDataTableRow
                 key={item.id}
-                className={cn(
-                  "border-b border-border cursor-pointer hover:bg-muted/40 transition-colors",
-                  item.status === "failed" && "bg-destructive/[0.02]",
-                )}
+                interactive
                 onClick={() => openResult(item.id)}
               >
-                <TableCell className="py-3">
-                  <StatusBadge status={item.status} />
-                </TableCell>
-                <TableCell className="font-mono text-sm tabular-nums">
+                <FinixDataTableCell>
+                  <StatusPill status={item.status} />
+                </FinixDataTableCell>
+                <FinixDataTableCell className="font-mono text-sm tabular-nums">
                   #{item.id}
-                </TableCell>
-                <TableCell className="font-mono text-[12px] whitespace-nowrap">
+                </FinixDataTableCell>
+                <FinixDataTableCell className="font-mono text-[12px] whitespace-nowrap">
                   {item.occurredAt}
-                </TableCell>
-                <TableCell
+                </FinixDataTableCell>
+                <FinixDataTableCell
                   className="text-sm max-w-[220px] truncate"
                   title={item.scenarioTitle}
                 >
                   {item.scenarioTitle}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
+                </FinixDataTableCell>
+                <FinixDataTableCell className="text-xs text-muted-foreground">
                   {item.modeLabel}
-                </TableCell>
-                <TableCell
+                </FinixDataTableCell>
+                <FinixDataTableCell
                   className="font-mono text-[11px] text-muted-foreground max-w-[180px] truncate"
                   title={item.baseUrl}
                 >
                   {item.baseUrl}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-sm">
+                </FinixDataTableCell>
+                <FinixDataTableCell className="text-right tabular-nums text-sm">
                   <span className="text-success">{item.passed}</span>
                   <span className="text-muted-foreground"> / </span>
                   <span className={item.failed > 0 ? "text-destructive" : ""}>
                     {item.failed}
                   </span>
-                </TableCell>
-                <TableCell
+                </FinixDataTableCell>
+                <FinixDataTableCell
                   className="max-w-[200px] truncate text-muted-foreground text-xs"
                   title={item.summary}
                 >
                   {item.summary}
-                </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                </FinixDataTableCell>
+                <FinixDataTableCell
+                  className="text-right"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <Link
                     to={`/execution-result/${item.id}`}
                     state={{ from: "/history" }}
                     title="실행 결과"
-                    className="inline-flex p-2 rounded-sm hover:bg-muted text-muted-foreground hover:text-primary transition-colors border border-transparent hover:border-border"
+                    className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
                   >
-                    <Monitor className="w-4 h-4" />
+                    <Monitor className="w-3.5 h-3.5" />
                   </Link>
-                </TableCell>
-              </TableRow>
+                </FinixDataTableCell>
+              </FinixDataTableRow>
             ))
           )}
-        </TableBody>
-      </Table>
-    </div>
+        </FinixDataTableBody>
+      </FinixDataTable>
+    </FinixDataTableFrame>
   );
 }

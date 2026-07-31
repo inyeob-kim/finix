@@ -382,15 +382,6 @@ export function TestCase() {
     <PageShell
       icon={<Wand2 className="w-5 h-5" strokeWidth={2} />}
       title="테스트 케이스"
-      description={
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-muted-foreground">Scenario</span>
-          <span className="font-medium text-foreground">
-            {scenarioTitle ||
-              (Number.isFinite(scenarioId) ? `#${scenarioId}` : "—")}
-          </span>
-        </div>
-      }
       actions={
         <PageActionButton
           onClick={() => {

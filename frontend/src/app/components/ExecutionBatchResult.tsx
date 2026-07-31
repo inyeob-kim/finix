@@ -116,7 +116,6 @@ export function ExecutionBatchResult() {
       <PageShell
         icon={<Layers className="w-5 h-5" strokeWidth={2} />}
         title="배치 실행 결과"
-        description="여러 시나리오 실행 결과를 한 화면에서 확인합니다."
         actions={backButton}
       >
         <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive max-w-xl">
@@ -130,7 +129,6 @@ export function ExecutionBatchResult() {
     <PageShell
       icon={<Layers className="w-5 h-5" strokeWidth={2} />}
       title="배치 실행 결과"
-      description={`${listItems.length}개 시나리오 · ${summary.passedSteps}성공 / ${summary.failedSteps}실패`}
       actions={backButton}
     >
       <div className={PAGE_SECTION_STACK_CLASS}>

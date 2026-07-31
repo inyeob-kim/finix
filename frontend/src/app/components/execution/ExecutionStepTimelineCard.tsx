@@ -1,10 +1,8 @@
 import { useState } from "react";
 import {
   ArrowDown,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  XCircle,
 } from "lucide-react";
 import type { ExecutionStepViewModel } from "@/lib/executionStepView";
 import { ExecutionJsonPanel } from "./ExecutionJsonPanel";
@@ -38,7 +36,7 @@ export function ExecutionStepTimelineCard({
     <div>
       <div
         className={cn(
-          "rounded-sm border overflow-hidden shadow-sm transition-colors",
+          "rounded-md border overflow-hidden transition-colors",
           step.status === "passed"
             ? "border-border bg-card"
             : "border-destructive/30 bg-card",
@@ -50,11 +48,6 @@ export function ExecutionStepTimelineCard({
           className="w-full flex items-start justify-between gap-3 p-4 hover:bg-accent/5 transition-colors text-left"
         >
           <div className="flex items-start gap-3 min-w-0">
-            {step.status === "passed" ? (
-              <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
-            ) : (
-              <XCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-            )}
             <div className="min-w-0 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-muted-foreground tabular-nums">
@@ -69,7 +62,7 @@ export function ExecutionStepTimelineCard({
                       : "bg-destructive/10 text-destructive",
                   )}
                 >
-                  {step.status === "passed" ? "성공" : "실패"}
+                  {step.status === "passed" ? "PASS" : "FAIL"}
                 </span>
               </div>
               {httpLine ? (

@@ -152,7 +152,6 @@ export function ExecutionResult() {
       <PageShell
         icon={<PlayCircle className="w-5 h-5" strokeWidth={2} />}
         title="실행 결과"
-        description="Postman Run과 동일한 형식으로 테스트 결과를 확인합니다."
         actions={actions}
       >
         <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive max-w-xl">

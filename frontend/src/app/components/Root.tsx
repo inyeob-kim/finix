@@ -1,8 +1,7 @@
-import finixLogo from "@/assets/finix_logo_white.png";
-import { SHELL_HEADER_ROW_CLASS } from "@/lib/finixShellLayout";
+import finixLogo from "@/assets/finix-logo-mark-dark.png";
+import { NAV_RAIL_WIDTH_CLASS, SHELL_HEADER_HEIGHT_CLASS } from "@/lib/finixShellLayout";
 import {
   BookOpen,
-  ChevronLeft,
   Clock,
   Database,
   FolderKanban,
@@ -10,32 +9,26 @@ import {
   Layers,
   LogIn,
   LogOut,
+  Sparkles,
   User,
 } from "lucide-react";
-import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuthStore } from "../auth/authStore";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import { cn } from "./ui/utils";
 
-const navItemClass = (collapsed: boolean, isActive: boolean) =>
-  cn(
-    "group flex items-center py-2.5 rounded-sm transition-colors duration-200",
-    collapsed ? "justify-center px-0 w-full" : "gap-3 px-3",
-    isActive
-      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-      : cn(
-          "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-        ),
-  );
-
 export function Root() {
-  const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
 
   const navItems = [
-    { icon: Home, label: "AI 시나리오 생성", path: "/" },
+    { icon: Home, label: "홈", path: "/" },
+    { icon: Sparkles, label: "AI 시나리오 생성", path: "/generate" },
     { icon: FolderKanban, label: "시나리오 관리", path: "/scenario-registry" },
     { icon: Layers, label: "YAML 규칙", path: "/rules" },
     { icon: Database, label: "Data Pool", path: "/data-pool" },
@@ -45,122 +38,107 @@ export function Root() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar */}
       <aside
         className={cn(
-          "flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-300",
-          collapsed ? "w-16" : "w-64",
+          NAV_RAIL_WIDTH_CLASS,
+          "flex shrink-0 flex-col overflow-hidden border-r border-nav-rail-border bg-nav-rail",
         )}
       >
-        {/* Logo */}
         <div
           className={cn(
-            SHELL_HEADER_ROW_CLASS,
-            "bg-sidebar",
-            collapsed ? "justify-center" : "gap-2 px-4",
+            SHELL_HEADER_HEIGHT_CLASS,
+            "flex items-center justify-center border-b border-nav-rail-border",
           )}
         >
-          <div className="size-8 shrink-0 overflow-hidden rounded-sm">
+          <div className="size-8 shrink-0 overflow-hidden rounded-md">
             <img
               src={finixLogo}
               alt="FINIX"
-              className="size-full object-contain object-center scale-[1.55]"
+              className="size-full object-contain object-center"
               draggable={false}
             />
           </div>
-          {!collapsed && (
-            <h1 className="text-lg tracking-tight shrink-0">FINIX</h1>
-          )}
         </div>
 
-        {/* Navigation */}
-        <nav className={cn("flex-1 space-y-2", collapsed ? "p-2" : "p-4")}>
+        <nav className="flex flex-1 flex-col items-center gap-1.5 p-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive =
+              item.path === "/"
+                ? location.pathname === "/"
+                : location.pathname === item.path ||
+                  location.pathname.startsWith(`${item.path}/`);
             return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={navItemClass(collapsed, isActive)}
-              >
-                <Icon className="w-5 h-5 shrink-0 transition-colors group-hover:text-sidebar-accent-foreground" />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.path}
+                    aria-label={item.label}
+                    className={cn(
+                      "flex size-10 items-center justify-center rounded-md transition-all",
+                      isActive
+                        ? "bg-gradient-to-br from-[var(--nav-rail-active-from)] to-[var(--nav-rail-active-to)] text-white shadow-[0_0_12px_rgba(20,184,166,0.45)]"
+                        : "text-nav-rail-foreground hover:bg-white/5 hover:text-white",
+                    )}
+                  >
+                    <Icon className="size-[1.15rem]" strokeWidth={isActive ? 2.25 : 2} />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8}>
+                  {item.label}
+                </TooltipContent>
+              </Tooltip>
             );
           })}
         </nav>
 
-        {/* Bottom Section */}
-        <div
-          className={cn(
-            "space-y-2 border-t border-sidebar-border",
-            collapsed ? "p-2" : "p-4",
-          )}
-        >
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className={cn(
-              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
-              collapsed ? "justify-center px-0" : "gap-3 px-3",
-            )}
-          >
-            <ChevronLeft
-              className={`w-5 h-5 shrink-0 transition-transform ${
-                collapsed ? "rotate-180" : ""
-              }`}
-            />
-            {!collapsed && <span>접기</span>}
-          </button>
-
-          <div
-            className={cn(
-              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
-              collapsed ? "justify-center px-0" : "gap-3 px-3",
-            )}
-          >
-            <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-              <User className="w-4 h-4 text-white" />
-            </div>
-            {!collapsed && (
-              <div className="flex-1 text-left min-w-0">
-                <div className="text-sm truncate">
-                  {isAuthenticated ? user?.username : "게스트"}
-                </div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {isAuthenticated ? user?.role : "로그인 필요"}
+        <div className="flex flex-col items-center gap-1.5 border-t border-nav-rail-border p-2 pb-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="flex size-10 items-center justify-center rounded-md text-nav-rail-foreground"
+                title={isAuthenticated ? user?.username : "게스트"}
+              >
+                <div className="flex size-7 items-center justify-center rounded-full bg-white/10">
+                  <User className="size-3.5 text-white/90" />
                 </div>
               </div>
-            )}
-          </div>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              {isAuthenticated ? `${user?.username} · ${user?.role}` : "게스트"}
+            </TooltipContent>
+          </Tooltip>
 
-          <button
-            type="button"
-            className={cn(
-              "w-full flex items-center py-2.5 rounded-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors",
-              collapsed ? "justify-center px-0" : "gap-3 px-3",
-            )}
-            onClick={() => {
-              if (isAuthenticated) {
-                logout();
-                navigate("/", { replace: true });
-                return;
-              }
-              navigate("/login");
-            }}
-          >
-            {isAuthenticated ? (
-              <LogOut className="w-5 h-5 shrink-0" />
-            ) : (
-              <LogIn className="w-5 h-5 shrink-0" />
-            )}
-            {!collapsed && <span>{isAuthenticated ? "로그아웃" : "로그인"}</span>}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={isAuthenticated ? "로그아웃" : "로그인"}
+                className="flex size-10 items-center justify-center rounded-md text-nav-rail-foreground transition-colors hover:bg-white/5 hover:text-white"
+                onClick={() => {
+                  if (isAuthenticated) {
+                    logout();
+                    navigate("/", { replace: true });
+                    return;
+                  }
+                  navigate("/login");
+                }}
+              >
+                {isAuthenticated ? (
+                  <LogOut className="size-[1.15rem]" />
+                ) : (
+                  <LogIn className="size-[1.15rem]" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              {isAuthenticated ? "로그아웃" : "로그인"}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex flex-1 flex-col min-h-0 overflow-hidden bg-background">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <Outlet />
       </main>
     </div>

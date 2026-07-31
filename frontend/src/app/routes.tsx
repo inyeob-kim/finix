@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { Root } from "./components/Root";
-import { Home } from "./components/Home";
+import { GenerateScenario } from "./components/GenerateScenario";
+import { Dashboard } from "./components/Dashboard";
 import { Scenario } from "./components/Scenario";
 import { TestCase } from "./components/TestCase";
 import { ExecutionResult } from "./components/ExecutionResult";
@@ -19,7 +20,22 @@ export const router = createBrowserRouter([
     path: "/",
     Component: Root,
     children: [
-      { index: true, Component: Home },
+      {
+        index: true,
+        element: (
+          <RequireAuth>
+            <Dashboard />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "generate",
+        element: (
+          <RequireAuth>
+            <GenerateScenario />
+          </RequireAuth>
+        ),
+      },
       { path: "scenario/:scenarioId", Component: Scenario },
       { path: "test-case/:scenarioId", Component: TestCase },
       { path: "test-case", element: <Navigate to="/scenario-registry" replace /> },

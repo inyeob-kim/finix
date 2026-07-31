@@ -159,11 +159,6 @@ export function History() {
     <PageShell
       icon={<HistoryGlyph className="w-5 h-5" strokeWidth={2} />}
       title="테스트 이력 조회"
-      description={
-        scenarioFilterActive
-          ? "선택한 시나리오의 실행 이력만 표시합니다."
-          : "시나리오 실행 이력입니다. 행을 클릭하면 단계별 결과를 엽니다."
-      }
     >
       <div className={PAGE_SECTION_STACK_CLASS}>
       {scenarioFilterActive ? (

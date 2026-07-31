@@ -19,9 +19,12 @@ function KpiCard({ label, value, hint }: KpiCardProps) {
 export function HistoryDashboardKpis({
   data,
   loading,
+  compact,
 }: {
   data: DashboardOverviewDto | null;
   loading?: boolean;
+  /** Hide pool source/service footnotes (home strip). */
+  compact?: boolean;
 }) {
   if (loading && !data) {
     return (
@@ -57,7 +60,7 @@ export function HistoryDashboardKpis({
         <KpiCard label="Expected Error" value={errRate} hint={`${ex.expected_error_passed}/${errTotal || 0}`} />
         <KpiCard label="Happy Replay" value={happyRate} hint={`${ex.happy_replay_passed}/${happyTotal || 0}`} />
       </div>
-      {Object.keys(pool.by_source).length > 0 ? (
+      {!compact && Object.keys(pool.by_source).length > 0 ? (
         <p className="text-[11px] text-muted-foreground">
           Pool 출처:{" "}
           {Object.entries(pool.by_source)
@@ -65,7 +68,7 @@ export function HistoryDashboardKpis({
             .join(" · ")}
         </p>
       ) : null}
-      {pool.by_service && pool.by_service.length > 0 ? (
+      {!compact && pool.by_service && pool.by_service.length > 0 ? (
         <p className="text-[11px] text-muted-foreground">
           서비스 Top:{" "}
           {pool.by_service

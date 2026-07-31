@@ -16,7 +16,7 @@ import { FinixPrimaryButton } from "./ui/finix-button";
 import { FinixLoading } from "./ui/finix-loading";
 import { PageShell } from "./PageShell";
 
-export function Home() {
+export function GenerateScenario() {
   const location = useLocation();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,7 +65,6 @@ export function Home() {
     <PageShell
       icon={<Sparkles className="w-5 h-5" strokeWidth={2} />}
       title="AI 시나리오 생성"
-      description="프롬프트로 시나리오를 만들고, 서비스 시퀀스 기반으로 테스트 케이스를 생성합니다."
     >
       <div className="w-full max-w-3xl mx-auto space-y-6">
         <div className="bg-card border border-border rounded-sm shadow-sm px-6 py-5">

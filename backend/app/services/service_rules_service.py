@@ -617,14 +617,6 @@ class ServiceRulesService:
             raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
         return bundle
 
-    async def approve(self, bundle_id: int) -> ServiceRuleBundle:
-        bundle = await self._repo.get_bundle(bundle_id)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
-        bundle.status = "approved"
-        await self._repo.set_approved(bundle.service_code, bundle.id)
-        return bundle
-
     async def _promote_bundle_to_active(self, bundle: ServiceRuleBundle) -> ServiceRuleBundle:
         """Point service at bundle and ensure only one row has status=active."""
         code = bundle.service_code

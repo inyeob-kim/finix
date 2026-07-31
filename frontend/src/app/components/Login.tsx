@@ -20,7 +20,7 @@ const PRESETS: Array<{ role: UserRole; label: string; description: string }> = [
   {
     role: "qa.approver",
     label: "QA Approver",
-    description: "Draft 검토 및 Active 승인(향후 권한 확장)",
+    description: "규칙 검토 및 운영 활성화(향후 권한 확장)",
   },
 ];
 

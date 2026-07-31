@@ -262,7 +262,6 @@ export function Scenario() {
       <PageShell
         icon={<FlaskConical className="w-5 h-5" strokeWidth={2} />}
         title="시나리오 편집"
-        description="단계를 검토·수정하고 서비스 시퀀스를 확정한 뒤 테스트케이스를 생성합니다."
       >
         <div className="w-full max-w-4xl mx-auto space-y-6">
           <div className="rounded-sm border border-border bg-muted/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
