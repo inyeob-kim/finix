@@ -2,7 +2,7 @@ import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ScenarioRegistryFolder } from "../types";
 
 export type FolderOption = { id: string; label: string; depth: number };
-export type FolderSummary = { count: number; successRate: number; lastUpdated: string };
+export type FolderSummary = { count: number };
 
 export function FolderTreeList({
   folderOptions,
@@ -25,6 +25,7 @@ export function FolderTreeList({
     <div className="space-y-1">
       {folderOptions.map((f) => {
         const selected = f.id === selectedFolderId;
+        const count = folderSummary.get(f.id)?.count;
         return (
           <div
             key={f.id}
@@ -48,12 +49,7 @@ export function FolderTreeList({
               <span className="min-w-0">
                 <div className="truncate text-sm">{f.label}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {(() => {
-                    const s = folderSummary.get(f.id);
-                    return s
-                      ? `${s.count} scenarios · ${s.successRate}% · ${s.lastUpdated}`
-                      : "—";
-                  })()}
+                  {count != null ? `${count} scenarios` : "—"}
                 </div>
               </span>
             </button>

@@ -37,7 +37,6 @@ describe("scenarioRegistry/folderModel", () => {
     const summary = buildFolderSummary(folders, items);
     expect(summary.get("root")?.count).toBe(1);
     expect(summary.get("child")?.count).toBe(1);
-    expect(summary.get("root")?.lastUpdated).toBe("2026-01-01 00:00");
   });
 });
 

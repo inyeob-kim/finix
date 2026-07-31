@@ -107,6 +107,14 @@ class Settings(BaseSettings):
         default=str(_BACKEND_ROOT.parent / "docs" / "manual"),
         description="Directory of chapter markdown files merged into RAG index.",
     )
+    log_bulk_source_dir: str | None = Field(
+        default=None,
+        description="Optional directory of log dumps for bulk Data Pool ingest.",
+    )
+    log_bulk_source_url: str | None = Field(
+        default=None,
+        description="Optional URL of a log dump for bulk Data Pool ingest.",
+    )
 
 
 @lru_cache

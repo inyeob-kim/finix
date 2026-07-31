@@ -120,6 +120,7 @@ class MetadataRepository:
         expected_body_json: str | None = None,
         step_index: int | None = None,
         rule_bundle_id: int | None = None,
+        pool_sample_id: int | None = None,
     ) -> TestCase:
         """Insert a new test case row."""
         entity = TestCase(
@@ -133,6 +134,7 @@ class MetadataRepository:
             expected_body_json=expected_body_json,
             step_index=step_index,
             rule_bundle_id=rule_bundle_id,
+            pool_sample_id=pool_sample_id,
         )
         self._session.add(entity)
         await self._session.flush()
@@ -195,6 +197,43 @@ class MetadataRepository:
             stmt = stmt.where(TestCase.rule_bundle_id == rule_bundle_id)
         stmt = stmt.order_by(TestCase.id.asc()).limit(1)
         return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def find_pool_testcase_by_sample_id(self, sample_id: int) -> TestCase | None:
+        """Return scenario-less testcase promoted from a pool sample."""
+        stmt = (
+            select(TestCase)
+            .where(
+                TestCase.scenario_id.is_(None),
+                TestCase.pool_sample_id == sample_id,
+            )
+            .order_by(TestCase.id.asc())
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def update_testcase_http_fields(
+        self,
+        entity: TestCase,
+        *,
+        name: str | None = None,
+        http_method: str | None = None,
+        endpoint: str | None = None,
+        request_body_json: str | None = None,
+        expected_status: int | None = None,
+        expected_body_json: str | None = None,
+    ) -> TestCase:
+        """Patch HTTP fields on an already-loaded testcase entity."""
+        updated = await self.update_testcase_fields(
+            entity.id,
+            name=name,
+            http_method=http_method,
+            endpoint=endpoint,
+            request_body_json=request_body_json,
+            expected_status=expected_status,
+            expected_body_json=expected_body_json,
+        )
+        assert updated is not None
+        return updated
 
     async def delete_testcases_for_scenario(self, scenario_id: int) -> int:
         """Remove all test cases linked to a scenario. Returns deleted count."""

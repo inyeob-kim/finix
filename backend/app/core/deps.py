@@ -12,11 +12,17 @@ from app.integrations.llm_client import LlmClient
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.repositories.execution_repo import ExecutionRepository
 from app.repositories.metadata_repo import MetadataRepository
+from app.repositories.openapi_repo import OpenApiRepository
+from app.repositories.pool_sample_repo import PoolSampleRepository
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.repositories.manual_chunk_repo import ManualChunkRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 from app.services.execution_service import ExecutionService
+from app.services.log_ingest_service import LogIngestService
+from app.services.openapi_ingest_service import OpenApiIngestService
+from app.services.pool_promote_service import PoolPromoteService
+from app.services.pool_service import PoolService
 from app.services.scenario_bindings_ai_service import ScenarioBindingsAiService
 from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.manual_rag_service import ManualRagService
@@ -173,10 +179,64 @@ def get_service_rules_service(
     return ServiceRulesService(repo=repo)
 
 
+async def get_pool_sample_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[PoolSampleRepository, None]:
+    """Yield pool sample repository."""
+    yield PoolSampleRepository(session)
+
+
+async def get_openapi_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[OpenApiRepository, None]:
+    """Yield OpenAPI document repository."""
+    yield OpenApiRepository(session)
+
+
+def get_pool_service(
+    pool_repo: PoolSampleRepository = Depends(get_pool_sample_repository),
+) -> PoolService:
+    """Build PoolService."""
+    return PoolService(pool_repo)
+
+
+def get_pool_promote_service(
+    pool_repo: PoolSampleRepository = Depends(get_pool_sample_repository),
+    metadata_repo: MetadataRepository = Depends(get_metadata_repository),
+    registry_repo: ServiceRegistryRepository = Depends(get_service_registry_repository),
+) -> PoolPromoteService:
+    """Build PoolPromoteService."""
+    return PoolPromoteService(
+        pool_repo=pool_repo,
+        metadata_repo=metadata_repo,
+        registry_repo=registry_repo,
+    )
+
+
+def get_log_ingest_service(
+    pool_repo: PoolSampleRepository = Depends(get_pool_sample_repository),
+) -> LogIngestService:
+    """Build LogIngestService."""
+    return LogIngestService(pool_repo)
+
+
+def get_openapi_ingest_service(
+    openapi_repo: OpenApiRepository = Depends(get_openapi_repository),
+    catalog_repo: ServiceCatalogRepository = Depends(get_service_catalog_repository),
+) -> OpenApiIngestService:
+    """Build OpenApiIngestService."""
+    return OpenApiIngestService(
+        openapi_repo=openapi_repo,
+        catalog_repo=catalog_repo,
+    )
+
+
 def get_service_rules_ai_service(
     llm: LlmClient | None = Depends(get_llm_client),
     catalog_repo: ServiceCatalogRepository = Depends(get_service_catalog_repository),
     rules_service: ServiceRulesService = Depends(get_service_rules_service),
+    pool_service: PoolService = Depends(get_pool_service),
+    openapi_service: OpenApiIngestService = Depends(get_openapi_ingest_service),
 ) -> ServiceRulesAiService:
     """Build ServiceRulesAiService. Requires LLM key configured."""
     if llm is None:
@@ -188,6 +248,8 @@ def get_service_rules_ai_service(
         llm=llm,
         catalog_repo=catalog_repo,
         rules_service=rules_service,
+        pool_service=pool_service,
+        openapi_service=openapi_service,
     )
 
 

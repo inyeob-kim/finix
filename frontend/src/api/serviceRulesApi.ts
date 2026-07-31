@@ -205,6 +205,8 @@ export async function generateServiceRulesDraftFromSource(
     source_version?: string | null;
     hints?: string | null;
     created_by?: string | null;
+    use_data_pool?: boolean;
+    use_swagger?: boolean;
   },
 ): Promise<ServiceRuleBundleReadDto> {
   const path = `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/generate-draft-from-source`;
@@ -215,6 +217,8 @@ export async function generateServiceRulesDraftFromSource(
       source_version: payload.source_version ?? null,
       hints: payload.hints ?? null,
       created_by: payload.created_by ?? null,
+      use_data_pool: payload.use_data_pool ?? false,
+      use_swagger: payload.use_swagger ?? false,
     }),
   });
 }

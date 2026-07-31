@@ -95,4 +95,12 @@ class ServiceRuleGenerateFromSourceRequest(BaseModel):
     )
     hints: str | None = Field(default=None, max_length=4000)
     created_by: str | None = Field(default=None, max_length=128)
+    use_data_pool: bool = Field(
+        default=False,
+        description="Optional: inject Data Pool happy-sample field hints (Graceful Skip if empty).",
+    )
+    use_swagger: bool = Field(
+        default=False,
+        description="Optional: inject OpenAPI operation hints (Graceful Skip if empty).",
+    )
 

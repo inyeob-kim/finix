@@ -4,7 +4,6 @@ import {
     FINIX_LARGE_MODAL_CONTENT,
     FINIX_LARGE_MODAL_MAX_WIDTH,
 } from "@/lib/finixModalLayout";
-import { PAGE_SECTION_STACK_CLASS } from "@/lib/finixShellLayout";
 import {
     defaultCollectionPostmanZipName,
     defaultSinglePostmanDownloadName,
@@ -42,7 +41,6 @@ import {
 } from "@/lib/scenarioRunSequence";
 import { pruneOrphanInjects } from "@/lib/scenarioRuntimeContext";
 import {
-    BarChart3,
     ChevronLeft,
     ChevronRight,
     Download,
@@ -50,12 +48,10 @@ import {
     FolderPlus,
     PanelRightClose,
     PanelRightOpen,
-    Pencil,
     Play,
     Plus,
     Search,
     Sparkles,
-    Trash2,
     Upload,
     Variable
 } from "lucide-react";
@@ -75,19 +71,18 @@ import type { TestCaseReadDto } from "../../api/types";
 import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
 import { useAuthStore } from "../auth/authStore";
 import { PageShell } from "./PageShell";
-import { FinixScenarioStatusBadge } from "./ui/finix-status-badge";
 import { ScenarioAiSuggestionsPanel } from "./scenario/ScenarioAiSuggestionsPanel";
 import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
 import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizardStep";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
-import { ConfirmPopover } from "./scenarioRegistry/components/ConfirmPopover";
 import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
-import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
+import { ScenarioListTable } from "./scenarioRegistry/components/ScenarioListTable";
 import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
 import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
+import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
 import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
 import {
   repairRegistryFolderLinks,
@@ -131,14 +126,6 @@ import {
     ResizablePanel,
     ResizablePanelGroup,
 } from "./ui/resizable";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "./ui/table";
 
 function mapPersistedTestcaseToRef(
   row: TestCaseReadDto,
@@ -631,26 +618,12 @@ export function ScenarioRegistry() {
       return set;
     };
 
-    const byId = new Map<
-      string,
-      { count: number; successRate: number; lastUpdated: string }
-    >();
+    const byId = new Map<string, { count: number }>();
 
     folders.forEach((f) => {
       const set = descendantsOf(f.id);
-      const scenarios = items.filter((s) => set.has(s.folderId));
-      const count = scenarios.length;
-      const successRate = count
-        ? Math.round(
-            scenarios.reduce((acc, s) => acc + (s.status === "active" ? 92 : 75), 0) /
-              count,
-          )
-        : 0;
-      const lastUpdated =
-        scenarios
-          .map((s) => s.updatedAt)
-          .sort((a, b) => b.localeCompare(a))[0] ?? f.updatedAt;
-      byId.set(f.id, { count, successRate, lastUpdated });
+      const count = items.filter((s) => set.has(s.folderId)).length;
+      byId.set(f.id, { count });
     });
     return byId;
   }, [folders, items]);
@@ -1320,18 +1293,19 @@ export function ScenarioRegistry() {
     <PageShell
       icon={<FolderKanban className="w-5 h-5" strokeWidth={2} />}
       title="시나리오 관리"
+      bodyClassName="overflow-hidden flex flex-col pt-3"
     >
 
-        <div className={`${PAGE_SECTION_STACK_CLASS} flex-1 min-h-0`}>
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
 
         {error ? (
-          <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive shrink-0">
             {error}
           </div>
         ) : null}
 
-        <div className="bg-card border border-border rounded-sm shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
-          <div className="px-4 py-3 border-b border-border flex flex-wrap items-end gap-6">
+        <div className="bg-card border border-border rounded-sm overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="px-4 py-3 border-b border-border flex flex-wrap items-end gap-6 shrink-0">
             <div className="flex flex-wrap items-end gap-6">
               <FinixField label="상태" className="min-w-[10rem]">
                 <FinixUnderlineSelect
@@ -1372,10 +1346,10 @@ export function ScenarioRegistry() {
           </div>
 
           {/* Mobile (stacked) */}
-          <div className="flex-1 min-h-0 md:hidden">
-            <div className="border-t border-border flex flex-col min-h-0">
-              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="text-sm font-medium">Collections</div>
+          <div className="flex-1 min-h-0 md:hidden overflow-hidden flex flex-col">
+            <div className="border-t border-border flex flex-col min-h-0 max-h-[38%] shrink-0">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+                <div className="text-sm font-medium">컬렉션 목록</div>
                 <button
                   type="button"
                   className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors"
@@ -1385,7 +1359,7 @@ export function ScenarioRegistry() {
                   <FolderPlus className="w-4 h-4" />
                 </button>
               </div>
-              <div className="p-2 overflow-auto">
+              <div className="p-2 overflow-auto min-h-0 flex-1">
                 {folderOptions.length === 0 ? (
                   <p className="text-sm text-muted-foreground p-3">
                     폴더가 없습니다.
@@ -1404,8 +1378,8 @@ export function ScenarioRegistry() {
               </div>
             </div>
 
-            <div className="border-t border-border flex flex-col min-h-0">
-              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div className="border-t border-border flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
                 <div className="text-sm text-muted-foreground">
                   현재 컬렉션:{" "}
                   <span className="text-foreground font-medium">
@@ -1458,122 +1432,28 @@ export function ScenarioRegistry() {
                       : "w-full",
                   ].join(" ")}
                 >
-                <Table>
-                  <TableHeader className="bg-muted/60">
-                    <TableRow className="hover:bg-transparent border-b border-border">
-                      <TableHead className="text-xs font-semibold text-muted-foreground min-w-[220px]">
-                        시나리오
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground">
-                        상태
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground">
-                        태그
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground">
-                        수정
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground">
-                        수정자
-                      </TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground w-[160px] text-left">
-                        작업
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filtered.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={6}
-                          className="py-12 text-center text-muted-foreground text-sm"
-                        >
-                          <div className="max-w-lg mx-auto space-y-4">
-                            <div className="text-sm font-medium text-foreground">
-                              {scenarioListEmptyCopy.title}
-                            </div>
-                            {scenarioListEmptyCopy.detail ? (
-                              <div className="text-sm text-muted-foreground">
-                                {scenarioListEmptyCopy.detail}
-                              </div>
-                            ) : null}
-                            {scenarioListEmptyCopy.canRegister ? (
-                              <div className="flex items-center justify-center pt-1">
-                                <FinixPrimaryButton
-                                  onClick={startCreate}
-                                  className="h-9 px-4 w-auto rounded-sm text-sm"
-                                >
-                                  <Plus className="w-4 h-4" />
-                                  시나리오 등록
-                                </FinixPrimaryButton>
-                              </div>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filtered.map((item) => {
-                        const isSelected = item.id === selectedScenarioId;
-                        const rowActive = isSelected && !previewCollapsed;
-                        const tcCount = item.selectedRuleTestcases?.length ?? 0;
-                        return (
-                        <TableRow
-                          key={item.id}
-                          className={[
-                            "border-b border-border cursor-pointer",
-                            "hover:bg-muted/40",
-                            rowActive
-                              ? "bg-primary/5 border-l-2 border-l-primary pl-2 -ml-1"
-                              : isSelected
-                                ? "bg-muted/50"
-                                : "",
-                          ].join(" ")}
-                          onClick={() => togglePreviewFor(item.id)}
-                        >
-                          <TableCell className="py-3 align-top">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium leading-snug">
-                                {item.title}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-normal">
-                                {item.description || "—"}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
-                                테스트 케이스 {tcCount}개
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-3 align-top">
-                            <FinixScenarioStatusBadge status={item.status} />
-                          </TableCell>
-                          <TableCell className="py-3 align-top text-xs text-muted-foreground">
-                            {item.tags.slice(0, 2).join(", ")}
-                          </TableCell>
-                          <TableCell className="py-3 align-top text-xs text-muted-foreground whitespace-nowrap">
-                            {item.updatedAt}
-                          </TableCell>
-                          <TableCell className="py-3 align-top text-xs text-muted-foreground font-mono">
-                            {item.updatedBy}
-                          </TableCell>
-                          <TableCell className="py-3 text-right align-top">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate("/history");
-                              }}
-                              className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                              aria-label="실행 이력"
-                              title="실행 이력"
-                            >
-                              <BarChart3 className="w-4 h-4" />
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                      )})
-                    )}
-                  </TableBody>
-                </Table>
+                  <ScenarioListTable
+                    items={filtered}
+                    selectedScenarioId={selectedScenarioId}
+                    previewCollapsed={previewCollapsed}
+                    emptyCopy={scenarioListEmptyCopy}
+                    actions="history"
+                    runningId={runningId}
+                    exportingId={exportingId}
+                    confirmDeleteScenarioId={confirmDeleteScenarioId}
+                    onSelectRow={togglePreviewFor}
+                    onRegister={startCreate}
+                    onOpenHistory={() => navigate("/history")}
+                    onEdit={startEdit}
+                    onRun={openScenarioRunDialog}
+                    onExport={openPostmanExportDialog}
+                    onRequestDelete={remove}
+                    onConfirmDeleteOpenChange={(v, id) =>
+                      setConfirmDeleteScenarioId(v ? id : null)
+                    }
+                    onConfirmDelete={confirmRemoveScenario}
+                    onCancelDelete={() => setConfirmDeleteScenarioId(null)}
+                  />
                 </div>
                 {!previewCollapsed ? (
                   <ScenarioPreviewPanel
@@ -1586,15 +1466,15 @@ export function ScenarioRegistry() {
           </div>
 
           {/* Desktop (resizable) */}
-          <div className="hidden md:block flex-1 min-h-0 h-full">
+          <div className="hidden md:block flex-1 min-h-0 h-full overflow-hidden">
             <ResizablePanelGroup
               direction="horizontal"
               className="h-full items-stretch"
             >
-              <ResizablePanel defaultSize={25} minSize={18} maxSize={40}>
+              <ResizablePanel defaultSize={18} minSize={14} maxSize={28}>
                 <div className="h-full border-t border-border flex flex-col min-h-0">
                   <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <div className="text-sm font-medium">Collections</div>
+                    <div className="text-sm font-medium">컬렉션 목록</div>
                     <button
                       type="button"
                       className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors"
@@ -1623,11 +1503,8 @@ export function ScenarioRegistry() {
                   </div>
                 </div>
               </ResizablePanel>
-              <ResizableHandle
-                withHandle
-                className="w-[3px] bg-muted-foreground/20 hover:bg-muted-foreground/30 self-stretch h-full z-10 cursor-col-resize"
-              />
-              <ResizablePanel defaultSize={75} minSize={50}>
+              <ResizableHandle className="w-px bg-border hover:bg-muted-foreground/35 self-stretch h-full z-10 cursor-col-resize after:w-1.5" />
+              <ResizablePanel defaultSize={82} minSize={50}>
                 <div className="h-full border-t border-border flex flex-col min-h-0">
                   <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                     <div className="text-sm text-muted-foreground">
@@ -1684,200 +1561,28 @@ export function ScenarioRegistry() {
                           : "w-full",
                       ].join(" ")}
                     >
-                      <Table>
-                      <TableHeader className="bg-muted/60">
-                        <TableRow className="hover:bg-transparent border-b border-border">
-                          <TableHead className="text-xs font-semibold text-muted-foreground min-w-[220px]">
-                            시나리오
-                          </TableHead>
-                          <TableHead className="text-xs font-semibold text-muted-foreground">
-                            상태
-                          </TableHead>
-                          <TableHead className="text-xs font-semibold text-muted-foreground">
-                            태그
-                          </TableHead>
-                          <TableHead className="text-xs font-semibold text-muted-foreground">
-                            수정
-                          </TableHead>
-                          <TableHead className="text-xs font-semibold text-muted-foreground">
-                            수정자
-                          </TableHead>
-                          <TableHead className="text-xs font-semibold text-muted-foreground w-[160px] text-left">
-                            작업
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filtered.length === 0 ? (
-                          <TableRow>
-                            <TableCell
-                              colSpan={6}
-                              className="py-12 text-center text-muted-foreground text-sm"
-                            >
-                              <div className="max-w-lg mx-auto space-y-4">
-                                <div className="text-sm font-medium text-foreground">
-                                  {scenarioListEmptyCopy.title}
-                                </div>
-                                {scenarioListEmptyCopy.detail ? (
-                                  <div className="text-sm text-muted-foreground">
-                                    {scenarioListEmptyCopy.detail}
-                                  </div>
-                                ) : null}
-                                {scenarioListEmptyCopy.canRegister ? (
-                                  <div className="flex items-center justify-center pt-1">
-                                    <FinixPrimaryButton
-                                      onClick={startCreate}
-                                      className="h-9 px-4 w-auto rounded-sm text-sm"
-                                    >
-                                      <Plus className="w-4 h-4" />
-                                      시나리오 등록
-                                    </FinixPrimaryButton>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          filtered.map((item) => {
-                            const isSelected = item.id === selectedScenarioId;
-                            const rowActive = isSelected && !previewCollapsed;
-                            const tcCount = item.selectedRuleTestcases?.length ?? 0;
-                            return (
-                            <TableRow
-                              key={item.id}
-                              className={[
-                                "border-b border-border cursor-pointer",
-                                "hover:bg-muted/40",
-                                rowActive
-                                  ? "bg-primary/5 border-l-2 border-l-primary pl-2 -ml-1"
-                                  : isSelected
-                                    ? "bg-muted/50"
-                                    : "",
-                              ].join(" ")}
-                              onClick={() => togglePreviewFor(item.id)}
-                            >
-                              <TableCell className="py-3 align-top">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium leading-snug">
-                                    {item.title}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-normal">
-                                    {item.description || "—"}
-                                  </p>
-                                  <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
-                                    테스트 케이스 {tcCount}개
-                                  </p>
-                                </div>
-                              </TableCell>
-                              <TableCell className="py-3 align-top">
-                                <FinixScenarioStatusBadge status={item.status} />
-                              </TableCell>
-                              <TableCell className="py-3 align-top">
-                                <div className="flex flex-wrap gap-1 max-w-[220px]">
-                                  {item.tags.slice(0, 3).map((t) => (
-                                    <span
-                                      key={t}
-                                      className="inline-flex max-w-[140px] truncate px-2 py-0.5 rounded-sm text-[11px] font-medium bg-muted text-muted-foreground border border-border"
-                                    >
-                                      {t}
-                                    </span>
-                                  ))}
-                                  {item.tags.length > 3 ? (
-                                    <span className="text-[11px] text-muted-foreground px-1 self-center">
-                                      +{item.tags.length - 3}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </TableCell>
-                              <TableCell className="py-3 align-top text-xs text-muted-foreground whitespace-nowrap">
-                                {item.updatedAt}
-                              </TableCell>
-                              <TableCell className="py-3 align-top text-xs text-muted-foreground font-mono">
-                                {item.updatedBy}
-                              </TableCell>
-                              <TableCell className="py-3 text-right align-top">
-                                <div className="inline-flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      startEdit(item.id);
-                                    }}
-                                    className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors"
-                                    title="편집"
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openScenarioRunDialog(item);
-                                    }}
-                                    disabled={
-                                      runningId === item.id ||
-                                      !canRunRegistryScenario(item)
-                                    }
-                                    className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                                    title={
-                                      canRunRegistryScenario(item)
-                                        ? "시나리오 실행"
-                                        : "DB 테스트 케이스가 포함된 시나리오만 실행 가능"
-                                    }
-                                  >
-                                    <Play className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openPostmanExportDialog(item);
-                                    }}
-                                    disabled={
-                                      exportingId === item.id ||
-                                      !canExportRegistryScenarioPostman(item)
-                                    }
-                                    className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                                    title={
-                                      canExportRegistryScenarioPostman(item)
-                                        ? "Postman 컬렉션 다운로드"
-                                        : "DB 테스트 케이스가 포함된 시나리오만 export 가능"
-                                    }
-                                  >
-                                    <Download className="w-4 h-4" />
-                                  </button>
-                                  <ConfirmPopover
-                                    open={confirmDeleteScenarioId === item.id}
-                                    onOpenChange={(v) =>
-                                      setConfirmDeleteScenarioId(v ? item.id : null)
-                                    }
-                                    anchor={
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          remove(item.id);
-                                        }}
-                                        className="p-2 rounded-sm border border-transparent hover:bg-muted hover:border-border text-muted-foreground hover:text-destructive transition-colors"
-                                        title="삭제"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    }
-                                    title="시나리오를 삭제할까요?"
-                                    description={
-                                      <span className="line-clamp-2">{item.title}</span>
-                                    }
-                                    onCancel={() => setConfirmDeleteScenarioId(null)}
-                                    onConfirm={confirmRemoveScenario}
-                                  />
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )})
-                        )}
-                      </TableBody>
-                    </Table>
+                      <ScenarioListTable
+                        items={filtered}
+                        selectedScenarioId={selectedScenarioId}
+                        previewCollapsed={previewCollapsed}
+                        emptyCopy={scenarioListEmptyCopy}
+                        actions="full"
+                        runningId={runningId}
+                        exportingId={exportingId}
+                        confirmDeleteScenarioId={confirmDeleteScenarioId}
+                        onSelectRow={togglePreviewFor}
+                        onRegister={startCreate}
+                        onOpenHistory={() => navigate("/history")}
+                        onEdit={startEdit}
+                        onRun={openScenarioRunDialog}
+                        onExport={openPostmanExportDialog}
+                        onRequestDelete={remove}
+                        onConfirmDeleteOpenChange={(v, id) =>
+                          setConfirmDeleteScenarioId(v ? id : null)
+                        }
+                        onConfirmDelete={confirmRemoveScenario}
+                        onCancelDelete={() => setConfirmDeleteScenarioId(null)}
+                      />
                     </div>
 
                     {!previewCollapsed ? (

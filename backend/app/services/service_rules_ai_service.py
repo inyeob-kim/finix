@@ -10,6 +10,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
+from app.domain.draft_enrichment import build_draft_enrichment_hints
 from app.integrations.llm_client import LlmClient
 from app.prompts.service_rules_from_source_prompt import (
     build_repair_user_prompt,
@@ -22,6 +23,8 @@ from app.prompts.service_rules_yaml_prompt import (
     build_yaml_ai_cached_system_prompt,
 )
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
+from app.services.openapi_ingest_service import OpenApiIngestService
+from app.services.pool_service import PoolService
 from app.services.service_rules_service import ServiceRulesService, validate_and_prepare_yaml
 from app.utils.rule_input_omm_skeleton import build_input_skeleton_for_generation
 
@@ -100,10 +103,14 @@ class ServiceRulesAiService:
         llm: LlmClient,
         catalog_repo: ServiceCatalogRepository,
         rules_service: ServiceRulesService,
+        pool_service: PoolService | None = None,
+        openapi_service: OpenApiIngestService | None = None,
     ) -> None:
         self._llm = llm
         self._catalog_repo = catalog_repo
         self._rules = rules_service
+        self._pool = pool_service
+        self._openapi = openapi_service
 
     async def _generate_validated_yaml_text(
         self,
@@ -211,6 +218,8 @@ class ServiceRulesAiService:
         source_version: str | None,
         hints: str | None,
         created_by: str | None,
+        use_data_pool: bool = False,
+        use_swagger: bool = False,
     ):
         """LLM reads pasted source, emits template-shaped YAML, then validates and stores draft."""
         code = (service_code or "").strip()
@@ -227,6 +236,17 @@ class ServiceRulesAiService:
         if svc is None:
             raise EntityNotFoundError("ServiceCatalogItem", code)
 
+        enrichment = await build_draft_enrichment_hints(
+            service_code=code,
+            use_swagger=use_swagger,
+            use_data_pool=use_data_pool,
+            openapi_service=self._openapi,
+            pool_service=self._pool,
+        )
+        merged_hints = hints
+        if enrichment:
+            merged_hints = f"{(hints or '').rstrip()}\n\n{enrichment}".strip()
+
         in_dto, out_dto = _extract_dto_names(svc.raw_json)
         meta = ServiceMetaForRules(
             service_code=svc.service_code,
@@ -241,7 +261,7 @@ class ServiceRulesAiService:
         user_prompt = build_user_prompt_from_source(
             service=meta,
             source_code=raw_src,
-            hints=hints,
+            hints=merged_hints,
         )
 
         yaml_text = await self._generate_validated_yaml_text(

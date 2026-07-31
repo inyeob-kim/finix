@@ -11,6 +11,8 @@ import { Login } from "./components/Login";
 import { RequireAuth } from "./components/RequireAuth";
 import { ScenarioRegistry } from "./components/ScenarioRegistry";
 import { ManualChat } from "./components/ManualChat";
+import { DataPool } from "./components/DataPool";
+import { OpenApiImport } from "./components/OpenApiImport";
 
 export const router = createBrowserRouter([
   {
@@ -54,6 +56,26 @@ export const router = createBrowserRouter([
             <ScenarioRegistry />
           </RequireAuth>
         ),
+      },
+      {
+        path: "data-pool",
+        element: (
+          <RequireAuth>
+            <DataPool />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "openapi",
+        element: (
+          <RequireAuth>
+            <OpenApiImport />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "log-ingest",
+        element: <Navigate to="/data-pool?tab=ingest" replace />,
       },
       {
         path: "manual",

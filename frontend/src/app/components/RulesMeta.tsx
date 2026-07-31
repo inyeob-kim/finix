@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
-  Check,
   ChevronDown,
   ChevronUp,
-  Copy,
-  Download,
-  FileCode2,
   GitPullRequest,
   Layers,
   CheckCircle2,
@@ -34,19 +30,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import {
-  PAGE_SECTION_STACK_CLASS,
-} from "@/lib/finixShellLayout";
 import { PageShell } from "./PageShell";
 import { TablePagination } from "./ui/finix-pagination";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./ui/table";
+  FinixDataTable,
+  FinixDataTableBody,
+  FinixDataTableCell,
+  FinixDataTableFrame,
+  FinixDataTableHead,
+  FinixDataTableHeader,
+  FinixDataTableRow,
+  FINIX_DATA_TABLE_HUG_CLASS,
+  FINIX_DATA_TABLE_ICON_BTN_CLASS,
+  FINIX_DATA_TABLE_STACK_CLASS,
+} from "./ui/finix-data-table";
 import {
   FinixField,
   FinixUnderlineInput,
@@ -96,6 +93,14 @@ type SortKey =
   | "updated_desc"
   | "rules_desc";
 
+function statusLabelKo(status: string): string {
+  const st = (status || "draft").toLowerCase();
+  if (st === "active") return "운영";
+  if (st === "approved") return "승인됨";
+  if (st === "superseded") return "대체됨";
+  return "초안";
+}
+
 function StatusPill({ status }: { status: string }) {
   const st = (status || "draft").toLowerCase();
   if (st === "active") {
@@ -128,17 +133,43 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+const SECONDARY_BTN_CLASS =
+  "h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50";
+
+const YAML_AI_MIN_SOURCE_LENGTH = 16;
+
 function compareUpdated(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true });
+}
+
+function bundleToRegistryItem(bundle: ServiceRuleBundleReadDto): RuleRegistryItem {
+  const rulesArr =
+    bundle.rules && Array.isArray((bundle.rules as { rules?: unknown }).rules)
+      ? (bundle.rules as { rules: unknown[] }).rules
+      : null;
+  return {
+    serviceCode: bundle.service_code,
+    serviceName: bundle.service_name_snapshot ?? bundle.service_code,
+    sourceVersion: bundle.source_version ?? "—",
+    status: bundle.status,
+    rules: rulesArr?.length ?? 0,
+    bundleId: bundle.id,
+    bundleVersion: bundle.version,
+    lastUpdatedAt: "—",
+    lastUpdatedBy: bundle.created_by ?? "—",
+    isActive: bundle.is_active ?? false,
+    versionCount: 1,
+    activeBundleVersion: null,
+    draftBundleVersion: bundle.version,
+    hasApproved: false,
+  };
 }
 
 export function RulesMeta() {
   const { user } = useAuthStore();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<RuleRegistryItem | null>(null);
-  const [activeTab, setActiveTab] = useState<"yaml" | "testcases" | "meta">(
-    "yaml",
-  );
+  const [activeTab, setActiveTab] = useState<"yaml" | "testcases">("yaml");
   const [yamlText, setYamlText] = useState("");
   const [baselineYamlText, setBaselineYamlText] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -156,7 +187,6 @@ export function RulesMeta() {
   const [yamlCopyDone, setYamlCopyDone] = useState(false);
   const [yamlRuleFocusEdit, setYamlRuleFocusEdit] = useState(false);
   const [historyItem, setHistoryItem] = useState<RuleRegistryItem | null>(null);
-  const [yamlAiBannerOpen, setYamlAiBannerOpen] = useState(false);
 
   const {
     registry,
@@ -176,6 +206,9 @@ export function RulesMeta() {
   const [yamlAiSourceVersion, setYamlAiSourceVersion] = useState("");
   const [yamlAiSource, setYamlAiSource] = useState("");
   const [yamlAiHints, setYamlAiHints] = useState("");
+  const [yamlAiUseDataPool, setYamlAiUseDataPool] = useState(false);
+  const [yamlAiUseSwagger, setYamlAiUseSwagger] = useState(false);
+  const [yamlAiAdvancedOpen, setYamlAiAdvancedOpen] = useState(false);
   const [yamlAiSubmitting, setYamlAiSubmitting] = useState(false);
   const yamlAiWaitMessage = useProgressiveWaitMessage(yamlAiSubmitting);
   const [yamlAiError, setYamlAiError] = useState<string | null>(null);
@@ -490,8 +523,10 @@ export function RulesMeta() {
       setYamlAiError("서비스를 선택하세요.");
       return;
     }
-    if (src.length < 16) {
-      setYamlAiError("소스 코드는 최소 16자 이상 붙여넣어 주세요.");
+    if (src.length < YAML_AI_MIN_SOURCE_LENGTH) {
+      setYamlAiError(
+        `소스 코드는 최소 ${YAML_AI_MIN_SOURCE_LENGTH}자 이상 붙여넣어 주세요.`,
+      );
       return;
     }
     setYamlAiSubmitting(true);
@@ -502,6 +537,8 @@ export function RulesMeta() {
         source_version: yamlAiSourceVersion.trim() || null,
         hints: yamlAiHints.trim() || null,
         created_by: user?.username ?? null,
+        use_data_pool: yamlAiUseDataPool,
+        use_swagger: yamlAiUseSwagger,
       });
       await reloadRegistry();
       resetYamlAiForm();
@@ -523,6 +560,9 @@ export function RulesMeta() {
     setYamlAiSource("");
     setYamlAiHints("");
     setYamlAiSourceVersion("");
+    setYamlAiUseDataPool(false);
+    setYamlAiUseSwagger(false);
+    setYamlAiAdvancedOpen(false);
   };
 
   const closeYamlAi = (open: boolean) => {
@@ -538,70 +578,42 @@ export function RulesMeta() {
     setYamlAiSuccessBundle(null);
   };
 
+  const openYamlAiDialog = () => {
+    setYamlAiService("");
+    setYamlAiPickerKey((k) => k + 1);
+    setYamlAiAdvancedOpen(false);
+    setYamlAiOpen(true);
+    setYamlAiError(null);
+  };
+
+  const openSuccessDraft = () => {
+    const bundle = yamlAiSuccessBundle;
+    if (!bundle) return;
+    setYamlAiSuccessOpen(false);
+    setYamlAiSuccessBundle(null);
+    const row =
+      registry.find((r) => r.serviceCode === bundle.service_code) ??
+      bundleToRegistryItem(bundle);
+    void openEdit(row, bundle.id);
+  };
+
+  const yamlAiSourceLen = yamlAiSource.trim().length;
+  const yamlAiSourceReady = yamlAiSourceLen >= YAML_AI_MIN_SOURCE_LENGTH;
+
+  const selectedStatus = (selected?.status || "draft").toLowerCase();
+  const isActiveBundle = selectedStatus === "active";
+  const isDraftBundle = selectedStatus === "draft";
+
   return (
     <PageShell
       icon={<Layers className="w-5 h-5" strokeWidth={2} />}
-      title="규칙 / 메타 관리"
-      description="서비스별 규칙 번들(DB)을 조회·편집하고 드래프트 저장·승인·활성화합니다."
+      title="YAML 규칙"
+      bodyClassName="overflow-hidden flex flex-col pt-3"
     >
 
-        <div className={PAGE_SECTION_STACK_CLASS}>
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
 
-        <div className="rounded-md border border-primary/25 bg-primary/[0.06] shadow-sm overflow-hidden shrink-0">
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <div className="rounded-sm bg-primary/15 p-1.5 text-primary shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => setYamlAiBannerOpen((o) => !o)}
-            >
-              <p className="text-sm font-semibold text-foreground">
-                YAML 등록 (소스 기반 AI)
-              </p>
-              {!yamlAiBannerOpen ? (
-                <p className="text-xs text-muted-foreground truncate">
-                  소스 붙여넣기로 규칙 초안(DB 드래프트) 생성
-                </p>
-              ) : null}
-            </button>
-            <FinixPrimaryButton
-              type="button"
-              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0"
-              onClick={() => {
-                setYamlAiService("");
-                setYamlAiPickerKey((k) => k + 1);
-                setYamlAiOpen(true);
-                setYamlAiError(null);
-              }}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              소스 붙여넣기
-            </FinixPrimaryButton>
-            <button
-              type="button"
-              className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted"
-              aria-label={yamlAiBannerOpen ? "설명 접기" : "설명 펼치기"}
-              onClick={() => setYamlAiBannerOpen((o) => !o)}
-            >
-              {yamlAiBannerOpen ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-          {yamlAiBannerOpen ? (
-            <p className="px-4 pb-3 text-xs text-muted-foreground leading-relaxed border-t border-primary/15 pt-3">
-              검증·업무·기술 규칙을 담은 백엔드 소스를 붙여넣으면 YAML 템플릿에 맞춰
-              초안을 만들고 DB 드래프트로 등록합니다. Error(E)와 Normal(N) 케이스가
-              포함되어야 저장됩니다.
-            </p>
-          ) : null}
-        </div>
-
-        <div className="rounded-md border border-border bg-muted/30 px-4 py-3 space-y-3 shrink-0">
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 space-y-2 shrink-0">
           {registryError ? (
             <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2 flex flex-wrap items-center justify-between gap-2">
               <span>{registryError}</span>
@@ -625,7 +637,7 @@ export function RulesMeta() {
                   setQuery(e.target.value);
                   setPage(1);
                 }}
-                placeholder="코드, 이름, 버전, 수정자 검색"
+                placeholder="코드, 이름 검색"
                 className="h-9 pl-9 pr-9 bg-card"
               />
               {query ? (
@@ -669,7 +681,7 @@ export function RulesMeta() {
                 <option value="">전체</option>
                 <option value="active">운영</option>
                 <option value="draft">초안</option>
-                <option value="approved">Approved</option>
+                <option value="approved">승인됨</option>
               </FinixUnderlineSelect>
             </FinixField>
 
@@ -702,113 +714,108 @@ export function RulesMeta() {
                 className={`w-4 h-4 ${registryLoading ? "animate-spin" : ""}`}
               />
             </button>
+
+            <FinixPrimaryButton
+              type="button"
+              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0 mb-0.5"
+              onClick={openYamlAiDialog}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              소스에서 YAML 생성
+            </FinixPrimaryButton>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-sm overflow-hidden shadow-sm">
-          <Table>
-            <TableHeader className="bg-muted/60">
-              <TableRow className="hover:bg-transparent border-b border-border">
-                <TableHead className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                  코드
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground min-w-[140px]">
-                  버전
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground min-w-[180px]">
-                  서비스명
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground">
-                  상태
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground text-right">
-                  규칙
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground min-w-[160px]">
-                  소스 버전
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                  수정
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground min-w-[100px]">
-                  수정자
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground w-[200px] text-right">
-                  작업
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {registryLoading ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className="py-12 text-center text-muted-foreground text-sm"
-                  >
-                    <FinixLoading size="md" label="불러오는 중…" inline className="justify-center" />
-                  </TableCell>
-                </TableRow>
-              ) : pageRows.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className="py-12 text-center text-muted-foreground text-sm"
-                  >
-                    등록된 규칙 번들이 없습니다. 소스 AI로 드래프트를 만드세요.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                pageRows.map((item) => (
-                  <TableRow
-                    key={`${item.serviceCode}:${item.bundleId}`}
-                    className="border-b border-border cursor-pointer hover:bg-muted/40 transition-colors"
-                    onClick={() => void openEdit(item)}
-                  >
-                    <TableCell className="py-3 font-mono text-sm font-medium">
-                      {item.serviceCode}
-                    </TableCell>
-                    <TableCell
-                      className="py-3 text-xs text-muted-foreground font-mono"
-                      title={
-                        registryVersionHint(item) ??
-                        `편집 대상 #${item.bundleId}`
-                      }
+        <div className={FINIX_DATA_TABLE_STACK_CLASS}>
+          <div className={FINIX_DATA_TABLE_HUG_CLASS}>
+            <FinixDataTableFrame>
+              <FinixDataTable>
+              <FinixDataTableHeader>
+                <FinixDataTableRow className="hover:bg-transparent">
+                  <FinixDataTableHead className="whitespace-nowrap">
+                    코드
+                  </FinixDataTableHead>
+                  <FinixDataTableHead className="min-w-[180px]">
+                    서비스명
+                  </FinixDataTableHead>
+                  <FinixDataTableHead>
+                    상태
+                  </FinixDataTableHead>
+                  <FinixDataTableHead className="text-right">
+                    규칙
+                  </FinixDataTableHead>
+                  <FinixDataTableHead className="whitespace-nowrap">
+                    수정
+                  </FinixDataTableHead>
+                  <FinixDataTableHead className="w-[72px] text-right">
+                    이력
+                  </FinixDataTableHead>
+                </FinixDataTableRow>
+              </FinixDataTableHeader>
+              <FinixDataTableBody>
+                {registryLoading ? (
+                  <FinixDataTableRow>
+                    <FinixDataTableCell
+                      colSpan={6}
+                      className="py-12 text-center text-muted-foreground text-sm"
                     >
-                      {formatRegistryVersionSummary(item)}
-                    </TableCell>
-                    <TableCell className="py-3 text-sm">{item.serviceName}</TableCell>
-                    <TableCell className="py-3" title={registryStatusHint(item)}>
-                      <StatusPill status={item.status} />
-                    </TableCell>
-                    <TableCell className="py-3 text-right tabular-nums text-sm">
-                      {item.rules}
-                    </TableCell>
-                    <TableCell
-                      className="py-3 text-xs text-muted-foreground font-mono truncate max-w-[200px]"
-                      title={item.sourceVersion}
+                      <FinixLoading size="md" label="불러오는 중…" inline className="justify-center" />
+                    </FinixDataTableCell>
+                  </FinixDataTableRow>
+                ) : pageRows.length === 0 ? (
+                  <FinixDataTableRow>
+                    <FinixDataTableCell
+                      colSpan={6}
+                      className="py-12 text-center text-muted-foreground text-sm"
                     >
-                      {item.sourceVersion}
-                    </TableCell>
-                    <TableCell className="py-3 text-sm text-muted-foreground whitespace-nowrap">
-                      {item.lastUpdatedAt}
-                    </TableCell>
-                    <TableCell className="py-3 text-xs text-muted-foreground font-mono">
-                      {item.lastUpdatedBy}
-                    </TableCell>
-                    <TableCell className="py-3 text-right">
-                      <div className="inline-flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void openEdit(item);
-                          }}
-                          title="YAML 편집"
-                          aria-label={`${item.serviceCode} YAML 편집`}
-                          className="inline-flex items-center justify-center h-9 w-9 rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:border-primary/30 hover:text-foreground transition-colors"
-                        >
-                          <FileCode2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="flex flex-col items-center gap-3">
+                        <p>
+                          {query || statusFilter || versionFilter
+                            ? "조건에 맞는 규칙 번들이 없습니다."
+                            : "등록된 규칙 번들이 없습니다."}
+                        </p>
+                        {!query && !statusFilter && !versionFilter ? (
+                          <FinixPrimaryButton
+                            type="button"
+                            className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
+                            onClick={openYamlAiDialog}
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            소스에서 YAML 생성
+                          </FinixPrimaryButton>
+                        ) : null}
+                      </div>
+                    </FinixDataTableCell>
+                  </FinixDataTableRow>
+                ) : (
+                  pageRows.map((item) => (
+                    <FinixDataTableRow
+                      key={`${item.serviceCode}:${item.bundleId}`}
+                      interactive
+                      onClick={() => void openEdit(item)}
+                    >
+                      <FinixDataTableCell
+                        className="font-mono text-sm font-medium"
+                        title={
+                          registryVersionHint(item) ??
+                          `편집 대상 #${item.bundleId}`
+                        }
+                      >
+                        {item.serviceCode}
+                      </FinixDataTableCell>
+                      <FinixDataTableCell className="text-sm">
+                        {item.serviceName}
+                      </FinixDataTableCell>
+                      <FinixDataTableCell title={registryStatusHint(item)}>
+                        <StatusPill status={item.status} />
+                      </FinixDataTableCell>
+                      <FinixDataTableCell className="text-right tabular-nums text-sm">
+                        {item.rules}
+                      </FinixDataTableCell>
+                      <FinixDataTableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {item.lastUpdatedAt}
+                      </FinixDataTableCell>
+                      <FinixDataTableCell className="text-right">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -817,42 +824,45 @@ export function RulesMeta() {
                           }}
                           title={`버전 이력 (${item.versionCount})`}
                           aria-label={`${item.serviceCode} 버전 이력 ${item.versionCount}개`}
-                          className="inline-flex items-center justify-center h-9 w-9 rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                          className={FINIX_DATA_TABLE_ICON_BTN_CLASS}
                         >
                           <History className="w-3.5 h-3.5" />
                         </button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                      </FinixDataTableCell>
+                    </FinixDataTableRow>
+                  ))
+                )}
+              </FinixDataTableBody>
+              </FinixDataTable>
+            </FinixDataTableFrame>
 
-        <TablePagination
-          summary={
-            <>
-              표시 중{" "}
-              {filteredSorted.length === 0
-                ? 0
-                : (currentPage - 1) * pageSize + 1}
-              –
-              {Math.min(currentPage * pageSize, filteredSorted.length)} / 총{" "}
-              {filteredSorted.length}건
-            </>
-          }
-          pageSize={pageSize}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pagesToShow={pagesToShow}
-          onPageChange={setPage}
-          controlsClassName="justify-end"
-        />
+            <div className="shrink-0 pt-2">
+            <TablePagination
+              summary={
+                <>
+                  표시 중{" "}
+                  {filteredSorted.length === 0
+                    ? 0
+                    : (currentPage - 1) * pageSize + 1}
+                  –
+                  {Math.min(currentPage * pageSize, filteredSorted.length)} / 총{" "}
+                  {filteredSorted.length}건
+                </>
+              }
+              pageSize={pageSize}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pagesToShow={pagesToShow}
+              onPageChange={setPage}
+              controlsClassName="justify-end"
+            />
+            </div>
+          </div>
+        </div>
 
         </div>
 
@@ -868,7 +878,7 @@ export function RulesMeta() {
               <DialogHeader
                 className={cn(
                   "px-6 border-b border-border shrink-0 text-left",
-                  yamlRuleFocusEdit ? "pt-4 pb-3" : "pt-6 pb-4 space-y-2",
+                  yamlRuleFocusEdit ? "pt-4 pb-3" : "pt-5 pb-4 space-y-2",
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2 pr-10">
@@ -883,16 +893,38 @@ export function RulesMeta() {
                   <span className="font-mono text-sm text-muted-foreground">
                     {selected.serviceCode}
                   </span>
+                  <StatusPill status={selected.status} />
                 </div>
                 {!yamlRuleFocusEdit ? (
                   <DialogDescription asChild>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-primary hover:underline text-left"
-                      onClick={() => openHistory(selected)}
-                    >
-                      버전 이력 ({selected.versionCount}) 보기
-                    </button>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span title={registryVersionHint(selected)}>
+                        {formatRegistryVersionSummary(selected)}
+                      </span>
+                      <span className="text-border">·</span>
+                      <span className="tabular-nums">규칙 {selected.rules}건</span>
+                      {selected.sourceVersion && selected.sourceVersion !== "—" ? (
+                        <>
+                          <span className="text-border">·</span>
+                          <span
+                            className="font-mono truncate max-w-[14rem]"
+                            title={selected.sourceVersion}
+                          >
+                            소스 {selected.sourceVersion}
+                          </span>
+                        </>
+                      ) : null}
+                      <span className="text-border">·</span>
+                      <span>{selected.lastUpdatedAt}</span>
+                      <span className="text-border">·</span>
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() => openHistory(selected)}
+                      >
+                        버전 이력 ({selected.versionCount})
+                      </button>
+                    </div>
                   </DialogDescription>
                 ) : null}
               </DialogHeader>
@@ -922,17 +954,6 @@ export function RulesMeta() {
                   >
                     테스트케이스
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("meta")}
-                    className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
-                      activeTab === "meta"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    메타 요약
-                  </button>
                 </div>
               </div>
               ) : null}
@@ -946,50 +967,7 @@ export function RulesMeta() {
                     : "flex flex-col overflow-y-auto min-h-0",
                 )}
               >
-                {activeTab === "meta" ? (
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        서비스 코드
-                      </dt>
-                      <dd className="font-mono font-medium">{selected.serviceCode}</dd>
-                    </div>
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        서비스명
-                      </dt>
-                      <dd>{selected.serviceName}</dd>
-                    </div>
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        소스 버전
-                      </dt>
-                      <dd className="font-mono text-xs break-all">
-                        {selected.sourceVersion}
-                      </dd>
-                    </div>
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        규칙 수
-                      </dt>
-                      <dd className="tabular-nums font-medium">{selected.rules}</dd>
-                    </div>
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        마지막 수정
-                      </dt>
-                      <dd className="text-muted-foreground">
-                        {selected.lastUpdatedAt}
-                      </dd>
-                    </div>
-                    <div className="rounded-sm border border-border bg-muted/20 p-4 space-y-1">
-                      <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        수정자
-                      </dt>
-                      <dd className="font-mono text-xs">{selected.lastUpdatedBy}</dd>
-                    </div>
-                  </dl>
-                ) : activeTab === "testcases" ? (
+                {activeTab === "testcases" ? (
                   <RulesMetaTestCasesPanel
                     serviceCode={selected.serviceCode}
                     serviceName={selected.serviceName}
@@ -1027,74 +1005,95 @@ export function RulesMeta() {
                     selected.status,
                   );
                   const saveDisabled = saveDisabledReason != null;
-                  return (
-                    <>
-                      <RulesMetaHintButton
-                        hint={
-                          saveDisabledReason ??
-                          "현재 draft에 YAML을 덮어씁니다 (버전 번호는 유지)."
-                        }
-                      >
-                        <button
-                          type="button"
-                          className="h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-                          disabled={saveDisabled}
-                          onClick={() => void saveDraft()}
-                        >
-                          {editSaving ? "저장 중…" : "저장"}
-                        </button>
-                      </RulesMetaHintButton>
-                    </>
-                  );
-                })()}
-                {(() => {
                   const newVersionReason = getNewVersionDisabledReason(
                     editSaving,
                     editLoading,
                     selected.status,
                   );
                   const newVersionDisabled = newVersionReason != null;
+                  const lifecycleDisabled = editSaving || isActiveBundle;
+
                   return (
-                    <RulesMetaHintButton
-                      hint={
-                        newVersionReason ??
-                        "현재 YAML로 새 draft 번들(다음 버전)을 만듭니다."
-                      }
-                    >
+                    <>
                       <button
                         type="button"
-                        className="h-9 px-3 rounded-sm border border-dashed border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-                        disabled={newVersionDisabled}
-                        onClick={() => void saveNewVersion()}
+                        className={SECONDARY_BTN_CLASS}
+                        onClick={requestClosePanel}
                       >
-                        새 버전 만들기
+                        닫기
                       </button>
-                    </RulesMetaHintButton>
+
+                      {isDraftBundle ? (
+                        <RulesMetaHintButton
+                          hint={
+                            saveDisabledReason ??
+                            "현재 초안에 YAML을 덮어씁니다 (버전 번호는 유지)."
+                          }
+                        >
+                          <button
+                            type="button"
+                            className={SECONDARY_BTN_CLASS}
+                            disabled={saveDisabled}
+                            onClick={() => void saveDraft()}
+                          >
+                            {editSaving ? "저장 중…" : "저장"}
+                          </button>
+                        </RulesMetaHintButton>
+                      ) : null}
+
+                      {!isDraftBundle ? (
+                        <RulesMetaHintButton
+                          hint={
+                            newVersionReason ??
+                            "현재 YAML로 새 초안 번들(다음 버전)을 만듭니다."
+                          }
+                        >
+                          {isActiveBundle ? (
+                            <FinixPrimaryButton
+                              type="button"
+                              className="h-9 px-3 w-auto text-sm"
+                              disabled={newVersionDisabled}
+                              onClick={() => void saveNewVersion()}
+                            >
+                              새 버전 만들기
+                            </FinixPrimaryButton>
+                          ) : (
+                            <button
+                              type="button"
+                              className={SECONDARY_BTN_CLASS}
+                              disabled={newVersionDisabled}
+                              onClick={() => void saveNewVersion()}
+                            >
+                              새 버전 만들기
+                            </button>
+                          )}
+                        </RulesMetaHintButton>
+                      ) : null}
+
+                      {isDraftBundle ? (
+                        <button
+                          type="button"
+                          className={SECONDARY_BTN_CLASS}
+                          disabled={lifecycleDisabled}
+                          onClick={() => void runApprove()}
+                        >
+                          승인
+                        </button>
+                      ) : null}
+
+                      {!isActiveBundle ? (
+                        <FinixPrimaryButton
+                          type="button"
+                          className="h-9 px-3 w-auto text-sm"
+                          disabled={lifecycleDisabled}
+                          onClick={() => setActivateConfirmOpen(true)}
+                        >
+                          활성화
+                        </FinixPrimaryButton>
+                      ) : null}
+                    </>
                   );
                 })()}
-                <button
-                  type="button"
-                  className="h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-                  disabled={editSaving || selected.status === "active"}
-                  onClick={() => void runApprove()}
-                >
-                  승인
-                </button>
-                <button
-                  type="button"
-                  className="h-9 px-3 rounded-sm border border-primary/40 text-sm font-medium hover:bg-primary/10 disabled:opacity-50"
-                  disabled={editSaving || selected.status === "active"}
-                  onClick={() => setActivateConfirmOpen(true)}
-                >
-                  활성화
-                </button>
-                <button
-                  type="button"
-                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
-                  onClick={requestClosePanel}
-                >
-                  닫기
-                </button>
               </DialogFooter>
               ) : null}
             </>
@@ -1211,12 +1210,11 @@ export function RulesMeta() {
         >
           <DialogHeader className="px-6 pt-6 pb-3 border-b border-border text-left space-y-1 shrink-0">
             <DialogTitle className="text-lg font-semibold">
-              YAML 등록 — 소스 기반 AI
+              소스에서 YAML 생성
             </DialogTitle>
             <DialogDescription className="text-xs sm:text-sm text-left">
-              카탈로그에 등록된 서비스를 선택한 뒤, 컨트롤러·서비스·검증기 등 관련
-              소스를 붙여넣으세요. LLM이 템플릿 구조에 맞춘 YAML을 만든 뒤 서버에서
-              검증하고 새 드래프트 번들로 저장합니다.
+              카탈로그 서비스를 선택한 뒤 컨트롤러·서비스·검증기 소스를 붙여넣으세요.
+              LLM이 템플릿 YAML을 만들고 서버 검증 후 초안 번들로 저장합니다.
             </DialogDescription>
           </DialogHeader>
 
@@ -1260,45 +1258,140 @@ export function RulesMeta() {
                 />
               </FinixField>
 
-              <FinixField
-                label="소스 버전"
-                helperText="번들에 기록되는 문자열 (브랜치명, 커밋, 티켓 등, 선택)"
-              >
-                <FinixUnderlineInput
-                  value={yamlAiSourceVersion}
-                  onChange={(e) => setYamlAiSourceVersion(e.target.value)}
-                  disabled={yamlAiSubmitting}
-                  tabIndex={yamlAiCatalogLoading ? -1 : undefined}
-                />
-              </FinixField>
+              <div className="space-y-1.5">
+                <FinixField
+                  label="소스 코드"
+                  helperText="Java/Kotlin/Spring 등 백엔드 소스. 최대 약 12만 자."
+                >
+                  <FinixUnderlineTextarea
+                    value={yamlAiSource}
+                    onChange={(e) => setYamlAiSource(e.target.value)}
+                    rows={14}
+                    spellCheck={false}
+                    className="min-h-[220px] font-mono text-[12px]"
+                    placeholder="여기에 관련 소스를 붙여넣으세요…"
+                    disabled={yamlAiSubmitting}
+                  />
+                </FinixField>
+                <p
+                  className={cn(
+                    "text-[11px] tabular-nums",
+                    yamlAiSourceLen === 0
+                      ? "text-muted-foreground"
+                      : yamlAiSourceReady
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : "text-amber-700 dark:text-amber-400",
+                  )}
+                >
+                  {yamlAiSourceLen === 0
+                    ? `최소 ${YAML_AI_MIN_SOURCE_LENGTH}자 필요`
+                    : yamlAiSourceReady
+                      ? `${yamlAiSourceLen.toLocaleString("ko-KR")}자 · 생성 가능`
+                      : `${yamlAiSourceLen.toLocaleString("ko-KR")}자 / 최소 ${YAML_AI_MIN_SOURCE_LENGTH}자`}
+                </p>
+              </div>
 
-              <FinixField
-                label="추가 힌트 (선택)"
-                helperText="포커스할 클래스명, 엔드포인트, 에러코드 규칙 등"
-              >
-                <FinixUnderlineTextarea
-                  value={yamlAiHints}
-                  onChange={(e) => setYamlAiHints(e.target.value)}
-                  rows={2}
-                  className="min-h-[3rem]"
-                  disabled={yamlAiSubmitting}
-                />
-              </FinixField>
+              <div className="rounded-sm border border-border bg-muted/20 overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/40"
+                  onClick={() => setYamlAiAdvancedOpen((o) => !o)}
+                  aria-expanded={yamlAiAdvancedOpen}
+                >
+                  <span>고급 옵션</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                    소스 버전 · 힌트 · 플러그인
+                    {yamlAiAdvancedOpen ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </span>
+                </button>
+                {yamlAiAdvancedOpen ? (
+                  <div className="px-3 pb-3 pt-1 space-y-4 border-t border-border">
+                    <FinixField
+                      label="소스 버전"
+                      helperText="번들에 기록되는 문자열 (브랜치명, 커밋, 티켓 등, 선택)"
+                    >
+                      <FinixUnderlineInput
+                        value={yamlAiSourceVersion}
+                        onChange={(e) => setYamlAiSourceVersion(e.target.value)}
+                        disabled={yamlAiSubmitting}
+                      />
+                    </FinixField>
 
-              <FinixField
-                label="소스 코드"
-                helperText="최대 약 12만 자까지 전송됩니다. Java/Kotlin/Spring 등 백엔드 소스."
-              >
-                <FinixUnderlineTextarea
-                  value={yamlAiSource}
-                  onChange={(e) => setYamlAiSource(e.target.value)}
-                  rows={14}
-                  spellCheck={false}
-                  className="min-h-[220px] font-mono text-[12px]"
-                  placeholder="여기에 관련 소스를 붙여넣으세요…"
-                  disabled={yamlAiSubmitting}
-                />
-              </FinixField>
+                    <FinixField
+                      label="추가 힌트 (선택)"
+                      helperText="포커스할 클래스명, 엔드포인트, 에러코드 규칙 등"
+                    >
+                      <FinixUnderlineTextarea
+                        value={yamlAiHints}
+                        onChange={(e) => setYamlAiHints(e.target.value)}
+                        rows={2}
+                        className="min-h-[3rem]"
+                        disabled={yamlAiSubmitting}
+                      />
+                    </FinixField>
+
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-foreground">
+                        선택 플러그인
+                      </p>
+                      <p className="text-[11px] text-muted-foreground -mt-1">
+                        없으면 자동으로 건너뜁니다. 힌트만 주입하며 필수는 아닙니다.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={yamlAiUseDataPool}
+                            onChange={(e) =>
+                              setYamlAiUseDataPool(e.target.checked)
+                            }
+                            disabled={yamlAiSubmitting}
+                          />
+                          <span>
+                            <span className="font-medium">Data Pool 참조</span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              Happy 샘플 필드를 힌트로만 주입합니다.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={yamlAiUseSwagger}
+                            onChange={(e) =>
+                              setYamlAiUseSwagger(e.target.checked)
+                            }
+                            disabled={yamlAiSubmitting}
+                          />
+                          <span>
+                            <span className="font-medium">
+                              Swagger/OpenAPI 참조
+                            </span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              등록된 operation 힌트만 추가합니다.{" "}
+                              <a
+                                href="/openapi"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline underline-offset-2 hover:text-foreground"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                스펙 등록 (새 탭)
+                              </a>
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -1318,7 +1411,7 @@ export function RulesMeta() {
                 yamlAiSubmitting ||
                 yamlAiCatalogLoading ||
                 !yamlAiService ||
-                yamlAiSource.trim().length < 16
+                !yamlAiSourceReady
               }
               onClick={() => void submitYamlFromSource()}
             >
@@ -1327,7 +1420,7 @@ export function RulesMeta() {
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              생성 · DB 등록
+              초안 생성
             </FinixPrimaryButton>
           </DialogFooter>
         </DialogContent>
@@ -1339,11 +1432,11 @@ export function RulesMeta() {
             <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="w-6 h-6 shrink-0" />
               <DialogTitle className="text-lg font-semibold">
-                YAML 등록 완료
+                초안 등록 완료
               </DialogTitle>
             </div>
             <DialogDescription className="text-sm text-left">
-              드래프트가 성공적으로 등록되었습니다.
+              YAML 초안이 등록되었습니다. 바로 열어 검토·활성화할 수 있습니다.
             </DialogDescription>
           </DialogHeader>
           {yamlAiSuccessBundle ? (
@@ -1359,20 +1452,25 @@ export function RulesMeta() {
               </p>
               <p className="text-xs font-mono text-muted-foreground">
                 bundle #{yamlAiSuccessBundle.id} · 버전 v
-                {yamlAiSuccessBundle.version} · {yamlAiSuccessBundle.status}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                이후 승인·활성화는 규칙 목록에서 진행할 수 있습니다.
+                {yamlAiSuccessBundle.version} ·{" "}
+                {statusLabelKo(yamlAiSuccessBundle.status)}
               </p>
             </div>
           ) : null}
-          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20">
-            <FinixPrimaryButton
+          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 flex-row justify-end gap-2">
+            <button
               type="button"
-              className="h-10 px-6 w-full sm:w-auto"
+              className="h-10 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
               onClick={() => closeYamlAiSuccess(false)}
             >
-              확인
+              나중에
+            </button>
+            <FinixPrimaryButton
+              type="button"
+              className="h-10 px-6 w-auto"
+              onClick={openSuccessDraft}
+            >
+              이 초안 열기
             </FinixPrimaryButton>
           </DialogFooter>
         </DialogContent>

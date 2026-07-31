@@ -258,6 +258,8 @@ async def generate_draft_from_source(
         source_version=payload.source_version,
         hints=payload.hints,
         created_by=payload.created_by,
+        use_data_pool=payload.use_data_pool,
+        use_swagger=payload.use_swagger,
     )
     return _to_read(bundle, include_yaml=True, include_rules=True)
 

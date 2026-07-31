@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronLeft,
   Clock,
+  Database,
   FolderKanban,
   Home,
   Layers,
@@ -36,7 +37,8 @@ export function Root() {
   const navItems = [
     { icon: Home, label: "AI 시나리오 생성", path: "/" },
     { icon: FolderKanban, label: "시나리오 관리", path: "/scenario-registry" },
-    { icon: Layers, label: "규칙/메타 관리", path: "/rules" },
+    { icon: Layers, label: "YAML 규칙", path: "/rules" },
+    { icon: Database, label: "Data Pool", path: "/data-pool" },
     { icon: Clock, label: "테스트 이력", path: "/history" },
     { icon: BookOpen, label: "매뉴얼", path: "/manual" },
   ];

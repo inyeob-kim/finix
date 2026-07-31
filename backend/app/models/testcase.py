@@ -30,6 +30,11 @@ class TestCase(Base):
         ForeignKey("service_rule_bundles.id", ondelete="SET NULL"),
         nullable=True,
     )
+    pool_sample_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pool_samples.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

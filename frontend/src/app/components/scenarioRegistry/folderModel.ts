@@ -1,7 +1,7 @@
 import type { ScenarioRegistryFolder, ScenarioRegistryItem } from "./types";
 
 export type FolderOption = { id: string; label: string; depth: number };
-export type FolderSummary = { count: number; successRate: number; lastUpdated: string };
+export type FolderSummary = { count: number };
 
 export function buildFolderOptions(
   folders: ScenarioRegistryFolder[],
@@ -60,19 +60,8 @@ export function buildFolderSummary(
   const byId = new Map<string, FolderSummary>();
   folders.forEach((f) => {
     const set = descendantsOf(f.id);
-    const scenarios = items.filter((s) => set.has(s.folderId));
-    const count = scenarios.length;
-    const successRate = count
-      ? Math.round(
-          scenarios.reduce((acc, s) => acc + (s.status === "active" ? 92 : 75), 0) /
-            count,
-        )
-      : 0;
-    const lastUpdated =
-      scenarios
-        .map((s) => s.updatedAt)
-        .sort((a, b) => b.localeCompare(a))[0] ?? f.updatedAt;
-    byId.set(f.id, { count, successRate, lastUpdated });
+    const count = items.filter((s) => set.has(s.folderId)).length;
+    byId.set(f.id, { count });
   });
   return byId;
 }
