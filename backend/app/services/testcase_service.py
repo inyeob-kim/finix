@@ -224,7 +224,7 @@ class TestCaseService:
         service_code: str,
         *,
         instruction: str | None = None,
-        replace_existing: bool = True,
+        replace_existing: bool = False,
     ) -> list[TestCase]:
         """
         Create HTTP test cases for one service (no scenario), from active/file rules.
@@ -637,7 +637,7 @@ class TestCaseService:
         }
         if collection_variables:
             payload["variable"] = collection_variables
-        payload["event"] = [bxm_prerequest_collection_event()]
+        payload["event"] = [bxm_prerequest_collection_event(postman_config)]
         return payload
 
     @staticmethod

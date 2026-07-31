@@ -917,6 +917,12 @@ export function RulesMeta() {
                   <RulesMetaTestCasesPanel
                     serviceCode={selected.serviceCode}
                     serviceName={selected.serviceName}
+                    activeBundleVersion={selected.activeBundleVersion}
+                    editingDraft={
+                      (selected.status || "").toLowerCase() === "draft" ||
+                      (selected.activeBundleVersion != null &&
+                        selected.bundleVersion !== selected.activeBundleVersion)
+                    }
                     active={activeTab === "testcases"}
                     disabled={editLoading}
                   />

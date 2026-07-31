@@ -9,7 +9,7 @@ vi.mock("@/api/scenarioApi", () => ({
 }));
 
 describe("persistRegistryScenarioToDb", () => {
-  it("always sends postman start_vars with BXM channel defaults", async () => {
+  it("always sends postman header_vars with BXM channel defaults", async () => {
     await persistRegistryScenarioToDb({
       title: "테스트",
       serviceSequence: [{ code: "SVC1", name: "서비스1" }],
@@ -19,10 +19,10 @@ describe("persistRegistryScenarioToDb", () => {
     const saveCall = vi.mocked(scenarioApi.saveScenarioDefinition).mock.calls[0];
     const payload = saveCall[1];
     expect(payload.postman).toBeDefined();
-    expect(payload.postman!.start_vars.some((v) => v.key === "instCd")).toBe(
+    expect(payload.postman!.header_vars!.some((v) => v.key === "instCd")).toBe(
       true,
     );
-    expect(payload.postman!.default_headers.some((h) => h.key === "Content-Type")).toBe(
+    expect(payload.postman!.default_headers!.some((h) => h.key === "Content-Type")).toBe(
       true,
     );
   });
@@ -40,7 +40,7 @@ describe("persistRegistryScenarioToDb", () => {
 
     const payload = vi.mocked(scenarioApi.saveScenarioDefinition).mock
       .calls[0][1];
-    const instCd = payload.postman!.start_vars.find((v) => v.key === "instCd");
+    const instCd = payload.postman!.header_vars!.find((v) => v.key === "instCd");
     expect(instCd?.value).toBe("1001");
   });
 });

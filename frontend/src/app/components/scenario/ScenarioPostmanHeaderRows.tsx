@@ -40,7 +40,9 @@ export function ScenarioPostmanHeaderRows({
   return (
     <div className="space-y-2">
       <p className="text-[10px] text-muted-foreground leading-relaxed">
-        instCd·deptId 등 채널 값은 <strong>변수</strong> 탭에서 설정하세요.{" "}
+        <span className="font-mono">instCd</span>·
+        <span className="font-mono">deptId</span> 등은 위{" "}
+        <strong>헤더 변수</strong>에서 설정하세요.{" "}
         <span className="font-mono">x-bxm-systemheader</span>는 자동 생성됩니다.
       </p>
       {!hideHeader ? (
@@ -88,7 +90,7 @@ export function ScenarioPostmanHeaderRows({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
             {reserved ? (
-              <span className="sr-only">채널 헤더는 변수 탭 사용</span>
+              <span className="sr-only">헤더 변수 섹션에서 설정</span>
             ) : null}
           </div>
         );

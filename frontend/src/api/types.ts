@@ -29,10 +29,21 @@ export interface ScenarioStepDto {
 
 export interface PostmanCollectionConfigDto {
   base_url?: string;
+  header_vars?: Array<{
+    key: string;
+    value?: string;
+    description?: string | null;
+    generator?: string | null;
+  }>;
   start_vars?: Array<{
     key: string;
     value?: string;
     description?: string | null;
+    generator?: string | null;
+  }>;
+  default_headers?: Array<{
+    key: string;
+    value?: string;
   }>;
 }
 

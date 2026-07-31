@@ -1,4 +1,5 @@
 import type { StepBindingsByStepKey } from "@/lib/scenarioBindings";
+import { resolveCollectionVarValue } from "@/lib/collectionVarGenerators";
 import {
   defaultPostmanHeaderRows,
   ensureDefaultHeaders,
@@ -21,10 +22,15 @@ export type PostmanStartVar = {
   key: string;
   value: string;
   description?: string;
+  /** Built-in generator id; when set, Live/export resolves instead of using value. */
+  generator?: string | null;
 };
 
 export type ScenarioPostmanConfig = {
   baseUrl: string;
+  /** BXM channel fields for x-bxm-systemheader only. */
+  headerVars: PostmanStartVar[];
+  /** Scenario-global collection variables (may reuse header key names). */
   startVars: PostmanStartVar[];
   defaultHeaders: PostmanHeaderRow[];
 };
@@ -42,7 +48,7 @@ export type PostmanVariablePreviewRow = {
   hint?: string;
 };
 
-/** Platform collection variables (UI channel keys + hidden lngCd). */
+/** Platform header variables (UI channel keys + hidden lngCd). */
 const BXM_PLATFORM_VAR_DEFAULTS: ReadonlyArray<{ key: string; value: string }> = [
   { key: "instCd", value: "1001" },
   { key: "chnlDscd", value: "01" },
@@ -57,7 +63,7 @@ const BXM_PLATFORM_VAR_DEFAULTS: ReadonlyArray<{ key: string; value: string }> =
 
 const LEGACY_STAFF_ID_DEFAULT = "1000013";
 
-/** Channel fields shown in collection settings UI. */
+/** Channel fields shown in header-variable settings UI. */
 export const BXM_CHANNEL_VAR_KEYS = [
   "instCd",
   "chnlDscd",
@@ -73,7 +79,7 @@ const BXM_VAR_KEY_SET = new Set(
   BXM_PLATFORM_VAR_DEFAULTS.map((row) => row.key),
 );
 
-/** Header keys that belong in collection variables, not default_headers. */
+/** Header keys that belong in header_vars, not default_headers. */
 export const BXM_RESERVED_HEADER_KEYS = new Set<string>([
   ...BXM_CHANNEL_VAR_KEYS,
   "lngCd",
@@ -91,7 +97,7 @@ export function isBxmReservedHeaderKey(key: string): boolean {
   return BXM_RESERVED_HEADER_KEYS.has(key.trim());
 }
 
-export function defaultBxmStartVarRows(): PostmanStartVar[] {
+export function defaultBxmHeaderVarRows(): PostmanStartVar[] {
   const today = fccTxDateToday();
   return BXM_PLATFORM_VAR_DEFAULTS.map((row) =>
     newStartVarFromTemplate(
@@ -101,23 +107,23 @@ export function defaultBxmStartVarRows(): PostmanStartVar[] {
   );
 }
 
-/** Ensure BXMC channel collection variables exist (user values win). */
-export function ensureBxmStartVars(
-  startVars: PostmanStartVar[] | undefined,
+/** @deprecated Use defaultBxmHeaderVarRows */
+export function defaultBxmStartVarRows(): PostmanStartVar[] {
+  return defaultBxmHeaderVarRows();
+}
+
+/** Ensure BXM header variables exist (user values win). */
+export function ensureBxmHeaderVars(
+  headerVars: PostmanStartVar[] | undefined,
 ): PostmanStartVar[] {
   const byKey = new Map<string, PostmanStartVar>();
-  for (const row of defaultBxmStartVarRows()) {
+  for (const row of defaultBxmHeaderVarRows()) {
     byKey.set(row.key, row);
   }
-  const customExtras: PostmanStartVar[] = [];
-  for (const row of startVars ?? []) {
+  for (const row of headerVars ?? []) {
     const k = row.key.trim();
-    if (!k) continue;
-    if (BXM_VAR_KEY_SET.has(k)) {
-      byKey.set(k, { ...row, key: k });
-    } else {
-      customExtras.push({ ...row, key: k });
-    }
+    if (!k || !BXM_VAR_KEY_SET.has(k)) continue;
+    byKey.set(k, { ...row, key: k });
   }
   const staff = byKey.get("staffId");
   if (staff?.value.trim() === LEGACY_STAFF_ID_DEFAULT) {
@@ -127,15 +133,43 @@ export function ensureBxmStartVars(
   if (tx && !tx.value.trim()) {
     byKey.set("txDt", { ...tx, value: fccTxDateToday() });
   }
-  const bxmOrdered = BXM_PLATFORM_VAR_DEFAULTS.map((row) => byKey.get(row.key)!);
-  const seenCustom = new Set<string>();
-  const customs: PostmanStartVar[] = [];
-  for (const row of customExtras) {
-    if (seenCustom.has(row.key)) continue;
-    seenCustom.add(row.key);
-    customs.push(row);
+  return BXM_PLATFORM_VAR_DEFAULTS.map((row) => byKey.get(row.key)!);
+}
+
+/** @deprecated Use ensureBxmHeaderVars — no longer merges collection vars. */
+export function ensureBxmStartVars(
+  startVars: PostmanStartVar[] | undefined,
+): PostmanStartVar[] {
+  const headerFromLegacy = (startVars ?? []).filter((row) =>
+    BXM_VAR_KEY_SET.has(row.key.trim()),
+  );
+  const customs = (startVars ?? []).filter(
+    (row) => row.key.trim() && !BXM_VAR_KEY_SET.has(row.key.trim()),
+  );
+  return [...ensureBxmHeaderVars(headerFromLegacy), ...customs];
+}
+
+function splitLegacyFlatStartVars(startVars: PostmanStartVar[]): {
+  headerVars: PostmanStartVar[];
+  startVars: PostmanStartVar[];
+} {
+  const headerSource: PostmanStartVar[] = [];
+  const collection: PostmanStartVar[] = [];
+  const seenCollection = new Set<string>();
+  for (const row of startVars) {
+    const k = row.key.trim();
+    if (!k) continue;
+    if (BXM_VAR_KEY_SET.has(k)) {
+      headerSource.push({ ...row, key: k });
+    } else if (!seenCollection.has(k)) {
+      seenCollection.add(k);
+      collection.push({ ...row, key: k });
+    }
   }
-  return [...bxmOrdered, ...customs];
+  return {
+    headerVars: ensureBxmHeaderVars(headerSource),
+    startVars: collection,
+  };
 }
 
 export type PostmanConfigNormalizeResult = {
@@ -143,11 +177,23 @@ export type PostmanConfigNormalizeResult = {
   migratedHeaderCount: number;
 };
 
-/** Strip BXM channel keys from headers; migrate literal values into start_vars. */
+/** Strip BXM channel keys from headers; migrate literal values into header_vars. */
 export function normalizePostmanConfigWithMeta(
   config: ScenarioPostmanConfig,
 ): PostmanConfigNormalizeResult {
-  let startVars = [...config.startVars];
+  const startHasBxm = (config.startVars ?? []).some((row) =>
+    BXM_VAR_KEY_SET.has(row.key.trim()),
+  );
+  const hasExplicitHeaderVars = (config.headerVars?.length ?? 0) > 0;
+  const useLegacySplit = !hasExplicitHeaderVars && startHasBxm;
+
+  let headerVars = useLegacySplit
+    ? splitLegacyFlatStartVars(config.startVars).headerVars
+    : ensureBxmHeaderVars(config.headerVars);
+  let startVars = useLegacySplit
+    ? splitLegacyFlatStartVars(config.startVars).startVars
+    : dedupeStartVars(config.startVars ?? []);
+
   const headers = config.defaultHeaders ?? [];
   const reservedHeaders = headers.filter((h) =>
     isBxmReservedHeaderKey(h.key.trim()),
@@ -157,15 +203,12 @@ export function normalizePostmanConfigWithMeta(
     const k = h.key.trim();
     const v = h.value.trim();
     if (!v || isPostmanPlaceholderValue(v)) continue;
-    const idx = startVars.findIndex((r) => r.key.trim() === k);
-    if (idx >= 0) {
-      startVars = startVars.map((row, i) =>
-        i === idx ? { ...row, value: v } : row,
-      );
-    }
+    headerVars = headerVars.map((row) =>
+      row.key.trim() === k ? { ...row, value: v } : row,
+    );
   }
 
-  startVars = ensureBxmStartVars(startVars);
+  headerVars = ensureBxmHeaderVars(headerVars);
 
   let cleanHeaders = headers.filter(
     (h) => !isBxmReservedHeaderKey(h.key.trim()),
@@ -187,11 +230,24 @@ export function normalizePostmanConfigWithMeta(
   return {
     config: {
       ...config,
+      headerVars,
       startVars,
       defaultHeaders: cleanHeaders,
     },
     migratedHeaderCount: reservedHeaders.length,
   };
+}
+
+function dedupeStartVars(rows: PostmanStartVar[]): PostmanStartVar[] {
+  const seen = new Set<string>();
+  const out: PostmanStartVar[] = [];
+  for (const row of rows) {
+    const k = row.key.trim();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ ...row, key: k });
+  }
+  return out;
 }
 
 export function normalizePostmanConfig(
@@ -205,7 +261,7 @@ export function splitStartVarsForUi(config: ScenarioPostmanConfig): {
   customVars: PostmanStartVar[];
 } {
   const byKey = new Map(
-    config.startVars.map((row) => [row.key.trim(), row] as const),
+    (config.headerVars ?? []).map((row) => [row.key.trim(), row] as const),
   );
   const channelVars = BXM_CHANNEL_VAR_KEYS.map((key) => {
     const row = byKey.get(key);
@@ -216,10 +272,26 @@ export function splitStartVarsForUi(config: ScenarioPostmanConfig): {
     const template = BXM_PLATFORM_VAR_DEFAULTS.find((r) => r.key === key);
     return newStartVarFromTemplate(key, template?.value ?? "");
   });
-  const customVars = config.startVars.filter(
-    (row) => row.key.trim() && !BXM_VAR_KEY_SET.has(row.key.trim()),
-  );
-  return { channelVars, customVars };
+  return {
+    channelVars,
+    customVars: dedupeStartVars(config.startVars ?? []),
+  };
+}
+
+export function updateHeaderVarValue(
+  config: ScenarioPostmanConfig,
+  varKey: string,
+  value: string,
+): ScenarioPostmanConfig {
+  const k = varKey.trim();
+  return {
+    ...config,
+    headerVars: ensureBxmHeaderVars(
+      (config.headerVars ?? []).map((row) =>
+        row.key.trim() === k ? { ...row, value } : row,
+      ),
+    ),
+  };
 }
 
 export function updateStartVarValue(
@@ -240,20 +312,25 @@ export function replaceCustomStartVars(
   config: ScenarioPostmanConfig,
   customVars: PostmanStartVar[],
 ): ScenarioPostmanConfig {
-  const platformVars = ensureBxmStartVars(
-    config.startVars.filter((row) => BXM_VAR_KEY_SET.has(row.key.trim())),
-  ).filter((row) => BXM_VAR_KEY_SET.has(row.key.trim()));
   return {
     ...config,
-    startVars: [...platformVars, ...customVars],
+    headerVars: ensureBxmHeaderVars(config.headerVars),
+    startVars: dedupeStartVars(customVars),
   };
 }
 
 export function emptyPostmanConfig(): ScenarioPostmanConfig {
   return {
     baseUrl: "",
-    startVars: defaultBxmStartVarRows(),
-    defaultHeaders: [{ id: crypto.randomUUID(), key: "Content-Type", value: "application/json" }],
+    headerVars: defaultBxmHeaderVarRows(),
+    startVars: [],
+    defaultHeaders: [
+      {
+        id: crypto.randomUUID(),
+        key: "Content-Type",
+        value: "application/json",
+      },
+    ],
   };
 }
 
@@ -265,7 +342,8 @@ export function ensurePostmanConfig(
   if (!config) return base;
   return normalizePostmanConfig({
     baseUrl: config.baseUrl ?? base.baseUrl,
-    startVars: ensureBxmStartVars(config.startVars ?? base.startVars),
+    headerVars: config.headerVars ?? [],
+    startVars: config.startVars ?? [],
     defaultHeaders: migrateLegacyPostmanHeaders(
       ensureDefaultHeaders(config.defaultHeaders),
     ),
@@ -275,7 +353,11 @@ export function ensurePostmanConfig(
 /** True when postman block should be written to scenario steps_json envelope. */
 export function hasPersistablePostmanConfig(config: ScenarioPostmanConfig): boolean {
   const postman = postmanConfigToApi(config);
-  return postman.start_vars.length > 0 || postman.default_headers.length > 0;
+  return (
+    postman.header_vars.length > 0 ||
+    postman.start_vars.length > 0 ||
+    postman.default_headers.length > 0
+  );
 }
 
 export function startVarKeysFromConfig(config: ScenarioPostmanConfig): string[] {
@@ -290,6 +372,48 @@ export function startVarKeysFromConfig(config: ScenarioPostmanConfig): string[] 
   return out;
 }
 
+/** Collection vars shown on Input body chips (includes keys that also exist as header vars). */
+export function startVarKeysForBodyChips(config: ScenarioPostmanConfig): string[] {
+  return startVarKeysFromConfig(config);
+}
+
+/** Add or update a collection variable (header key names allowed). */
+export function upsertCustomStartVar(
+  config: ScenarioPostmanConfig,
+  key: string,
+  valueOrOpts: string | { value?: string; generator?: string | null } = "",
+): ScenarioPostmanConfig {
+  const k = key.trim();
+  if (!k) return config;
+  const opts =
+    typeof valueOrOpts === "string"
+      ? { value: valueOrOpts, generator: null as string | null }
+      : valueOrOpts;
+  const generator = (opts.generator ?? "").trim() || null;
+  const value = generator ? "" : (opts.value ?? "").trim();
+  if (!generator && !value) return config;
+
+  const customVars = splitStartVarsForUi(config).customVars;
+  const idx = customVars.findIndex((r) => r.key.trim() === k);
+  const nextRow: PostmanStartVar =
+    idx >= 0
+      ? {
+          ...customVars[idx]!,
+          key: k,
+          value: generator ? "" : value || customVars[idx]!.value,
+          generator,
+        }
+      : {
+          ...newStartVarFromTemplate(k, value),
+          generator,
+        };
+  const nextCustom =
+    idx >= 0
+      ? customVars.map((r, i) => (i === idx ? nextRow : r))
+      : [...customVars, nextRow];
+  return replaceCustomStartVars(config, nextCustom);
+}
+
 export function startVarContextFromConfig(
   config: ScenarioPostmanConfig,
 ): Record<string, string> {
@@ -297,7 +421,7 @@ export function startVarContextFromConfig(
   for (const row of config.startVars) {
     const k = row.key.trim();
     if (!k) continue;
-    out[k] = row.value;
+    out[k] = resolveCollectionVarValue(row);
   }
   return out;
 }
@@ -309,8 +433,14 @@ export function newStartVar(): PostmanStartVar {
 export function newStartVarFromTemplate(
   key: string,
   value = "",
+  generator: string | null = null,
 ): PostmanStartVar {
-  return { id: crypto.randomUUID(), key: key.trim(), value };
+  return {
+    id: crypto.randomUUID(),
+    key: key.trim(),
+    value: generator ? "" : value,
+    generator,
+  };
 }
 
 /** One-line label for summary chips (e.g. ``custId, token 외 2개``). */
@@ -325,13 +455,25 @@ export function collectionVarsSummaryText(
   return `${shown} 외 ${keys.length - maxNames}개`;
 }
 
+export function removeCustomStartVar(
+  config: ScenarioPostmanConfig,
+  key: string,
+): ScenarioPostmanConfig {
+  const k = key.trim();
+  if (!k) return config;
+  return replaceCustomStartVars(
+    config,
+    splitStartVarsForUi(config).customVars.filter((r) => r.key.trim() !== k),
+  );
+}
+
 export function appendStartVarIfMissing(
   config: ScenarioPostmanConfig,
   key: string,
   value = "",
 ): ScenarioPostmanConfig {
   const k = key.trim();
-  if (!k || isBxmPlatformVarKey(k)) return config;
+  if (!k) return config;
   const exists = config.startVars.some((r) => r.key.trim() === k);
   if (exists) return config;
   return replaceCustomStartVars(config, [
@@ -392,9 +534,11 @@ export function buildPostmanVariablePreview(
     if (!key) continue;
     add({
       key,
-      value: sv.value,
+      value: resolveCollectionVarValue(sv),
       kind: "start",
-      hint: sv.description?.trim() || "실행 전 값",
+      hint:
+        sv.description?.trim() ||
+        (sv.generator ? `동적 · ${sv.generator}` : "실행 전 값"),
     });
   }
 
@@ -412,19 +556,39 @@ export function buildPostmanVariablePreview(
 
 export function postmanConfigToApi(config: ScenarioPostmanConfig): {
   base_url: string;
-  start_vars: Array<{ key: string; value: string; description?: string }>;
+  header_vars: Array<{
+    key: string;
+    value: string;
+    description?: string;
+    generator?: string;
+  }>;
+  start_vars: Array<{
+    key: string;
+    value: string;
+    description?: string;
+    generator?: string;
+  }>;
   default_headers: Array<{ key: string; value: string }>;
 } {
   const normalized = normalizePostmanConfig(config);
+  const toRows = (rows: PostmanStartVar[]) =>
+    rows
+      .map((r) => {
+        const generator = (r.generator ?? "").trim() || undefined;
+        return {
+          key: r.key.trim(),
+          value: generator ? "" : r.value,
+          description: r.description?.trim() || undefined,
+          generator,
+        };
+      })
+      .filter((r) => r.key.length > 0);
   return {
     base_url: normalized.baseUrl.trim(),
-    start_vars: normalized.startVars
-      .map((r) => ({
-        key: r.key.trim(),
-        value: r.value,
-        description: r.description?.trim() || undefined,
-      }))
-      .filter((r) => r.key.length > 0),
+    header_vars: toRows(normalized.headerVars).map(
+      ({ generator: _g, ...rest }) => rest,
+    ),
+    start_vars: toRows(normalized.startVars),
     default_headers: refreshTxDtHeader(normalized.defaultHeaders)
       .map((r) => ({
         key: r.key.trim(),
@@ -436,10 +600,36 @@ export function postmanConfigToApi(config: ScenarioPostmanConfig): {
 
 export function postmanConfigFromApi(raw: {
   base_url?: string;
-  start_vars?: Array<{ key: string; value?: string; description?: string | null }>;
+  header_vars?: Array<{
+    key: string;
+    value?: string;
+    description?: string | null;
+    generator?: string | null;
+  }>;
+  start_vars?: Array<{
+    key: string;
+    value?: string;
+    description?: string | null;
+    generator?: string | null;
+  }>;
   default_headers?: Array<{ key: string; value?: string }>;
 } | null | undefined): ScenarioPostmanConfig {
   if (!raw) return emptyPostmanConfig();
+  const mapRows = (
+    rows: Array<{
+      key: string;
+      value?: string;
+      description?: string | null;
+      generator?: string | null;
+    }>,
+  ) =>
+    rows.map((r) => ({
+      id: crypto.randomUUID(),
+      key: r.key,
+      value: r.value ?? "",
+      description: r.description?.trim() || undefined,
+      generator: (r.generator ?? "").trim() || null,
+    }));
   const headerRows = (raw.default_headers ?? []).map((r) => ({
     id: crypto.randomUUID(),
     key: r.key,
@@ -447,14 +637,8 @@ export function postmanConfigFromApi(raw: {
   }));
   return normalizePostmanConfig({
     baseUrl: raw.base_url?.trim() ?? "",
-    startVars: ensureBxmStartVars(
-      (raw.start_vars ?? []).map((r) => ({
-        id: crypto.randomUUID(),
-        key: r.key,
-        value: r.value ?? "",
-        description: r.description?.trim() || undefined,
-      })),
-    ),
+    headerVars: mapRows(raw.header_vars ?? []),
+    startVars: mapRows(raw.start_vars ?? []),
     defaultHeaders: ensureDefaultHeaders(headerRows),
   });
 }

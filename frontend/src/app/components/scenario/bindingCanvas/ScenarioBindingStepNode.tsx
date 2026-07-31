@@ -1,4 +1,3 @@
-import { FileText } from "lucide-react";
 import {
   FinixFlowPill,
   FinixFlowStepCard,
@@ -12,8 +11,6 @@ type Props = {
   onSelect?: () => void;
   onOpenCollectionVars?: () => void;
   onOpenOverrides?: () => void;
-  onAddLinkFrom?: () => void;
-  onAddLinkTo?: () => void;
 };
 
 export function ScenarioBindingStepNode({
@@ -22,8 +19,6 @@ export function ScenarioBindingStepNode({
   onSelect,
   onOpenCollectionVars,
   onOpenOverrides,
-  onAddLinkFrom,
-  onAddLinkTo,
 }: Props) {
   if (node.kind === "start") {
     return (
@@ -42,15 +37,6 @@ export function ScenarioBindingStepNode({
         </button>
         {node.subtitle ? (
           <p className="text-[10px] text-muted-foreground">{node.subtitle}</p>
-        ) : null}
-        {onAddLinkFrom ? (
-          <button
-            type="button"
-            onClick={onAddLinkFrom}
-            className="text-[10px] text-primary hover:underline"
-          >
-            여기서 연결
-          </button>
         ) : null}
       </div>
     );
@@ -103,30 +89,8 @@ export function ScenarioBindingStepNode({
           className="w-full min-w-0 max-w-none"
         />
       </button>
-      <div className="mt-1 flex flex-wrap items-center gap-2 px-0.5">
-        {onAddLinkTo ? (
-          <button
-            type="button"
-            onClick={onAddLinkTo}
-            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary"
-            title="이 스텝으로 inject"
-          >
-            <span className="size-1.5 rounded-full bg-primary/60" />
-            입력 연결
-          </button>
-        ) : null}
-        {onAddLinkFrom ? (
-          <button
-            type="button"
-            onClick={onAddLinkFrom}
-            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary"
-            title="이 스텝에서 extract"
-          >
-            <FileText className="size-2.5" />
-            출력 연결
-          </button>
-        ) : null}
-        {(node.overrideCount ?? 0) > 0 && onOpenOverrides ? (
+      {(node.overrideCount ?? 0) > 0 && onOpenOverrides ? (
+        <div className="mt-1 flex justify-end px-0.5">
           <button
             type="button"
             onClick={onOpenOverrides}
@@ -134,8 +98,8 @@ export function ScenarioBindingStepNode({
           >
             고정값 {node.overrideCount}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

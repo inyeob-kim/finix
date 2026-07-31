@@ -21,6 +21,10 @@ type Props = {
   /** Connected path → registered variable name (extract). */
   connectedVarByPath?: Record<string, string>;
   onRenameVar?: (path: string, currentVar: string) => void;
+  /** Badge on active chips (default: 연결됨). */
+  activeBadge?: string;
+  /** Title when chip is active and can disconnect. */
+  activeTitle?: string;
 };
 
 export function PathPickerChips({
@@ -37,6 +41,8 @@ export function PathPickerChips({
   showPathTooltip = false,
   connectedVarByPath,
   onRenameVar,
+  activeBadge = "연결됨",
+  activeTitle = "다시 클릭하면 연결 해제",
 }: Props) {
   const allPaths = data ? collectDotPaths(data) : [];
   const pathCompare = (a: string, b: string) =>
@@ -116,7 +122,7 @@ export function PathPickerChips({
         }}
         title={
           isConnected && onDisconnect
-            ? `${chipLabel} — 다시 클릭하면 연결 해제`
+            ? `${chipLabel} — ${activeTitle}`
             : showPathTooltip
               ? p
               : chipLabel
@@ -128,7 +134,7 @@ export function PathPickerChips({
         {chipLabel}
         {isConnected ? (
           <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-sans">
-            연결됨
+            {activeBadge}
           </span>
         ) : null}
       </button>

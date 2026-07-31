@@ -14,7 +14,7 @@ router = APIRouter(prefix="/services")
 
 class MaterializePoolRequest(BaseModel):
     instruction: str | None = Field(default=None, max_length=2000)
-    replace_existing: bool = True
+    replace_existing: bool = False
 
 
 @router.post(

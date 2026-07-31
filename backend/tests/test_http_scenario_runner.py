@@ -38,9 +38,17 @@ def test_initial_context_from_postman():
     )
     ctx = initial_context_from_postman(cfg)
     assert ctx["custId"] == "C-1"
-    assert ctx["instCd"] == "1001"
-    assert ctx["chnlDscd"] == "01"
+    assert "instCd" not in ctx
     assert initial_context_from_postman(None) == {}
+
+
+def test_initial_context_allows_collection_txDt_separate_from_header():
+    cfg = PostmanCollectionConfig(
+        header_vars=[PostmanStartVarSpec(key="txDt", value="20260101")],
+        start_vars=[PostmanStartVarSpec(key="txDt", value="20991231")],
+    )
+    ctx = initial_context_from_postman(cfg)
+    assert ctx["txDt"] == "20991231"
 
 
 def test_join_base_url_and_endpoint():

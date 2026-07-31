@@ -16,6 +16,7 @@ import {
 } from "@/lib/scenarioConnectionUx";
 import {
   runStepCaseIdLabel,
+  runStepShortDescription,
   type ScenarioRunStep,
 } from "@/lib/scenarioRunSequence";
 
@@ -96,8 +97,13 @@ export function buildBindingCanvasGraph(
     nodes.push({
       id: bindingCanvasStepNodeId(stepIndex),
       kind: "step",
-      label: step.title,
-      subtitle: runStepCaseIdLabel(step),
+      // Header: short case id (avoids truncating long titles on the blue bar).
+      label: runStepCaseIdLabel(step),
+      // Body: human-readable test title.
+      subtitle:
+        runStepShortDescription(step) ||
+        step.title?.trim() ||
+        step.serviceCode,
       stepIndex,
       stepKey: step.stepKey,
       overrideCount,

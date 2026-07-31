@@ -68,6 +68,9 @@ export function ScenarioListTable({
       <FinixDataTableHeader>
         <FinixDataTableRow className="hover:bg-transparent">
           <FinixDataTableHead className="min-w-[220px]">시나리오</FinixDataTableHead>
+          <FinixDataTableHead className="w-[100px] whitespace-nowrap">
+            테스트케이스
+          </FinixDataTableHead>
           <FinixDataTableHead>태그</FinixDataTableHead>
           <FinixDataTableHead>수정</FinixDataTableHead>
           <FinixDataTableHead>수정자</FinixDataTableHead>
@@ -84,7 +87,7 @@ export function ScenarioListTable({
         {items.length === 0 ? (
           <FinixDataTableRow>
             <FinixDataTableCell
-              colSpan={5}
+              colSpan={6}
               className="py-12 text-center text-muted-foreground text-sm"
             >
               <div className="max-w-lg mx-auto space-y-4">
@@ -128,13 +131,15 @@ export function ScenarioListTable({
                 <FinixDataTableCell className="align-top whitespace-normal">
                   <div className="min-w-0">
                     <p className="text-sm font-medium leading-snug">{item.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-normal">
-                      {item.description || "—"}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
-                      테스트 케이스 {tcCount}개
-                    </p>
+                    {item.description?.trim() ? (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-normal">
+                        {item.description}
+                      </p>
+                    ) : null}
                   </div>
+                </FinixDataTableCell>
+                <FinixDataTableCell className="align-top text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                  {tcCount}개
                 </FinixDataTableCell>
                 <FinixDataTableCell className="align-top text-xs text-muted-foreground">
                   {item.tags.slice(0, 2).join(", ") || "—"}

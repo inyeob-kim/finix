@@ -9,7 +9,8 @@ from urllib.parse import urljoin
 import httpx
 
 from app.domain.postman_collection_config import PostmanCollectionConfig
-from app.domain.postman_bxm_system_header import ensure_bxm_start_vars
+from app.domain.postman_bxm_system_header import collection_start_vars
+from app.domain.collection_var_generators import resolve_start_var_value
 from app.domain.step_http_result import StepHttpResult
 from app.models.testcase import TestCase
 
@@ -19,14 +20,18 @@ DEFAULT_TIMEOUT_SEC = 30.0
 def initial_context_from_postman(
     config: PostmanCollectionConfig | None,
 ) -> dict[str, Any]:
-    """Seed scenario runtime context from Postman collection start variables."""
+    """Seed scenario runtime context from collection variables (not header vars)."""
     ctx: dict[str, Any] = {}
     if config is None:
         return ctx
-    for row in ensure_bxm_start_vars(config):
+    for row in collection_start_vars(config):
         key = row.key.strip()
-        if key:
-            ctx[key] = row.value
+        if not key:
+            continue
+        ctx[key] = resolve_start_var_value(
+            value=row.value,
+            generator=row.generator,
+        )
     return ctx
 
 

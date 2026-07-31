@@ -51,7 +51,10 @@ type FinixFlowStepCardProps = {
   className?: string;
 };
 
-/** Compact step node used on flow canvases. */
+/**
+ * Compact step node used on flow canvases.
+ * Header: short id (case_id). Body: readable title / meta (wraps).
+ */
 export function FinixFlowStepCard({
   order,
   title,
@@ -77,7 +80,7 @@ export function FinixFlowStepCard({
       </div>
       <div className="space-y-1 bg-card px-2 py-1.5">
         {subtitle ? (
-          <p className="truncate font-mono text-[10px] text-muted-foreground">
+          <p className="text-[11px] font-medium leading-snug text-foreground line-clamp-3">
             {subtitle}
           </p>
         ) : null}
@@ -91,11 +94,7 @@ export function FinixFlowStepCard({
           >
             {status === "passed" ? "PASS" : "FAIL"}
           </div>
-        ) : (
-          <div className="rounded-sm bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            STEP
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

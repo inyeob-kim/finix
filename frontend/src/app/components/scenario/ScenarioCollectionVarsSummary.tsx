@@ -21,7 +21,7 @@ export function ScenarioCollectionVarsSummary({ config, onManage }: Props) {
     >
       <Settings2 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
       <span className="text-xs font-medium text-foreground flex-1 min-w-0">
-        컬렉션 설정
+        헤더 설정
       </span>
       <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
         설정

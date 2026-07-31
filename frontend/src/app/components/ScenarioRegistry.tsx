@@ -1692,6 +1692,7 @@ export function ScenarioRegistry() {
                   bindings={stepBindingsByStepKey}
                   onBindingsChange={setStepBindingsByStepKey}
                   postmanConfig={postmanConfig}
+                  onPostmanConfigChange={setPostmanConfig}
                   onOpenCollectionVars={() => setCollectionVarsOpen(true)}
                 />
               </div>
@@ -1785,12 +1786,7 @@ export function ScenarioRegistry() {
                     onClick={() => setCollectionVarsOpen(true)}
                   >
                     <Variable className="w-4 h-4" />
-                    컬렉션 설정
-                    {startVarKeysFromConfig(postmanConfig).length > 0 ? (
-                      <span className="text-[10px] tabular-nums text-primary">
-                        ({startVarKeysFromConfig(postmanConfig).length})
-                      </span>
-                    ) : null}
+                    헤더 설정
                   </button>
                   {wizardRunSteps.length >= 2 ? (
                     <button

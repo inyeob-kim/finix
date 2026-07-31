@@ -34,6 +34,23 @@ describe("scenarioBindingCanvas", () => {
     expect(edges).toHaveLength(0);
   });
 
+  it("puts case id on header and readable title in body", () => {
+    const named: ScenarioRunStep[] = [
+      {
+        stepKey: "a",
+        order: 1,
+        serviceCode: "PY027",
+        serviceName: "지급",
+        ruleId: "PY027-E-001",
+        title: "[E] PY027-E-001 · AAPCME0006 · pymntDt 누락",
+      },
+    ];
+    const { nodes } = buildBindingCanvasGraph(named, {}, []);
+    const stepNode = nodes.find((n) => n.kind === "step");
+    expect(stepNode?.label).toBe("PY027-E-001");
+    expect(stepNode?.subtitle).toContain("pymntDt");
+  });
+
   it("maps startVar inject as edge from Start", () => {
     const bindings: StepBindingsByStepKey = {
       b: {

@@ -37,7 +37,7 @@ export async function materializeTestCasesForService(
       method: "POST",
       body: JSON.stringify({
         instruction: payload?.instruction ?? null,
-        replace_existing: payload?.replace_existing ?? true,
+        replace_existing: payload?.replace_existing ?? false,
       }),
     },
   );

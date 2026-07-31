@@ -154,47 +154,53 @@ export function ScenarioBindingLinkDrawer({
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <FinixField label="출처">
-          <FinixUnderlineSelect
-            value={String(fromStepIndex)}
-            onChange={(e) => {
-              setFromStepIndex(Number(e.target.value));
-              setResponsePath("");
-              setVarName("");
-            }}
-          >
-            {startVarKeys.length > 0 ? (
-              <option value={START_VAR_STEP_INDEX}>Start (컬렉션 변수)</option>
-            ) : null}
-            {runSteps.map((s, i) => (
-              <option key={s.stepKey} value={i} disabled={i >= toStepIndex}>
-                {i + 1}. {runStepCaseIdLabel(s)}
-              </option>
-            ))}
-          </FinixUnderlineSelect>
-        </FinixField>
+        <div className="space-y-2">
+          <FinixField label="From">
+            <FinixUnderlineSelect
+              value={String(fromStepIndex)}
+              onChange={(e) => {
+                setFromStepIndex(Number(e.target.value));
+                setResponsePath("");
+                setVarName("");
+              }}
+            >
+              {startVarKeys.length > 0 ? (
+                <option value={START_VAR_STEP_INDEX}>Start</option>
+              ) : null}
+              {runSteps.map((s, i) => (
+                <option key={s.stepKey} value={i} disabled={i >= toStepIndex}>
+                  {i + 1}. {runStepCaseIdLabel(s)}
+                </option>
+              ))}
+            </FinixUnderlineSelect>
+          </FinixField>
 
-        <FinixField label="대상">
-          <FinixUnderlineSelect
-            value={String(toStepIndex)}
-            onChange={(e) => {
-              setToStepIndex(Number(e.target.value));
-              setRequestPath("");
-            }}
-          >
-            {runSteps.map((s, i) => (
-              <option
-                key={s.stepKey}
-                value={i}
-                disabled={
-                  fromStepIndex !== START_VAR_STEP_INDEX && i <= fromStepIndex
-                }
-              >
-                {i + 1}. {runStepCaseIdLabel(s)}
-              </option>
-            ))}
-          </FinixUnderlineSelect>
-        </FinixField>
+          <div className="flex justify-center text-muted-foreground" aria-hidden>
+            ↓
+          </div>
+
+          <FinixField label="To">
+            <FinixUnderlineSelect
+              value={String(toStepIndex)}
+              onChange={(e) => {
+                setToStepIndex(Number(e.target.value));
+                setRequestPath("");
+              }}
+            >
+              {runSteps.map((s, i) => (
+                <option
+                  key={s.stepKey}
+                  value={i}
+                  disabled={
+                    fromStepIndex !== START_VAR_STEP_INDEX && i <= fromStepIndex
+                  }
+                >
+                  {i + 1}. {runStepCaseIdLabel(s)}
+                </option>
+              ))}
+            </FinixUnderlineSelect>
+          </FinixField>
+        </div>
 
         {loading ? (
           <FinixLoading inline label="필드 불러오는 중…" />
@@ -203,7 +209,7 @@ export function ScenarioBindingLinkDrawer({
         ) : null}
 
         {fromStepIndex === START_VAR_STEP_INDEX ? (
-          <FinixField label="컬렉션 변수">
+          <FinixField label="변수">
             <FinixUnderlineSelect
               value={varName}
               onChange={(e) => setVarName(e.target.value)}
@@ -218,9 +224,7 @@ export function ScenarioBindingLinkDrawer({
           </FinixField>
         ) : (
           <div className="space-y-1.5">
-            <p className="text-[11px] font-medium text-muted-foreground">
-              응답 필드 (extract)
-            </p>
+            <p className="text-[11px] font-medium text-muted-foreground">응답</p>
             <PathPickerChips
               label="response"
               data={fromOutput}
@@ -233,16 +237,14 @@ export function ScenarioBindingLinkDrawer({
             />
             {responsePath ? (
               <p className="font-mono text-[10px] text-muted-foreground">
-                var: {varName || fieldVarNameFromPath(responsePath)}
+                {varName || fieldVarNameFromPath(responsePath)}
               </p>
             ) : null}
           </div>
         )}
 
         <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-muted-foreground">
-            요청 필드 (inject)
-          </p>
+          <p className="text-[11px] font-medium text-muted-foreground">요청</p>
           <PathPickerChips
             label="request"
             data={toInput}

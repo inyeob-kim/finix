@@ -4,6 +4,7 @@ import { countBindingRows } from "@/lib/scenarioBindings";
 import {
   buildRunStepsFromPicks,
   runStepCaseIdLabel,
+  runStepShortDescription,
   serviceNameMapFromDrafts,
 } from "@/lib/scenarioRunSequence";
 import {
@@ -99,8 +100,12 @@ export function ScenarioPreviewPanel({
                       >
                         <FinixFlowStepCard
                           order={step.order}
-                          title={step.title}
-                          subtitle={runStepCaseIdLabel(step)}
+                          title={runStepCaseIdLabel(step)}
+                          subtitle={
+                            runStepShortDescription(step) ||
+                            step.title?.trim() ||
+                            step.serviceCode
+                          }
                           className="w-full min-w-0 max-w-none"
                         />
                         {idx < steps.length - 1 ? (
