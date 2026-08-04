@@ -62,6 +62,7 @@ Postman export는 **저장된 바인딩만** 사용합니다(export 시점 자�
 | native | true | `{{var}}` + pm.test extract 스크립트 |
 
 - `build_postman_for_scenario`: 스텝 순서, 헤더, 이벤트 스크립트, collection variables
+- 컬렉션 `info.description`: 시나리오 제목·프롬프트, 스텝 흐름, extract/inject 요약, 시작 변수 (Postman에서 컬렉션 클릭 시 하단에 표시)
 - 공유/커스텀 생성기(`pick_from_list` 등): generator catalog를 넘겨 초기값을 resolve하고, 컬렉션 pre-request에서 **Runner 실행의 첫 요청**에 재생성
 - 레지스트리 **컬렉션 ZIP**: 완료(`ready`)이고 **모든** pick에 DB testcase id가 있는 시나리오만 포함 (draft·부분 미저장 제외)
 

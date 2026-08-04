@@ -529,6 +529,9 @@ class TestCaseService:
             build_postman_request_body,
             merge_postman_events,
         )
+        from app.domain.postman_collection_description import (
+            build_postman_collection_description,
+        )
         from app.domain.postman_collection_variables import (
             build_postman_collection_variables,
             collect_runtime_var_names_from_bindings,
@@ -640,12 +643,14 @@ class TestCaseService:
             if gen_lines
             else None
         )
-        desc = (
-            "Executable workflow: collection variables, {{var}} injects, "
-            "pm.collectionVariables.set on test scripts. Run requests in order. "
-            "Generator-backed start vars re-seed on the first request of each Collection Runner run."
-            if use_native
-            else "Generated snapshot (resolved request bodies)."
+        desc = build_postman_collection_description(
+            title=scenario.title or "",
+            prompt=scenario.prompt,
+            testcases=testcases,
+            binding_map=binding_map,
+            step_service_codes=step_service_codes,
+            postman_config=postman_config,
+            native=use_native,
         )
         payload: dict[str, Any] = {
             "info": {
