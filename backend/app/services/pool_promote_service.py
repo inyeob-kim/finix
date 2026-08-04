@@ -116,7 +116,7 @@ class PoolPromoteService:
             expected_status=exp_status,
             expected_body_json=dumps_json(exp_body),
             step_index=None,
-            rule_bundle_id=None,
+            rule_history_id=None,
             pool_sample_id=sample.id,
         )
         logger.info(

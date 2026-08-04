@@ -8,6 +8,7 @@ import {
   Search,
   Sparkles,
   History,
+  FileDown,
   X,
 } from "lucide-react";
 import {
@@ -53,6 +54,7 @@ import {
   FinixStatusBadge,
   rulesRegistryStatusBadge,
 } from "./ui/finix-status-badge";
+import { PostmanRulesImportDialog } from "./rules/PostmanRulesImportDialog";
 import { RulesMetaHistoryDialog } from "./rules/RulesMetaHistoryDialog";
 import { RulesMetaHintButton } from "./rules/RulesMetaHintButton";
 import { RulesMetaTestCasesPanel } from "./rules/RulesMetaTestCasesPanel";
@@ -78,10 +80,7 @@ import {
   registryStatusHint,
   registryVersionHint,
 } from "@/lib/formatRegistryVersions";
-import {
-  getNewVersionDisabledReason,
-  getSaveDraftDisabledReason,
-} from "@/lib/saveDraftDisabledReason";
+import { getSaveDraftDisabledReason } from "@/lib/saveDraftDisabledReason";
 import { useAuthStore } from "../auth/authStore";
 import { FINIX_LARGE_MODAL_CONTENT } from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
@@ -111,6 +110,7 @@ function bundleToRegistryItem(bundle: ServiceRuleBundleReadDto): RuleRegistryIte
     bundle.rules && Array.isArray((bundle.rules as { rules?: unknown }).rules)
       ? (bundle.rules as { rules: unknown[] }).rules
       : null;
+  const hasDraft = bundle.has_draft ?? (bundle.status || "").toLowerCase() === "draft";
   return {
     serviceCode: bundle.service_code,
     serviceName: bundle.service_name_snapshot ?? bundle.service_code,
@@ -122,10 +122,11 @@ function bundleToRegistryItem(bundle: ServiceRuleBundleReadDto): RuleRegistryIte
     lastUpdatedAt: "—",
     lastUpdatedBy: bundle.created_by ?? "—",
     isActive: bundle.is_active ?? false,
-    versionCount: 1,
-    activeBundleVersion: null,
-    draftBundleVersion: bundle.version,
+    versionCount: 0,
+    activeBundleVersion: bundle.is_active ? 1 : null,
+    draftBundleVersion: hasDraft ? 1 : null,
     hasApproved: false,
+    hasDraft,
   };
 }
 
@@ -171,6 +172,7 @@ export function RulesMeta() {
     load: reloadRegistry,
   } = useRulesRegistry({ query, statusFilter });
 
+  const [postmanImportOpen, setPostmanImportOpen] = useState(false);
   const [yamlAiOpen, setYamlAiOpen] = useState(false);
   const [yamlAiPickerKey, setYamlAiPickerKey] = useState(0);
   const {
@@ -320,9 +322,9 @@ export function RulesMeta() {
     setHistoryItem(resolveRegistryRow(item));
   };
 
-  const handleEditFromHistory = (bundleId: number) => {
-    if (!historyItem) return;
-    void openEdit(historyItem, bundleId);
+  const handleRestoredFromHistory = async () => {
+    setHistoryItem(null);
+    await reloadRegistry();
   };
 
   const closePanel = () => {
@@ -409,58 +411,25 @@ export function RulesMeta() {
 
   const saveDraft = async (): Promise<boolean> => {
     if (!selected) return false;
-    if ((selected.status || "").toLowerCase() !== "draft") {
-      setEditError(
-        "운영 번들은 덮어쓸 수 없습니다. 「새 버전 만들기」를 사용하세요.",
-      );
-      return false;
-    }
     setEditSaving(true);
     setEditError(null);
     setEditNotice(null);
     try {
-      const bundle = await updateServiceRulesDraft(
-        selected.serviceCode,
-        selected.bundleId,
-        draftPayload(),
-      );
+      const bundle = selected.hasDraft
+        ? await updateServiceRulesDraft(
+            selected.serviceCode,
+            selected.bundleId,
+            draftPayload(),
+          )
+        : await createServiceRulesDraft(selected.serviceCode, draftPayload());
       const items = await reloadRegistry();
-      applySavedBundle(
-        bundle,
-        `v${bundle.version}에 반영됨 (#${bundle.id})`,
-        items,
-      );
+      applySavedBundle(bundle, "작업본에 저장되었습니다.", items);
       return true;
     } catch (e) {
       setEditError(
         e instanceof ApiError ? e.message : "저장에 실패했습니다.",
       );
       return false;
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const saveNewVersion = async () => {
-    if (!selected) return;
-    setEditSaving(true);
-    setEditError(null);
-    setEditNotice(null);
-    try {
-      const bundle = await createServiceRulesDraft(
-        selected.serviceCode,
-        draftPayload(),
-      );
-      const items = await reloadRegistry();
-      applySavedBundle(
-        bundle,
-        `스냅샷 v${bundle.version} 생성됨 (#${bundle.id})`,
-        items,
-      );
-    } catch (e) {
-      setEditError(
-        e instanceof ApiError ? e.message : "새 버전 만들기에 실패했습니다.",
-      );
     } finally {
       setEditSaving(false);
     }
@@ -478,12 +447,12 @@ export function RulesMeta() {
       const items = await reloadRegistry();
       applySavedBundle(
         bundle,
-        "활성화되었습니다. 테스트 케이스 생성에 사용됩니다.",
+        "적용되었습니다. 테스트 케이스 생성에 사용됩니다.",
         items,
       );
     } catch (e) {
       setEditError(
-        e instanceof ApiError ? e.message : "활성화에 실패했습니다.",
+        e instanceof ApiError ? e.message : "적용에 실패했습니다.",
       );
     } finally {
       setEditSaving(false);
@@ -556,8 +525,8 @@ export function RulesMeta() {
   const yamlAiSourceReady = yamlAiSourceLen >= YAML_AI_MIN_SOURCE_LENGTH;
 
   const selectedStatus = (selected?.status || "draft").toLowerCase();
-  const isActiveBundle = selectedStatus === "active";
-  const isDraftBundle = selectedStatus === "draft";
+  const hasWorkingDraft = Boolean(selected?.hasDraft) || selectedStatus === "draft";
+  const canApply = hasWorkingDraft && !hasUnsavedChanges;
 
   return (
     <PageShell
@@ -639,8 +608,8 @@ export function RulesMeta() {
                 }}
               >
                 <option value="">전체</option>
-                <option value="active">운영</option>
-                <option value="draft">초안</option>
+                <option value="active">적용됨</option>
+                <option value="draft">작업 중</option>
               </FinixUnderlineSelect>
             </FinixField>
 
@@ -682,6 +651,14 @@ export function RulesMeta() {
               <Sparkles className="w-3.5 h-3.5" />
               소스에서 YAML 생성
             </FinixPrimaryButton>
+            <button
+              type="button"
+              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0 mb-0.5 inline-flex items-center border border-border bg-background hover:bg-muted"
+              onClick={() => setPostmanImportOpen(true)}
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              Postman에서 가져오기
+            </button>
           </div>
         </div>
 
@@ -781,8 +758,8 @@ export function RulesMeta() {
                             e.stopPropagation();
                             openHistory(item);
                           }}
-                          title={`버전 이력 (${item.versionCount})`}
-                          aria-label={`${item.serviceCode} 버전 이력 ${item.versionCount}개`}
+                          title={`변경 이력 (${item.versionCount})`}
+                          aria-label={`${item.serviceCode} 변경 이력 ${item.versionCount}건`}
                           className={FINIX_DATA_TABLE_ICON_BTN_CLASS}
                         >
                           <History className="w-3.5 h-3.5" />
@@ -898,9 +875,8 @@ export function RulesMeta() {
                     serviceName={selected.serviceName}
                     activeBundleVersion={selected.activeBundleVersion}
                     editingDraft={
-                      (selected.status || "").toLowerCase() === "draft" ||
-                      (selected.activeBundleVersion != null &&
-                        selected.bundleVersion !== selected.activeBundleVersion)
+                      selected.hasDraft ||
+                      (selected.status || "").toLowerCase() === "draft"
                     }
                     active={activeTab === "testcases"}
                     disabled={editLoading}
@@ -937,13 +913,8 @@ export function RulesMeta() {
                     hasUnsavedChanges,
                   );
                   const saveDisabled = saveDisabledReason != null;
-                  const newVersionReason = getNewVersionDisabledReason(
-                    editSaving,
-                    editLoading,
-                    selected.status,
-                  );
-                  const newVersionDisabled = newVersionReason != null;
-                  const lifecycleDisabled = editSaving || isActiveBundle;
+                  const applyDisabled =
+                    editSaving || editLoading || !canApply;
 
                   return (
                     <>
@@ -955,61 +926,30 @@ export function RulesMeta() {
                         닫기
                       </button>
 
-                      {isDraftBundle ? (
-                        <RulesMetaHintButton
-                          hint={
-                            saveDisabledReason ??
-                            "현재 초안에 YAML을 덮어씁니다 (버전 번호는 유지)."
-                          }
+                      <RulesMetaHintButton
+                        hint={
+                          saveDisabledReason ??
+                          "편집 내용을 작업본으로 저장합니다. 적용 전까지 테스트케이스 생성에는 반영되지 않습니다."
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={SECONDARY_BTN_CLASS}
+                          disabled={saveDisabled}
+                          onClick={() => void saveDraft()}
                         >
-                          <button
-                            type="button"
-                            className={SECONDARY_BTN_CLASS}
-                            disabled={saveDisabled}
-                            onClick={() => void saveDraft()}
-                          >
-                            {editSaving ? "저장 중…" : "저장"}
-                          </button>
-                        </RulesMetaHintButton>
-                      ) : null}
+                          {editSaving ? "저장 중…" : "저장"}
+                        </button>
+                      </RulesMetaHintButton>
 
-                      {!isDraftBundle ? (
-                        <RulesMetaHintButton
-                          hint={
-                            newVersionReason ??
-                            "현재 YAML로 새 초안 번들(다음 버전)을 만듭니다."
-                          }
-                        >
-                          {isActiveBundle ? (
-                            <FinixPrimaryButton
-                              type="button"
-                              className="h-9 px-3 w-auto text-sm"
-                              disabled={newVersionDisabled}
-                              onClick={() => void saveNewVersion()}
-                            >
-                              새 버전 만들기
-                            </FinixPrimaryButton>
-                          ) : (
-                            <button
-                              type="button"
-                              className={SECONDARY_BTN_CLASS}
-                              disabled={newVersionDisabled}
-                              onClick={() => void saveNewVersion()}
-                            >
-                              새 버전 만들기
-                            </button>
-                          )}
-                        </RulesMetaHintButton>
-                      ) : null}
-
-                      {!isActiveBundle ? (
+                      {hasWorkingDraft ? (
                         <FinixPrimaryButton
                           type="button"
                           className="h-9 px-3 w-auto text-sm"
-                          disabled={lifecycleDisabled}
+                          disabled={applyDisabled}
                           onClick={() => setActivateConfirmOpen(true)}
                         >
-                          활성화
+                          적용
                         </FinixPrimaryButton>
                       ) : null}
                     </>
@@ -1042,7 +982,7 @@ export function RulesMeta() {
             <AlertDialogCancel type="button" disabled={editSaving}>
               계속 편집
             </AlertDialogCancel>
-            {selected && (selected.status || "").toLowerCase() === "draft" ? (
+            {selected && hasUnsavedChanges ? (
               <AlertDialogAction
                 type="button"
                 disabled={editSaving || editLoading}
@@ -1075,7 +1015,7 @@ export function RulesMeta() {
       >
         <AlertDialogContent className="z-[100] sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>이 버전을 활성화할까요?</AlertDialogTitle>
+            <AlertDialogTitle>작업본을 적용할까요?</AlertDialogTitle>
             <AlertDialogDescription className="text-left space-y-2">
               {selected ? (
                 <>
@@ -1083,13 +1023,11 @@ export function RulesMeta() {
                     <span className="font-mono font-medium text-foreground">
                       {selected.serviceCode}
                     </span>
-                    {" · "}
-                    v{selected.bundleVersion} (#{selected.bundleId})
                   </span>
                   <span className="block text-xs">
-                    활성화하면 이 번들이 운영(Active) 규칙이 되며, 테스트케이스
-                    「YAML에서 생성」에 사용됩니다. 같은 서비스의 기존 Active
-                    번들은 superseded로 바뀝니다.
+                    적용하면 작업본이 현재 규칙이 되며, 테스트케이스
+                    「YAML에서 생성」에 사용됩니다. 기존 적용본은 이력으로
+                    보관됩니다.
                   </span>
                 </>
               ) : null}
@@ -1109,7 +1047,7 @@ export function RulesMeta() {
                 void runActivate();
               }}
             >
-              활성화
+              적용
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1300,10 +1238,15 @@ export function RulesMeta() {
         onOpenChange={(open) => {
           if (!open) setHistoryItem(null);
         }}
-        onEditVersion={handleEditFromHistory}
+        onRestored={handleRestoredFromHistory}
         onRefreshRegistry={async (): Promise<void> => {
           await reloadRegistry();
         }}
+      />
+
+      <PostmanRulesImportDialog
+        open={postmanImportOpen}
+        onOpenChange={setPostmanImportOpen}
       />
     </PageShell>
   );

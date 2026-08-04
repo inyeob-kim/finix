@@ -5,24 +5,24 @@ import {
 } from "@/app/components/ui/finix-status-badge";
 
 describe("rulesRegistryStatusBadge", () => {
-  it("maps active to 운영", () => {
+  it("maps active to 적용됨", () => {
     expect(rulesRegistryStatusBadge("active")).toEqual({
       tone: "success",
-      label: "운영",
+      label: "적용됨",
     });
   });
 
-  it("maps history inactive active to 운영 (구버전)", () => {
+  it("maps history inactive active to 이력", () => {
     expect(rulesRegistryStatusBadge("active", { isActive: false })).toEqual({
       tone: "neutral",
-      label: "운영 (구버전)",
+      label: "이력",
     });
   });
 
-  it("maps draft to 초안", () => {
+  it("maps draft to 작업 중", () => {
     expect(rulesRegistryStatusBadge("draft")).toEqual({
       tone: "warning",
-      label: "초안",
+      label: "작업 중",
     });
   });
 });

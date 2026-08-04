@@ -92,7 +92,7 @@ export function RulesMetaTestCasesPanel({
   const generateDisabledReason = (() => {
     if (!code) return "서비스를 선택하세요.";
     if (!hasActiveYaml) {
-      return "활성(운영) YAML이 없습니다. YAML을 저장·활성화한 뒤 생성하세요.";
+      return "적용된 YAML이 없습니다. YAML을 저장·적용한 뒤 생성하세요.";
     }
     if (disabled) return "다른 작업이 진행 중입니다.";
     if (generateLoading) return "생성 중입니다.";
@@ -132,9 +132,9 @@ export function RulesMetaTestCasesPanel({
   };
 
   const emptyMessage = !hasActiveYaml
-    ? "활성(운영) YAML이 없어 테스트케이스를 생성할 수 없습니다. YAML 탭에서 저장·활성화하세요."
+    ? "적용된 YAML이 없어 테스트케이스를 생성할 수 없습니다. YAML 탭에서 저장·적용하세요."
     : rows.length === 0
-      ? "이 서비스에 적재된 테스트케이스가 없습니다. 「YAML에서 생성」을 눌러 활성 규칙으로 만들어 주세요."
+      ? "이 서비스에 적재된 테스트케이스가 없습니다. 「YAML에서 생성」을 눌러 적용된 규칙으로 만들어 주세요."
       : "검색 조건에 맞는 테스트케이스가 없습니다.";
 
   const busy = disabled || generateLoading;
@@ -154,15 +154,15 @@ export function RulesMetaTestCasesPanel({
               생성 기준:{" "}
               {hasActiveYaml ? (
                 <span className="font-medium text-foreground">
-                  운영 YAML v{activeBundleVersion}
+                  적용된 YAML
                 </span>
               ) : (
-                <span className="font-medium text-destructive">활성 YAML 없음</span>
+                <span className="font-medium text-destructive">적용된 YAML 없음</span>
               )}
               {editingDraft && hasActiveYaml ? (
                 <span>
                   {" "}
-                  · 편집 중 초안은 반영되지 않습니다
+                  · 작업본은 반영되지 않습니다
                 </span>
               ) : null}
             </p>
@@ -189,7 +189,7 @@ export function RulesMetaTestCasesPanel({
               onOpenChange={setReplaceConfirmOpen}
               align="end"
               title="기존 테스트케이스를 교체할까요?"
-              description={`현재 풀 ${rows.length}건을 삭제한 뒤 활성 YAML로 다시 생성합니다.`}
+              description={`현재 풀 ${rows.length}건을 삭제한 뒤 적용된 YAML로 다시 생성합니다.`}
               cancelLabel="취소"
               confirmLabel="교체 생성"
               confirmClassName="h-8 px-3 rounded-sm bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90"

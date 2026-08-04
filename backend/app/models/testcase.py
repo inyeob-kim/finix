@@ -26,8 +26,8 @@ class TestCase(Base):
     expected_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expected_body_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     step_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    rule_bundle_id: Mapped[int | None] = mapped_column(
-        ForeignKey("service_rule_bundles.id", ondelete="SET NULL"),
+    rule_history_id: Mapped[int | None] = mapped_column(
+        ForeignKey("service_rule_history.id", ondelete="SET NULL"),
         nullable=True,
     )
     pool_sample_id: Mapped[int | None] = mapped_column(

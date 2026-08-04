@@ -35,7 +35,7 @@ JSON 요청·응답 예시: `docs/manual/12-api-examples.md`
 | GET | `/test-cases/{id}` | 단건 |
 | PATCH | `/test-cases/{id}` | 수정 |
 | GET | `/test-cases/{id}/export/postman` | 단건 Collection |
-| POST | `/services/{code}/test-cases/materialize` | Active YAML → TC 풀 |
+| POST | `/services/{code}/test-cases/materialize` | 적용된 YAML → TC 풀 |
 
 ---
 
@@ -61,18 +61,18 @@ JSON 요청·응답 예시: `docs/manual/12-api-examples.md`
 
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/service-rules/registry` | 서비스별 요약 |
-| GET | `/service-rules/{code}` | Active 번들 |
-| GET | `/service-rules/{code}/versions` | 버전 목록 |
-| GET | `/service-rules/{code}/bundles/{id}` | 번들 상세 |
-| POST | `/service-rules/{code}` | YAML 저장 (draft) |
+| GET | `/service-rules/registry` | 서비스별 요약 (작업본/적용/이력 수) |
+| GET | `/service-rules/{code}` | 현재 문서 (작업본 있으면 작업본) |
+| GET | `/service-rules/{code}/versions` | 변경 이력 목록 |
+| GET | `/service-rules/{code}/bundles/{id}` | 현재행 또는 이력 스냅샷 |
+| POST | `/service-rules/{code}` | 작업본 upsert |
+| PUT | `/service-rules/{code}/bundles/{id}` | 작업본 갱신 |
 | POST | `/service-rules/{code}/validate-yaml` | 검증만 |
-| POST | `/service-rules/{code}/generate-draft` | 메타 AI |
-| POST | `/service-rules/{code}/generate-draft-from-source` | 소스 AI |
-| POST | `/service-rules/{code}/{id}/approve` | 승인 |
-| POST | `/service-rules/{code}/{id}/activate` | **Active** |
-| POST | `/service-rules/{code}/rollback` | 이전 Active 복원 |
-| DELETE | `/service-rules/{code}/bundles/{id}` | 번들 삭제 |
+| POST | `/service-rules/{code}/generate-draft` | 메타 AI → 작업본 |
+| POST | `/service-rules/{code}/generate-draft-from-source` | 소스 AI → 작업본 |
+| POST | `/service-rules/{code}/{id}/activate` | **적용** (작업본 → 현재본) |
+| POST | `/service-rules/{code}/rollback` | 이력 복원 (`to_version` = history_id) |
+| DELETE | `/service-rules/{code}/bundles/{id}` | 이력 스냅샷 삭제 |
 
 ---
 
@@ -85,7 +85,7 @@ JSON 요청·응답 예시: `docs/manual/12-api-examples.md`
 | POST | `/service-catalog/import-json` | JSON import |
 | GET | `/service-catalog/{code}` | 단건 |
 | GET | `/service-catalog/{code}/dto-skeletons` | DTO 필드 스켈레톤 |
-| GET | `/rules-yaml/{service_code}` | Active YAML 미리보기 |
+| GET | `/rules-yaml/{service_code}` | 적용된 YAML 미리보기 |
 | GET | `/manual/status` | RAG 인덱스 checksum |
 | POST | `/manual/reindex` | 임베딩 재구축 |
 | POST | `/manual/chat` | RAG 질의 |
@@ -96,8 +96,8 @@ JSON 요청·응답 예시: `docs/manual/12-api-examples.md`
 
 | 코드 | 상황 |
 |------|------|
-| 400 | draft만 있고 materialize, YAML 검증 실패, Live에 base_url 없음 |
-| 404 | 시나리오·TC·번들 없음 |
+| 400 | 작업본만 있고 materialize, YAML 검증 실패, Live에 base_url 없음 |
+| 404 | 시나리오·TC·이력 없음 |
 | 422 | Pydantic 검증 |
 | 500 | DB/LLM 내부 오류 (SUT 500은 execution `actual`에 기록) |
 

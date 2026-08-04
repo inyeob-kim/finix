@@ -67,7 +67,7 @@ class ScenarioResolveService:
                         expected_status=tc.expected_status,
                         expected_body_json=tc.expected_body_json,
                         step_index=step_i,
-                        rule_bundle_id=tc.rule_bundle_id,
+                        rule_history_id=tc.rule_history_id,
                     ),
                 )
         steps_dump = [s.model_dump() for s in steps]

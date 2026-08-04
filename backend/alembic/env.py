@@ -15,8 +15,8 @@ from app.models import (  # noqa: F401,E402
     registered_service,
     scenario,
     service_catalog_item,
-    service_rule_bundle,
-    service_rule_pointer,
+    service_rule_current,
+    service_rule_history,
     testcase,
 )
 

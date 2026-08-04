@@ -81,39 +81,35 @@ class TestCaseService:
             active = await self._service_rules_repo.get_active_bundle(code)
             if active is not None and self._rule_count_from_json(active.rules_json) == 0:
                 return (
-                    f"{code}: Active 규칙 번들(#{active.id})은 있으나 규칙이 비어 있습니다. "
-                    "규칙/메타 관리에서 YAML을 수정하거나 새 번들을 등록하세요."
+                    f"{code}: 적용된 규칙 YAML은 있으나 규칙이 비어 있습니다. "
+                    "규칙/메타 관리에서 YAML을 수정한 뒤 적용하세요."
                 )
-            versions = await self._service_rules_repo.list_versions(code)
+            current = await self._service_rules_repo.get_current(code)
+            if current is not None and current.has_draft and not current.has_applied:
+                return (
+                    f"{code}: 작업본만 있고 적용된 규칙이 없습니다. "
+                    "규칙/메타 관리에서 「적용」한 뒤 다시 「YAML에서 생성」을 실행하세요."
+                )
+            history = await self._service_rules_repo.list_versions(code)
             with_rules = [
-                b for b in versions if self._rule_count_from_json(b.rules_json) > 0
+                h for h in history if self._rule_count_from_json(h.rules_json) > 0
             ]
             if with_rules and active is None:
-                primary = with_rules[0]
-                rule_count = self._rule_count_from_json(primary.rules_json)
-                others = with_rules[1:3]
-                extra = ""
-                if others:
-                    extra = " 외 " + ", ".join(
-                        f"{b.status} v{b.version}(#{b.id})" for b in others
-                    )
                 return (
-                    f"{code}: YAML 규칙은 등록되어 있으나 Active 상태가 아닙니다. "
-                    f"현재 {primary.status} v{primary.version}(#{primary.id}, "
-                    f"규칙 {rule_count}건){extra}. "
-                    "규칙/메타 관리에서 해당 번들을 Active로 활성화한 뒤 "
+                    f"{code}: YAML 이력은 있으나 적용된 현재본이 없습니다. "
+                    "규칙/메타 관리에서 작업본을 적용하거나 이력에서 복원한 뒤 "
                     "다시 「YAML에서 생성」을 실행하세요."
                 )
-            if versions and active is None:
+            if history and active is None:
                 return (
-                    f"{code}: 규칙 번들은 있으나 Active로 지정된 번들이 없습니다. "
-                    "규칙/메타 관리에서 번들을 Active로 활성화하세요."
+                    f"{code}: 규칙 이력은 있으나 적용된 현재본이 없습니다. "
+                    "규칙/메타 관리에서 규칙을 적용하세요."
                 )
         file_bundle = load_service_rules(code)
         if file_bundle is None:
             return (
                 f"{code}: 등록된 YAML 규칙이 없습니다. "
-                "규칙/메타 관리에서 YAML을 등록한 뒤 Active로 활성화하거나, "
+                "규칙/메타 관리에서 YAML을 등록·적용하거나, "
                 f"rules_yaml/{code}.yaml 파일을 추가하세요."
             )
         if not file_bundle.rules:
@@ -121,17 +117,20 @@ class TestCaseService:
                 f"{code}: rules_yaml/{code}.yaml 파일은 있으나 rules 항목이 비어 있습니다."
             )
         return (
-            f"{code}: 테스트케이스를 생성할 수 있는 Active YAML 규칙이 없습니다."
+            f"{code}: 테스트케이스를 생성할 수 있는 적용된 YAML 규칙이 없습니다."
         )
 
     async def _load_rule_bundle(self, code: str) -> tuple[Any | None, int | None]:
-        """Return (bundle_like, active_rule_bundle_id) from DB or file."""
+        """Return (bundle_like, rule_history_id) from DB applied current or file."""
         if self._service_rules_repo is None:
             bundle = load_service_rules(code)
             return (bundle, None)
         db_bundle = await self._service_rules_repo.get_active_bundle(code)
         if db_bundle is not None:
-            active_id = db_bundle.id
+            history = await self._service_rules_repo.find_history_by_checksum(
+                service_code=code, checksum=db_bundle.checksum or ""
+            )
+            history_id = history.id if history is not None else None
             try:
                 parsed = json.loads(db_bundle.rules_json or "{}")
             except Exception:  # noqa: BLE001
@@ -148,7 +147,7 @@ class TestCaseService:
                         "rules": [r for r in rules if isinstance(r, dict)],
                     },
                 )()
-                return (tmp, active_id)
+                return (tmp, history_id)
         bundle = load_service_rules(code)
         return (bundle, None)
 
@@ -164,7 +163,7 @@ class TestCaseService:
         code = (service_code or "").strip()
         if not code:
             return [], step_index_start
-        bundle, active_bundle_id = await self._load_rule_bundle(code)
+        bundle, rule_history_id = await self._load_rule_bundle(code)
         if bundle is None or not getattr(bundle, "rules", None):
             return [], step_index_start
         svc_meta = await self._cbs_catalog.get_by_service_code(code)
@@ -213,7 +212,7 @@ class TestCaseService:
                 expected_status=expected_status,
                 expected_body_json=dumps_json(expected_body),
                 step_index=step_index,
-                rule_bundle_id=active_bundle_id,
+                rule_history_id=rule_history_id,
             )
             created.append(tc)
             step_index += 1
@@ -270,7 +269,7 @@ class TestCaseService:
             return row
         pool = await self._metadata.find_pool_testcase_twin(
             name=row.name,
-            rule_bundle_id=row.rule_bundle_id,
+            rule_history_id=row.rule_history_id,
         )
         if pool is not None:
             return pool
@@ -323,7 +322,7 @@ class TestCaseService:
                 expected_status=source_tc.expected_status,
                 expected_body_json=source_tc.expected_body_json,
                 step_index=step_i,
-                rule_bundle_id=source_tc.rule_bundle_id,
+                rule_history_id=source_tc.rule_history_id,
             )
             touched.append(cloned)
         logger.info(

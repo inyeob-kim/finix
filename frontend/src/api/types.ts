@@ -87,7 +87,7 @@ export interface ServiceCatalogImportResultDto {
   upserted: number;
 }
 
-/** Active or draft service rule bundle (v1). */
+/** Applied or working draft service rules document (v1). */
 export interface ServiceRuleBundleReadDto {
   id: number;
   service_code: string;
@@ -102,6 +102,8 @@ export interface ServiceRuleBundleReadDto {
   updated_at: string | null;
   yaml_text?: string | null;
   rules?: Record<string, unknown> | null;
+  has_draft?: boolean;
+  change_kind?: string | null;
 }
 
 export interface ResolvedTestCaseStepDto {

@@ -32,8 +32,8 @@ async def run(*, keep_catalog: bool) -> None:
         "execution_logs",
         "testcases",
         "scenarios",
-        "service_rule_pointers",
-        "service_rule_bundles",
+        "service_rules_current",
+        "service_rule_history",
     ]
     if not keep_catalog:
         tables.append("service_catalog_items")

@@ -83,14 +83,13 @@
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| `GET` | `/api/v1/service-rules/{service_code}` | **활성** 규칙 번들(YAML·파싱된 rules 포함) |
-| `GET` | `/api/v1/service-rules/{service_code}/versions` | 서비스별 버전 목록 |
-| `POST` | `/api/v1/service-rules/{service_code}` | YAML 텍스트로 **새 드래프트** 생성(서버 검증 후 저장) |
-| `POST` | `/api/v1/service-rules/{service_code}/generate-draft` | LLM으로 드래프트 생성(목표 문장·기존 활성 YAML 참고 옵션); **`LLM_API_KEY` 필요** |
-| `POST` | `/api/v1/service-rules/{service_code}/generate-draft-from-source` | 붙여넣은 **소스 코드** 기반 LLM 드래프트 생성·저장; **`LLM_API_KEY` 필요** |
-| `POST` | `/api/v1/service-rules/{service_code}/{bundle_id}/approve` | 번들 승인 |
-| `POST` | `/api/v1/service-rules/{service_code}/{bundle_id}/activate` | 번들 활성화 |
-| `POST` | `/api/v1/service-rules/{service_code}/rollback` | 특정 버전으로 활성 롤백 |
+| `GET` | `/api/v1/service-rules/{service_code}` | 현재 문서(작업본 우선) |
+| `GET` | `/api/v1/service-rules/{service_code}/versions` | 변경 이력 목록 |
+| `POST` | `/api/v1/service-rules/{service_code}` | YAML 텍스트로 **작업본** upsert(서버 검증 후 저장) |
+| `POST` | `/api/v1/service-rules/{service_code}/generate-draft` | LLM으로 작업본 생성(목표 문장·기존 적용 YAML 참고 옵션); **`LLM_API_KEY` 필요** |
+| `POST` | `/api/v1/service-rules/{service_code}/generate-draft-from-source` | 붙여넣은 **소스 코드** 기반 LLM 작업본 생성·저장; **`LLM_API_KEY` 필요** |
+| `POST` | `/api/v1/service-rules/{service_code}/{id}/activate` | 작업본 **적용** (이전 적용본 → 이력) |
+| `POST` | `/api/v1/service-rules/{service_code}/rollback` | 이력 스냅샷으로 복원 (`to_version` = history_id) |
 
 ---
 

@@ -78,7 +78,8 @@ def test_is_low_value_allows_korean_cancellation_success_case():
     assert not is_low_value_case(rule)
 
 
-def test_validate_and_prepare_yaml_drops_low_value_normal_case():
+def test_validate_and_prepare_yaml_keeps_low_value_normal_case():
+    """Content significance is prompt guidance only; schema save keeps the case."""
     yaml_text = f"""
 service_code: PY016
 service_name: Example
@@ -105,7 +106,7 @@ rules:
 """
     _, payload = validate_and_prepare_yaml(yaml_text)
     case_ids = [r.get("case_id") for r in payload["rules"]]
-    assert "PY016-N-099" not in case_ids
+    assert "PY016-N-099" in case_ids
     assert "PY016-E-001" in case_ids
     assert "PY016-N-001" in case_ids
 
@@ -119,11 +120,11 @@ rules:
 {_case_rule("PY016-N-001", "N")}
   - case_id: PY016-N-050
     rule_type: N
-    title: x
-    description: too short
+    title: ok title
+    description: ok description text here
     input: {{}}
     expect:
-      outcome: success
+      outcome: not-a-valid-outcome
       validation_target: ok path
     assertions: []
     tags: ["business"]

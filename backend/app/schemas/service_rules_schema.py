@@ -17,7 +17,7 @@ class ServiceRuleRegistryItemRead(BaseModel):
     status: str
     rules: int = Field(ge=0)
     bundle_id: int
-    bundle_version: int
+    bundle_version: int = 0
     last_updated_at: datetime | None = None
     last_updated_by: str | None = None
     is_active: bool = False
@@ -25,6 +25,8 @@ class ServiceRuleRegistryItemRead(BaseModel):
     active_bundle_version: int | None = None
     draft_bundle_version: int | None = None
     has_approved: bool = False
+    has_draft: bool = False
+    history_count: int = Field(default=0, ge=0)
 
 
 class ServiceRuleRegistryListResponse(BaseModel):
@@ -35,21 +37,23 @@ class ServiceRuleRegistryListResponse(BaseModel):
 
 
 class ServiceRuleBundleRead(BaseModel):
+    """Editor/history document DTO (kept name for API compatibility)."""
+
     id: int
     service_code: str
     service_name_snapshot: str | None = None
     status: str
     is_active: bool = False
-    version: int
+    version: int = 0
     source_version: str | None = None
     checksum: str
     created_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-
-    # For preview/use
     yaml_text: str | None = None
     rules: dict[str, Any] | None = None
+    has_draft: bool = False
+    change_kind: str | None = None
 
 
 class ServiceRuleDraftCreate(BaseModel):
@@ -75,7 +79,10 @@ class ServiceRuleValidateYamlResponse(BaseModel):
 
 
 class ServiceRuleRollbackRequest(BaseModel):
-    to_version: int = Field(ge=1)
+    """Restore from history. ``to_version`` is history_id (legacy field name)."""
+
+    to_version: int = Field(ge=1, description="History snapshot id")
+
 
 
 class ServiceRuleGenerateDraftRequest(BaseModel):
@@ -103,4 +110,37 @@ class ServiceRuleGenerateFromSourceRequest(BaseModel):
         default=False,
         description="Optional: inject OpenAPI operation hints (Graceful Skip if empty).",
     )
+
+
+class PostmanRulesImportRequest(BaseModel):
+    """Postman Collection v2.1 or single Request JSON → draft YAML upsert."""
+
+    collection: Any = Field(
+        description="Postman Collection object, single request export, or item list.",
+    )
+    overwrite_draft: bool = Field(
+        default=False,
+        description="When true, replace existing working drafts for matched services.",
+    )
+    created_by: str | None = Field(default=None, max_length=128)
+
+
+class PostmanUnmatchedRequestRead(BaseModel):
+    name: str
+    method: str
+    path: str
+
+
+class PostmanServiceImportResultRead(BaseModel):
+    service_code: str
+    mode: str
+    engine: str
+    draft_id: int
+    diff: dict[str, Any]
+    notes: list[str] = Field(default_factory=list)
+
+
+class PostmanRulesImportResponse(BaseModel):
+    services: list[PostmanServiceImportResultRead]
+    unmatched: list[PostmanUnmatchedRequestRead]
 

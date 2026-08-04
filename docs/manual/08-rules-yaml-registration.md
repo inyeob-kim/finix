@@ -6,15 +6,17 @@
 
 ---
 
-## 번들 상태
+## 현재본 · 작업본 · 이력
 
-| 상태 | TC materialize | 설명 |
+| 구분 | TC materialize | 설명 |
 |------|----------------|------|
-| draft | **불가** | 편집 중 |
-| approved | 불가 (기본) | 승인됨, 아직 Active 아님 |
-| **active** | **가능** | 운영 규칙 |
+| **작업본 (draft)** | **불가** | 편집·AI 생성 결과. 아직 미적용 |
+| **적용됨 (current)** | **가능** | 서비스당 1개의 현재 규칙 |
+| **이력 (history)** | 불가 | 적용/복원 전 스냅샷. 복원 가능 |
 
-materialize 400 시 메시지 예: 「YAML은 있으나 Active 상태가 아닙니다」→ **활성화** 클릭.
+materialize 400 시 메시지 예: 「작업본만 있고 적용된 규칙이 없습니다」→ **적용** 클릭.
+
+버전 번호(v12)는 UI에 노출하지 않습니다. 이력은 일시·변경 종류로 구분합니다.
 
 ---
 
@@ -25,10 +27,10 @@ materialize 400 시 메시지 예: 「YAML은 있으나 Active 상태가 아닙�
 1. `/rules` 상단 **소스 붙여넣기** 카드
 2. **서비스** 콤보박스 선택 (예: PY027)
 3. `source_version`, 힌트(선택), **소스 코드** 16자 이상
-4. **생성 · DB 등록** — draft 생성
+4. **생성 · DB 등록** — 작업본 저장
 5. 하단 **서비스 목록**에서 해당 행 클릭
-6. YAML·rule_id 검토
-7. **활성화(Active)** — materialize 가능
+6. YAML·case_id 검토
+7. **적용** — materialize 가능
 
 ### API
 
@@ -36,9 +38,9 @@ materialize 400 시 메시지 예: 「YAML은 있으나 Active 상태가 아닙�
 
 ```json
 {
-  "source_text": "... Java/CBS 소스 ...",
+  "source_code": "... Java/CBS 소스 ...",
   "source_version": "1.0",
-  "hint": "출금 한도 초과 에러 포함"
+  "hints": "출금 한도 초과 에러 포함"
 }
 ```
 
@@ -49,10 +51,10 @@ materialize 400 시 메시지 예: 「YAML은 있으나 Active 상태가 아닙�
 1. 목록에서 서비스 행 클릭
 2. **YAML 편집** 탭
 3. Monaco/textarea에서 수정
-4. **저장(드래프트)** — `POST /service-rules/{code}`
-5. **활성화**
+4. **저장** — 작업본 upsert (`POST`/`PUT /service-rules/...`)
+5. **적용** — 현재본 갱신 + 이전 적용본은 이력으로 보관
 
-파일 fallback: `backend/app/rules_yaml/{code}.yaml` (DB Active 없을 때만)
+파일 fallback: `backend/app/rules_yaml/{code}.yaml` (DB 적용본 없을 때만)
 
 ---
 
@@ -60,30 +62,29 @@ materialize 400 시 메시지 예: 「YAML은 있으나 Active 상태가 아닙�
 
 `POST /api/v1/service-rules/{code}/generate-draft`
 
-카탈로그 메타만으로 초안 — 소스 없을 때.
+카탈로그 메타만으로 작업본 — 소스 없을 때.
 
 ---
 
-## 활성화 후 체크리스트
+## 적용 후 체크리스트
 
-- [ ] `/rules` 목록에 **Active** 배지
+- [ ] `/rules` 목록에 **적용됨** 배지
 - [ ] `GET /rules-yaml/{code}` 200
 - [ ] `/test-cases` → **YAML에서 생성** 성공
 - [ ] TC 행 ▶ 로 request/expected JSON 확인
 
 ---
 
-## 검증·롤백·삭제
+## 검증·복원·삭제
 
 | 동작 | API / UI |
 |------|----------|
 | YAML 검증 | **validate** 버튼 → `POST .../validate-yaml` |
-| 승인 | `POST .../{id}/approve` |
-| 활성화 | `POST .../{id}/activate` |
-| 롤백 | `POST .../rollback` |
-| 번들 삭제 | 휴지통 → `DELETE .../bundles/{id}` |
+| 적용 | `POST .../{id}/activate` (작업본 → 현재본) |
+| 이력 복원 | `POST .../rollback` body `{ "to_version": <history_id> }` |
+| 이력 삭제 | 휴지통 → `DELETE .../bundles/{id}` (`id` = history_id) |
 
-Active 번들 삭제 시 해당 서비스 materialize **불가** until 새 Active.
+적용된 현재본이 없으면 해당 서비스 materialize **불가**.
 
 ---
 
@@ -92,15 +93,17 @@ Active 번들 삭제 시 해당 서비스 materialize **불가** until 새 Activ
 ```yaml
 service_code: PY027
 rules:
-  - rule_id: ERR_LIMIT_EXCEED
-    rule_type: error
+  - case_id: PY027-E-001
+    rule_type: E
     description: 한도 초과
     expect:
       http_status: 400
-    minimal_input:
+      outcome: error
+      error_code: E001
+    input:
       amount: 1000000
     assertions:
-      - path: $.errorCode
+      - path: $.error_code
         equals: "E001"
 ```
 
@@ -108,13 +111,7 @@ rules:
 |------|------|
 | `service_code` | ● |
 | `rules[]` | ● |
-| `rule_id`, `rule_type`, `description`, `expect`, `minimal_input` | 규칙당 ● |
-| `rule_type` | `error` \| `business` \| `code` |
-| `assertions` | error/business 권장 |
+| `case_id`, `rule_type`, `description`, `expect`, `input` | 규칙당 ● |
+| `rule_type` | `E` \| `N` |
+| `assertions` | E/N 권장 |
 | `source_evidence` | 소스 AI 생성 시 포함 |
-
----
-
-## PY027 전체 예시
-
-`docs/manual/10-e2e-walkthrough-py027.md` — 카탈로그 → YAML → TC → 시나리오 → 실행.

@@ -33,7 +33,8 @@ CORE_BUSINESS_EXTRACTION_GUIDANCE = """\
    - Do NOT invent validation rules or error codes not supported by the code.
 
 4. LANGUAGE & FORMAT:
-   - `title` and `description` MUST be in **Korean (한글)**.
+   - Prefer Korean (한글) for `title` and `description` when the business domain is Korean.
+   - English is OK when source labels are English-only; still state a clear business outcome.
    - `title`: Scannable business outcome (condition + expected behavior).
    - `description`: Objective & business context (Why + What).
 """
@@ -122,7 +123,7 @@ def build_repair_user_prompt(*, validation_error: str, invalid_yaml: str) -> str
         f"### INVALID YAML\n{invalid_yaml.rstrip()}\n\n"
         "### STRICT REPAIR CRITERIA\n"
         "1. Fix the EXACT validation error while preserving all existing valid business cases.\n"
-        "2. Language: `title` and `description` MUST be in Korean (한글).\n"
+        "2. Language: Prefer Korean for `title`/`description`; English OK if already English.\n"
         "3. Schema Keys: Use `case_id` (not `rule_id`), `input` (not `minimal_input`), `rule_type` (E or N only).\n"
         "4. Expectations:\n"
         "   - Error case (E): MUST have `expect.error_code`.\n"

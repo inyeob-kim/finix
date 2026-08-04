@@ -10,8 +10,8 @@ from app.models.pool_sample import PoolSample
 from app.models.registered_service import RegisteredService
 from app.models.scenario import Scenario
 from app.models.service_catalog_item import ServiceCatalogItem
-from app.models.service_rule_bundle import ServiceRuleBundle
-from app.models.service_rule_pointer import ServiceRulePointer
+from app.models.service_rule_current import ServiceRuleCurrent
+from app.models.service_rule_history import ServiceRuleHistory
 from app.models.testcase import TestCase
 
 __all__ = [
@@ -27,7 +27,7 @@ __all__ = [
     "RegisteredService",
     "Scenario",
     "ServiceCatalogItem",
-    "ServiceRuleBundle",
-    "ServiceRulePointer",
+    "ServiceRuleCurrent",
+    "ServiceRuleHistory",
     "TestCase",
 ]

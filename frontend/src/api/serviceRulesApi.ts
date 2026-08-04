@@ -16,6 +16,8 @@ export interface ServiceRuleRegistryItemDto {
   active_bundle_version: number | null;
   draft_bundle_version: number | null;
   has_approved: boolean;
+  has_draft?: boolean;
+  history_count?: number;
 }
 
 export interface ServiceRuleRegistryListDto {
@@ -188,6 +190,20 @@ export async function activateServiceRulesBundle(
   );
 }
 
+/** Restore applied YAML from a history snapshot (``to_version`` = history id). */
+export async function rollbackServiceRules(
+  serviceCode: string,
+  historyId: number,
+): Promise<ServiceRuleBundleReadDto> {
+  return apiRequest<ServiceRuleBundleReadDto>(
+    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/rollback`,
+    {
+      method: "POST",
+      body: JSON.stringify({ to_version: historyId }),
+    },
+  );
+}
+
 export async function generateServiceRulesDraftFromSource(
   serviceCode: string,
   payload: {
@@ -211,4 +227,48 @@ export async function generateServiceRulesDraftFromSource(
       use_swagger: payload.use_swagger ?? false,
     }),
   });
+}
+
+export interface PostmanUnmatchedRequestDto {
+  name: string;
+  method: string;
+  path: string;
+}
+
+export interface PostmanServiceImportResultDto {
+  service_code: string;
+  mode: string;
+  engine: string;
+  draft_id: number;
+  diff: {
+    updated?: number;
+    added?: number;
+    kept?: number;
+    notes?: string[];
+  };
+  notes: string[];
+}
+
+export interface PostmanRulesImportResultDto {
+  services: PostmanServiceImportResultDto[];
+  unmatched: PostmanUnmatchedRequestDto[];
+}
+
+/** Upsert YAML drafts from Postman Collection or single Request JSON. */
+export async function importServiceRulesFromPostman(payload: {
+  collection: unknown;
+  overwrite_draft?: boolean;
+  created_by?: string | null;
+}): Promise<PostmanRulesImportResultDto> {
+  return apiRequest<PostmanRulesImportResultDto>(
+    "/api/v1/service-rules/import-from-postman",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        collection: payload.collection,
+        overwrite_draft: payload.overwrite_draft ?? false,
+        created_by: payload.created_by ?? null,
+      }),
+    },
+  );
 }

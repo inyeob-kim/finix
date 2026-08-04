@@ -125,6 +125,6 @@ def test_template_includes_en_case_schema():
     assert "rule_type: \"E\"" in YAML_TEMPLATE_EXAMPLE
     assert "rule_type: \"N\"" in YAML_TEMPLATE_EXAMPLE
     assert "지급일 누락 시 급여이체 요청이 거절된다" in YAML_TEMPLATE_EXAMPLE
-    assert "Language (MANDATORY)" in TITLE_AND_DESCRIPTION_GUIDANCE
-    assert "MUST be written in Korean" in TITLE_AND_DESCRIPTION_GUIDANCE
+    assert "Language (preferred, not schema-enforced)" in TITLE_AND_DESCRIPTION_GUIDANCE
+    assert "Prefer Korean" in TITLE_AND_DESCRIPTION_GUIDANCE
     assert "Business rule enforcement" not in YAML_TEMPLATE_EXAMPLE

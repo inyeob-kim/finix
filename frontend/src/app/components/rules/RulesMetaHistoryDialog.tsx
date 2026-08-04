@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Check, Copy, Pencil } from "lucide-react";
+import { BadgeCheck, Check, Copy, RotateCcw } from "lucide-react";
 import {
   getServiceRulesBundle,
   listServiceRulesVersions,
+  rollbackServiceRules,
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
 import type { ServiceRuleBundleReadDto } from "@/api/types";
@@ -36,12 +37,21 @@ type Props = {
   item: RuleRegistryItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onEditVersion: (bundleId: number) => void;
+  onRestored: () => Promise<void>;
   onRefreshRegistry: () => Promise<void>;
 };
 
-function statusBadge(status: string, isActive: boolean) {
-  const { tone, label } = rulesRegistryStatusBadge(status, { isActive });
+function changeKindLabel(kind: string | null | undefined): string {
+  const k = (kind || "").toLowerCase();
+  if (k === "restore") return "복원";
+  if (k === "migrate") return "이관";
+  if (k === "apply") return "적용";
+  return kind || "이력";
+}
+
+function statusBadge(status: string, isActive: boolean, changeKind?: string | null) {
+  const labelSource = changeKind || status;
+  const { tone, label } = rulesRegistryStatusBadge(labelSource, { isActive });
   return (
     <FinixStatusBadge tone={tone}>
       {isActive ? <BadgeCheck className="w-3 h-3" /> : null}
@@ -61,7 +71,7 @@ export function RulesMetaHistoryDialog({
   item,
   open,
   onOpenChange,
-  onEditVersion,
+  onRestored,
   onRefreshRegistry,
 }: Props) {
   const [versions, setVersions] = useState<ServiceRuleBundleReadDto[]>([]);
@@ -69,12 +79,12 @@ export function RulesMetaHistoryDialog({
   const [previewYaml, setPreviewYaml] = useState("");
   const [listLoading, setListLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [yamlCopyDone, setYamlCopyDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const code = item?.serviceCode ?? "";
-  const activeVersion = item?.activeBundleVersion ?? null;
 
   const loadVersions = useCallback(async () => {
     if (!code) return [];
@@ -98,7 +108,7 @@ export function RulesMetaHistoryDialog({
       .catch((e) => {
         setVersions([]);
         setError(
-          e instanceof ApiError ? e.message : "버전 목록을 불러오지 못했습니다.",
+          e instanceof ApiError ? e.message : "이력을 불러오지 못했습니다.",
         );
       })
       .finally(() => setListLoading(false));
@@ -133,7 +143,7 @@ export function RulesMetaHistoryDialog({
   }, [selectedId]);
 
   const selected = versions.find((v) => v.id === selectedId) ?? null;
-  const selectedIsActive = Boolean(selected?.is_active);
+  const selectedIsCurrent = Boolean(selected?.is_active);
 
   const refreshAll = async () => {
     const rows = await loadVersions();
@@ -149,7 +159,26 @@ export function RulesMetaHistoryDialog({
     }
     const next = rows.find((v) => v.id !== selectedId) ?? rows[0];
     setSelectedId(next.id);
-    setNotice(`v${next.version} (#${next.id}) 로 전환했습니다.`);
+    setNotice(`${formatAt(next.created_at)} 이력으로 전환했습니다.`);
+  };
+
+  const handleRestore = async () => {
+    if (!selected || selectedId == null) return;
+    setRestoring(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await rollbackServiceRules(code, selectedId);
+      await onRestored();
+      await refreshAll();
+      setNotice("이 시점으로 복원했습니다. 현재 적용본이 갱신됩니다.");
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "복원에 실패했습니다.",
+      );
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const copyPreviewYaml = async () => {
@@ -170,18 +199,18 @@ export function RulesMetaHistoryDialog({
       <DialogContent className={FINIX_LARGE_MODAL_CONTENT}>
         <DialogHeader className="px-6 pt-6 pb-4 pr-10 border-b border-border shrink-0 text-left">
           <DialogTitle className="text-lg font-semibold">
-            버전 이력 — {item.serviceName}
+            변경 이력 — {item.serviceName}
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             <span className="font-mono">{item.serviceCode}</span>
-            {activeVersion != null ? (
+            {item.isActive || item.activeBundleVersion != null ? (
               <span className="ml-2 inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                 <BadgeCheck className="w-3.5 h-3.5" />
-                Active v{activeVersion}
+                적용됨
               </span>
             ) : null}
             <span className="ml-2">
-              · 총 {versions.length > 0 ? versions.length : item.versionCount}개 버전
+              · 총 {versions.length > 0 ? versions.length : item.versionCount}건
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -196,14 +225,13 @@ export function RulesMetaHistoryDialog({
               <Table className="w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-xs">버전</TableHead>
-                    <TableHead className="text-xs">상태</TableHead>
-                    <TableHead className="text-xs">#id</TableHead>
+                    <TableHead className="text-xs">일시</TableHead>
+                    <TableHead className="text-xs">구분</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {versions.map((v) => {
-                    const isActiveRow = Boolean(v.is_active);
+                    const isCurrentRow = Boolean(v.is_active);
                     const sel = v.id === selectedId;
                     return (
                       <TableRow
@@ -211,14 +239,15 @@ export function RulesMetaHistoryDialog({
                         className={`cursor-pointer ${sel ? "bg-primary/10" : "hover:bg-muted/50"}`}
                         onClick={() => setSelectedId(v.id)}
                       >
-                        <TableCell className="font-mono text-sm py-2">
-                          v{v.version}
+                        <TableCell className="font-mono text-xs py-2 whitespace-nowrap">
+                          {formatAt(v.created_at ?? v.updated_at)}
                         </TableCell>
                         <TableCell className="py-2">
-                          {statusBadge(v.status, isActiveRow)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground py-2">
-                          {v.id}
+                          {statusBadge(
+                            v.status,
+                            isCurrentRow,
+                            v.change_kind,
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -231,10 +260,8 @@ export function RulesMetaHistoryDialog({
           <div className="min-h-0 min-w-0 flex flex-col gap-2 pl-4 pr-6 pt-4 pb-4 overflow-hidden min-h-[min(280px,42vh)] lg:min-h-0">
             {selected ? (
               <p className="text-xs text-muted-foreground shrink-0 break-words">
-                v{selected.version} · {(selected.status || "draft").toLowerCase()} ·
-                #{selected.id}
-                {selected.created_by ? ` · ${selected.created_by}` : ""}
-                {" · "}
+                {changeKindLabel(selected.change_kind)} ·
+                {selected.created_by ? ` ${selected.created_by} ·` : ""}{" "}
                 {formatAt(selected.updated_at ?? selected.created_at)}
               </p>
             ) : null}
@@ -281,9 +308,9 @@ export function RulesMetaHistoryDialog({
             <RulesMetaBundleDelete
               serviceCode={code}
               bundleId={selected.id}
-              bundleVersion={selected.version}
-              status={selectedIsActive ? "active" : selected.status}
-              disabled={listLoading}
+              bundleVersion={selected.id}
+              status={selectedIsCurrent ? "active" : selected.status}
+              disabled={listLoading || restoring}
               onError={setError}
               onDeleted={handleDeleted}
             />
@@ -291,15 +318,11 @@ export function RulesMetaHistoryDialog({
           <FinixPrimaryButton
             type="button"
             className="h-9 px-3 text-sm rounded-sm w-auto gap-1.5"
-            disabled={selectedId == null}
-            onClick={() => {
-              if (selectedId == null) return;
-              onOpenChange(false);
-              onEditVersion(selectedId);
-            }}
+            disabled={selectedId == null || restoring || selectedIsCurrent}
+            onClick={() => void handleRestore()}
           >
-            <Pencil className="w-3.5 h-3.5" />
-            이 버전으로 편집
+            <RotateCcw className="w-3.5 h-3.5" />
+            {restoring ? "복원 중…" : "이 시점으로 복원"}
           </FinixPrimaryButton>
           <button
             type="button"

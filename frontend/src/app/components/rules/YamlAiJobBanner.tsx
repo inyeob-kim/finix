@@ -20,10 +20,18 @@ type Props = {
 
 function stageLabel(job: YamlAiJob): string {
   if (job.status === "success") {
+    if (job.kind === "postman") {
+      const n = job.postmanResult?.services.length ?? 0;
+      const u = job.postmanResult?.unmatched.length ?? 0;
+      if (n === 0) return "매칭된 서비스 없음";
+      return u > 0
+        ? `작업본 ${n}개 갱신 · 미매칭 ${u}건`
+        : `작업본 ${n}개 갱신`;
+    }
     return `초안 등록 완료 · v${job.bundle?.version ?? "—"}`;
   }
   if (job.status === "error") {
-    return job.error ?? "생성 실패";
+    return job.error ?? "작업 실패";
   }
   return job.stages[job.stageIndex]?.label ?? "처리 중…";
 }
@@ -32,10 +40,12 @@ function JobDetailCard({
   job,
   onOpenBundle,
   onDismiss,
+  onRetryOverwrite,
 }: {
   job: YamlAiJob;
   onOpenBundle: (job: YamlAiJob) => void;
   onDismiss: (id: string) => void;
+  onRetryOverwrite: (id: string) => void;
 }) {
   const running = job.status === "running";
   const label = stageLabel(job);
@@ -61,6 +71,11 @@ function JobDetailCard({
             <p className="text-sm font-mono font-medium text-foreground">
               {job.serviceCode}
             </p>
+            {job.kind === "postman" ? (
+              <span className="text-[10px] text-muted-foreground shrink-0">
+                Postman
+              </span>
+            ) : null}
           </div>
           <p
             className={cn(
@@ -75,6 +90,15 @@ function JobDetailCard({
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0 h-7">
+          {job.status === "error" && job.needsOverwrite ? (
+            <FinixPrimaryButton
+              type="button"
+              className="h-7 px-2.5 w-auto text-[11px]"
+              onClick={() => onRetryOverwrite(job.id)}
+            >
+              덮어쓰기
+            </FinixPrimaryButton>
+          ) : null}
           {job.status === "success" && job.bundle ? (
             <FinixPrimaryButton
               type="button"
@@ -153,6 +177,19 @@ function JobDetailCard({
           })}
         </ol>
       ) : null}
+
+      {job.status === "success" &&
+      job.kind === "postman" &&
+      job.postmanResult &&
+      job.postmanResult.services.length > 1 ? (
+        <ul className="text-[11px] font-mono text-muted-foreground space-y-0.5 max-h-20 overflow-y-auto">
+          {job.postmanResult.services.map((s) => (
+            <li key={s.service_code}>
+              {s.service_code} · {s.mode}/{s.engine}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -161,23 +198,25 @@ function headerSummary(jobs: YamlAiJob[]): string {
   const running = jobs.filter((j) => j.status === "running");
   if (running.length === 1) {
     const j = running[0];
-    const stage = j.stages[j.stageIndex]?.label ?? "생성 중…";
-    return `${j.serviceCode} · ${stage}`;
+    const stage = j.stages[j.stageIndex]?.label ?? "처리 중…";
+    const prefix = j.kind === "postman" ? "Postman" : j.serviceCode;
+    return `${prefix} · ${stage}`;
   }
   if (running.length > 1) {
-    return `YAML 생성 ${running.length}건 진행 중`;
+    return `YAML 작업 ${running.length}건 진행 중`;
   }
   const success = jobs.filter((j) => j.status === "success").length;
   const error = jobs.filter((j) => j.status === "error").length;
-  if (success && !error) return `YAML 생성 완료 ${success}건`;
-  if (error && !success) return `YAML 생성 실패 ${error}건`;
-  return `YAML 생성 ${jobs.length}건`;
+  if (success && !error) return `YAML 작업 완료 ${success}건`;
+  if (error && !success) return `YAML 작업 실패 ${error}건`;
+  return `YAML 작업 ${jobs.length}건`;
 }
 
 /** Compact header chip; click opens a fixed-size status modal. */
 export function YamlAiJobBanner({ onOpenBundle }: Props) {
   const jobs = useYamlAiJobStore((s) => s.jobs);
   const dismissJob = useYamlAiJobStore((s) => s.dismissJob);
+  const retryPostmanOverwrite = useYamlAiJobStore((s) => s.retryPostmanOverwrite);
   const [detailOpen, setDetailOpen] = useState(false);
 
   if (jobs.length === 0) return null;
@@ -205,7 +244,7 @@ export function YamlAiJobBanner({ onOpenBundle }: Props) {
             !hasError &&
             "border-border bg-background hover:bg-muted/50",
         )}
-        title="YAML 생성 상태 상세"
+        title="YAML 작업 상태 상세"
       >
         {runningCount > 0 ? (
           <FinixLoading size="sm" inline />
@@ -226,7 +265,7 @@ export function YamlAiJobBanner({ onOpenBundle }: Props) {
         <DialogContent className="sm:max-w-md w-[min(28rem,calc(100vw-2rem))] h-[28rem] max-h-[85vh] gap-0 p-0 overflow-hidden flex flex-col">
           <DialogHeader className="px-5 pt-5 pb-3 border-b border-border text-left shrink-0">
             <DialogTitle className="text-base font-semibold">
-              YAML 생성 상태
+              YAML 작업 상태
             </DialogTitle>
           </DialogHeader>
           <ul className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
@@ -239,6 +278,9 @@ export function YamlAiJobBanner({ onOpenBundle }: Props) {
                     onOpenBundle(j);
                   }}
                   onDismiss={dismissJob}
+                  onRetryOverwrite={(id) => {
+                    retryPostmanOverwrite(id);
+                  }}
                 />
               </li>
             ))}

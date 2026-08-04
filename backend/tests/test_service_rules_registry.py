@@ -1,19 +1,12 @@
-"""Registry aggregation and draft update behavior."""
+"""Registry aggregation and draft upsert behavior."""
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
 
-import pytest
-
-from app.core.exceptions import InvalidInputError
-from app.models.service_rule_bundle import ServiceRuleBundle
-from app.models.service_rule_pointer import ServiceRulePointer
-from app.services.service_rules_service import (
-    ServiceRulesService,
-    _aggregate_registry_rows,
-)
+from app.models.service_rule_current import ServiceRuleCurrent
+from app.services.service_rules_service import ServiceRulesService
 from tests.test_service_rules_validation import _case_rule
 
 _VALID_DRAFT_YAML = f"""
@@ -25,95 +18,101 @@ rules:
 """
 
 
-def _bundle(
+def _current(
     *,
-    id: int,
+    id: int = 1,
     code: str = "PY027",
-    version: int,
-    status: str,
-    name: str = "출금",
-) -> ServiceRuleBundle:
-    return ServiceRuleBundle(
+    applied: bool = True,
+    draft: bool = False,
+) -> ServiceRuleCurrent:
+    row = ServiceRuleCurrent(
         id=id,
         service_code=code,
-        service_name_snapshot=name,
-        status=status,
-        version=version,
+        service_name_snapshot="출금",
         source_version="src-1",
-        yaml_text="service_code: PY027\nrules: []\n",
-        rules_json='{"rules": [{"case_id": "x"}]}',
-        checksum="abc",
-        created_by="tester",
+        yaml_text="service_code: PY027\nrules: []\n" if applied else "",
+        rules_json='{"rules": [{"case_id": "x"}]}' if applied else None,
+        checksum="applied-cs" if applied else "",
+        updated_by="tester",
         updated_at=datetime(2026, 5, 1, tzinfo=timezone.utc),
     )
-
-
-def test_aggregate_one_row_per_service_prefers_latest_draft():
-    bundles = [
-        _bundle(id=1, version=1, status="active"),
-        _bundle(id=2, version=2, status="draft"),
-        _bundle(id=3, version=3, status="draft"),
-    ]
-    ptr = ServiceRulePointer(service_code="PY027", active_bundle_id=1, approved_bundle_id=None)
-    rows = _aggregate_registry_rows(bundles, {"PY027": ptr})
-    assert len(rows) == 1
-    row = rows[0]
-    assert row.bundle_id == 3
-    assert row.bundle_version == 3
-    assert row.draft_bundle_version == 3
-    assert row.active_bundle_version == 1
-    assert row.version_count == 3
-    assert row.status == "draft"
-
-
-def test_aggregate_active_only_when_no_draft():
-    bundles = [_bundle(id=1, version=2, status="active")]
-    ptr = ServiceRulePointer(service_code="PY027", active_bundle_id=1, approved_bundle_id=None)
-    rows = _aggregate_registry_rows(bundles, {"PY027": ptr})
-    assert rows[0].bundle_id == 1
-    assert rows[0].status == "active"
-    assert rows[0].draft_bundle_version is None
-    assert rows[0].active_bundle_version == 2
+    if draft:
+        row.draft_yaml_text = "draft yaml"
+        row.draft_rules_json = '{"rules": [{"case_id": "d"}]}'
+        row.draft_checksum = "draft-cs"
+        row.draft_source_version = "src-draft"
+        row.draft_updated_by = "editor"
+        row.draft_updated_at = datetime(2026, 5, 2, tzinfo=timezone.utc)
+    return row
 
 
 class _FakeRepo:
-    def __init__(self, bundle: ServiceRuleBundle | None) -> None:
-        self._bundle = bundle
-        self.flushed: list[int] = []
+    def __init__(self, rows: list[ServiceRuleCurrent]) -> None:
+        self.rows = {r.service_code: r for r in rows}
+        self.history_counts: dict[str, int] = {}
 
-    async def get_bundle(self, bundle_id: int) -> ServiceRuleBundle | None:
-        if self._bundle and self._bundle.id == bundle_id:
-            return self._bundle
+    async def list_all_current(
+        self, *, limit: int = 5000, offset: int = 0
+    ) -> list[ServiceRuleCurrent]:
+        items = list(self.rows.values())
+        return items[offset : offset + limit]
+
+    async def count_history(self, service_code: str) -> int:
+        return self.history_counts.get(service_code, 0)
+
+    async def get_current(self, service_code: str) -> ServiceRuleCurrent | None:
+        return self.rows.get(service_code)
+
+    async def get_current_by_id(self, current_id: int) -> ServiceRuleCurrent | None:
+        for r in self.rows.values():
+            if r.id == current_id:
+                return r
         return None
 
-    async def flush_bundle(self, bundle: ServiceRuleBundle) -> ServiceRuleBundle:
-        self.flushed.append(bundle.id)
-        return bundle
+    async def ensure_current(self, service_code: str) -> ServiceRuleCurrent:
+        row = self.rows.get(service_code)
+        if row is not None:
+            return row
+        row = _current(code=service_code, applied=False)
+        self.rows[service_code] = row
+        return row
+
+    async def flush_current(self, row: ServiceRuleCurrent) -> ServiceRuleCurrent:
+        self.rows[row.service_code] = row
+        return row
 
 
-def test_update_draft_rejects_non_draft():
-    bundle = _bundle(id=5, version=2, status="active")
-    svc = ServiceRulesService(repo=_FakeRepo(bundle))
-    with pytest.raises(InvalidInputError, match="draft"):
-        asyncio.run(
-            svc.update_draft(
-                service_code="PY027",
-                bundle_id=5,
-                yaml_text=_VALID_DRAFT_YAML,
-            )
-        )
+def test_list_registry_prefers_draft_status():
+    repo = _FakeRepo([_current(applied=True, draft=True)])
+    repo.history_counts["PY027"] = 2
+    svc = ServiceRulesService(repo=repo)
+    rows, total = asyncio.run(svc.list_registry(limit=50, offset=0))
+    assert total == 1
+    assert rows[0].has_draft is True
+    assert rows[0].status == "draft"
+    assert rows[0].history_count == 2
+    assert rows[0].active_bundle_version == 1
 
 
-def test_update_draft_keeps_version():
-    bundle = _bundle(id=5, version=4, status="draft")
-    repo = _FakeRepo(bundle)
+def test_list_registry_active_when_no_draft():
+    repo = _FakeRepo([_current(applied=True, draft=False)])
+    svc = ServiceRulesService(repo=repo)
+    rows, _ = asyncio.run(svc.list_registry(limit=50, offset=0))
+    assert rows[0].status == "active"
+    assert rows[0].has_draft is False
+    assert rows[0].is_active is True
+
+
+def test_upsert_draft_on_applied_row():
+    row = _current(applied=True, draft=False)
+    repo = _FakeRepo([row])
     svc = ServiceRulesService(repo=repo)
     updated = asyncio.run(
         svc.update_draft(
             service_code="PY027",
-            bundle_id=5,
+            bundle_id=1,
             yaml_text=_VALID_DRAFT_YAML,
         )
     )
-    assert updated.version == 4
-    assert repo.flushed == [5]
+    assert updated.has_draft is True
+    assert "PY027-E-001" in (updated.draft_yaml_text or "")

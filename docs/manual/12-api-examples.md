@@ -71,18 +71,20 @@ Content-Type: application/json
 
 ---
 
-## 번들 활성화
+## 작업본 적용
 
 ```http
 POST /api/v1/service-rules/PY027/5/activate
 ```
+
+`5`는 `service_rules_current.id`입니다. 작업본이 현재본으로 적용되고, 이전 적용본은 이력으로 보관됩니다.
 
 ```json
 {
   "id": 5,
   "service_code": "PY027",
   "status": "active",
-  "version": 1
+  "has_draft": false
 }
 ```
 
@@ -124,11 +126,11 @@ Content-Type: application/json
 ]
 ```
 
-**Error** (draft만 있을 때)
+**Error** (작업본만 있을 때)
 
 ```json
 {
-  "detail": "PY027: YAML 규칙은 등록되어 있으나 Active 상태가 아닙니다. 현재 draft v1(#5, 규칙 3건). ..."
+  "detail": "PY027: 작업본만 있고 적용된 규칙이 없습니다. 규칙/메타 관리에서 「적용」한 뒤 다시 「YAML에서 생성」을 실행하세요."
 }
 ```
 

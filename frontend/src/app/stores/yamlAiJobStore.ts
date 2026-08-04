@@ -1,14 +1,23 @@
 import { create } from "zustand";
 import { ApiError } from "@/api/client";
-import { generateServiceRulesDraftFromSource } from "@/api/serviceRulesApi";
+import {
+  generateServiceRulesDraftFromSource,
+  getServiceRulesBundle,
+  importServiceRulesFromPostman,
+  type PostmanRulesImportResultDto,
+} from "@/api/serviceRulesApi";
 import type { ServiceRuleBundleReadDto } from "@/api/types";
 
 export type YamlAiJobStatus = "running" | "success" | "error";
+
+export type YamlAiJobKind = "source" | "postman";
 
 export type YamlAiJobStageId =
   | "catalog"
   | "data_pool"
   | "swagger"
+  | "parse"
+  | "match"
   | "llm"
   | "validate"
   | "save";
@@ -20,10 +29,16 @@ export type YamlAiJobStage = {
 
 export type YamlAiJob = {
   id: string;
+  kind: YamlAiJobKind;
   serviceCode: string;
   status: YamlAiJobStatus;
   error?: string;
   bundle?: ServiceRuleBundleReadDto;
+  postmanResult?: PostmanRulesImportResultDto;
+  /** Set when import failed because drafts exist; allows banner retry. */
+  needsOverwrite?: boolean;
+  postmanCollection?: unknown;
+  postmanFileName?: string | null;
   startedAt: number;
   stages: YamlAiJobStage[];
   stageIndex: number;
@@ -43,17 +58,26 @@ export type YamlAiJobStartPayload = {
   use_swagger?: boolean;
 };
 
+export type PostmanImportJobStartPayload = {
+  collection: unknown;
+  fileName?: string | null;
+  overwrite_draft?: boolean;
+  created_by?: string | null;
+};
+
 type YamlAiJobState = {
   jobs: YamlAiJob[];
   startJob: (payload: YamlAiJobStartPayload) => string;
+  startPostmanJob: (payload: PostmanImportJobStartPayload) => string;
+  retryPostmanOverwrite: (id: string) => void;
   dismissJob: (id: string) => void;
   clearFinished: () => void;
 };
 
 const stageTimers = new Map<string, number>();
 
-function newJobId(): string {
-  return `yaml-ai-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+function newJobId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function buildYamlAiJobStages(payload: {
@@ -77,6 +101,15 @@ export function buildYamlAiJobStages(payload: {
   return stages;
 }
 
+export function buildPostmanImportJobStages(): YamlAiJobStage[] {
+  return [
+    { id: "parse", label: "Collection 파싱 중" },
+    { id: "match", label: "서비스 매칭 중" },
+    { id: "llm", label: "AI 플랜 생성 중" },
+    { id: "save", label: "작업본 저장 중" },
+  ];
+}
+
 function clearStageTimer(id: string) {
   const t = stageTimers.get(id);
   if (t != null) {
@@ -96,9 +129,21 @@ function scheduleStageTick(id: string, delayMs: number) {
   );
 }
 
+function needsOverwriteConfirm(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    typeof err.message === "string" &&
+    err.message.includes("overwrite_draft")
+  );
+}
+
 type YamlAiJobStoreInternal = YamlAiJobState & {
   advanceRunningStage: (id: string) => void;
   patchJob: (id: string, patch: Partial<YamlAiJob>) => void;
+  runPostmanImport: (
+    id: string,
+    payload: PostmanImportJobStartPayload,
+  ) => Promise<void>;
 };
 
 export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
@@ -134,11 +179,12 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
   },
 
   startJob: (payload) => {
-    const id = newJobId();
+    const id = newJobId("yaml-ai");
     const serviceCode = payload.serviceCode.trim();
     const stages = buildYamlAiJobStages(payload);
     const job: YamlAiJob = {
       id,
+      kind: "source",
       serviceCode,
       status: "running",
       startedAt: Date.now(),
@@ -208,6 +254,147 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     })();
 
     return id;
+  },
+
+  runPostmanImport: async (id, payload) => {
+    const stages = buildPostmanImportJobStages();
+    try {
+      const result = await importServiceRulesFromPostman({
+        collection: payload.collection,
+        overwrite_draft: payload.overwrite_draft ?? false,
+        created_by: payload.created_by ?? null,
+      });
+      if (!get().jobs.some((j) => j.id === id)) return;
+      clearStageTimer(id);
+      get().patchJob(id, {
+        stageIndex: stages.length - 1,
+        progress: 96,
+      });
+      await new Promise((r) => window.setTimeout(r, 220));
+      if (!get().jobs.some((j) => j.id === id)) return;
+
+      let bundle: ServiceRuleBundleReadDto | undefined;
+      const first = result.services[0];
+      if (first) {
+        try {
+          bundle = await getServiceRulesBundle(
+            first.service_code,
+            first.draft_id,
+          );
+        } catch {
+          bundle = undefined;
+        }
+      }
+
+      const label =
+        result.services.length === 0
+          ? "Postman"
+          : result.services.length === 1
+            ? result.services[0].service_code
+            : `Postman (${result.services.length})`;
+
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === id
+            ? {
+                ...j,
+                status: "success" as const,
+                serviceCode: label,
+                bundle,
+                postmanResult: result,
+                needsOverwrite: false,
+                error: undefined,
+                stageIndex: j.stages.length - 1,
+                progress: 100,
+              }
+            : j,
+        ),
+      }));
+    } catch (e) {
+      if (!get().jobs.some((j) => j.id === id)) return;
+      clearStageTimer(id);
+      if (!payload.overwrite_draft && needsOverwriteConfirm(e)) {
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === id
+              ? {
+                  ...j,
+                  status: "error" as const,
+                  needsOverwrite: true,
+                  error:
+                    "일부 서비스에 작업본이 있습니다. 덮어쓰려면 다시 실행하세요.",
+                }
+              : j,
+          ),
+        }));
+        return;
+      }
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : "Postman 가져오기에 실패했습니다.";
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === id
+            ? {
+                ...j,
+                status: "error" as const,
+                needsOverwrite: false,
+                error: message,
+              }
+            : j,
+        ),
+      }));
+    }
+  },
+
+  startPostmanJob: (payload) => {
+    const id = newJobId("postman");
+    const stages = buildPostmanImportJobStages();
+    const job: YamlAiJob = {
+      id,
+      kind: "postman",
+      serviceCode: payload.fileName?.trim() || "Postman",
+      status: "running",
+      startedAt: Date.now(),
+      stages,
+      stageIndex: 0,
+      progress: 8,
+      useDataPool: false,
+      useSwagger: false,
+      postmanCollection: payload.collection,
+      postmanFileName: payload.fileName ?? null,
+      needsOverwrite: false,
+    };
+    set((s) => ({ jobs: [job, ...s.jobs] }));
+    scheduleStageTick(id, 900);
+    void get().runPostmanImport(id, payload);
+    return id;
+  },
+
+  retryPostmanOverwrite: (id) => {
+    const job = get().jobs.find((j) => j.id === id);
+    if (!job || job.kind !== "postman" || job.postmanCollection == null) {
+      return;
+    }
+    clearStageTimer(id);
+    const stages = buildPostmanImportJobStages();
+    get().patchJob(id, {
+      status: "running",
+      error: undefined,
+      needsOverwrite: false,
+      stageIndex: 0,
+      progress: 8,
+      stages,
+      bundle: undefined,
+      postmanResult: undefined,
+    });
+    scheduleStageTick(id, 900);
+    void get().runPostmanImport(id, {
+      collection: job.postmanCollection,
+      fileName: job.postmanFileName,
+      overwrite_draft: true,
+    });
   },
 
   dismissJob: (id) => {

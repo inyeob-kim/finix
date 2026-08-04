@@ -17,7 +17,7 @@ type Props = {
 export function RulesMetaBundleDelete({
   serviceCode,
   bundleId,
-  bundleVersion,
+  bundleVersion: _bundleVersion,
   status,
   disabled,
   onDeleted,
@@ -25,7 +25,7 @@ export function RulesMetaBundleDelete({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const isActive = (status || "").toLowerCase() === "active";
+  const isCurrent = (status || "").toLowerCase() === "active";
 
   const handleConfirm = async () => {
     setSubmitting(true);
@@ -36,7 +36,7 @@ export function RulesMetaBundleDelete({
       await onDeleted();
     } catch (e) {
       onError(
-        e instanceof ApiError ? e.message : "규칙 번들을 삭제하지 못했습니다.",
+        e instanceof ApiError ? e.message : "이력을 삭제하지 못했습니다.",
       );
     } finally {
       setSubmitting(false);
@@ -50,24 +50,20 @@ export function RulesMetaBundleDelete({
       anchor={
         <button
           type="button"
-          disabled={disabled || submitting}
+          disabled={disabled || submitting || isCurrent}
           onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1.5 h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-          aria-label={`v${bundleVersion} 번들 삭제`}
+          aria-label="이력 스냅샷 삭제"
         >
           <Trash2 className="w-3.5 h-3.5" />
-          이 버전 삭제
+          이력 삭제
         </button>
       }
-      title={
-        <>
-          {serviceCode} v{bundleVersion} 삭제
-        </>
-      }
+      title={<>{serviceCode} 이력 삭제</>}
       description={
-        isActive
-          ? "Active 번들입니다. 삭제하면 이 서비스에 활성 규칙이 없어집니다."
-          : "선택한 버전 번들만 삭제합니다. 되돌릴 수 없습니다."
+        isCurrent
+          ? "현재 적용본과 동일한 스냅샷은 삭제할 수 없습니다."
+          : "선택한 이력 스냅샷만 삭제합니다. 되돌릴 수 없습니다."
       }
       confirmLabel={submitting ? "삭제 중…" : "삭제"}
       onCancel={() => setOpen(false)}

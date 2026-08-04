@@ -32,6 +32,8 @@ from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.manual_rag_service import ManualRagService
 from app.services.scenario_service import ScenarioService
 from app.services.service_catalog_service import ServiceCatalogService
+from app.services.postman_rules_import_ai_service import PostmanRulesImportAiService
+from app.services.postman_rules_import_service import PostmanRulesImportService
 from app.services.service_rules_ai_service import ServiceRulesAiService
 from app.services.service_rules_service import ServiceRulesService
 from app.services.testcase_service import TestCaseService
@@ -257,6 +259,30 @@ def get_service_rules_ai_service(
         rules_service=rules_service,
         pool_service=pool_service,
         openapi_service=openapi_service,
+    )
+
+
+def get_postman_rules_import_ai_service(
+    llm: LlmClient | None = Depends(get_llm_client),
+) -> PostmanRulesImportAiService | None:
+    """Optional AI planner; None when LLM is not configured (fallback plans)."""
+    if llm is None:
+        return None
+    return PostmanRulesImportAiService(llm=llm)
+
+
+def get_postman_rules_import_service(
+    rules_service: ServiceRulesService = Depends(get_service_rules_service),
+    catalog_repo: ServiceCatalogRepository = Depends(get_service_catalog_repository),
+    ai: PostmanRulesImportAiService | None = Depends(
+        get_postman_rules_import_ai_service
+    ),
+) -> PostmanRulesImportService:
+    """Build Postman → YAML draft import orchestrator."""
+    return PostmanRulesImportService(
+        rules=rules_service,
+        catalog=catalog_repo,
+        ai=ai,
     )
 
 

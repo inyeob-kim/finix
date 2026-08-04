@@ -8,6 +8,7 @@ from typing import Any
 
 from app.core.exceptions import InvalidInputError
 from app.core.logger import get_logger
+from app.domain.service_uri_match import extract_service_path, match_service_code
 from app.models.openapi_document import ApiOperation, OpenApiDocument
 from app.repositories.openapi_repo import OpenApiRepository
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
@@ -27,16 +28,11 @@ def _match_service_code(
     catalog_uris: dict[str, str],
 ) -> str | None:
     """Map operation to catalog service_code by URI suffix or operationId."""
-    if operation_id:
-        for code in catalog_uris:
-            if code.lower() == operation_id.lower() or operation_id.upper().endswith(code.upper()):
-                return code
-    norm_path = path.rstrip("/") or "/"
-    for code, uri in catalog_uris.items():
-        u = (uri or "").rstrip("/") or "/"
-        if norm_path == u or norm_path.endswith(u) or u.endswith(norm_path):
-            return code
-    return None
+    return match_service_code(
+        path=extract_service_path(path) or path,
+        catalog_uris=catalog_uris,
+        operation_id=operation_id,
+    )
 
 
 def _iter_operations(doc: dict[str, Any]) -> list[dict[str, Any]]:

@@ -44,7 +44,7 @@ async def get_rules_yaml(
     filename = f"{code}.yaml" if code else ""
     path = (_RULES_DIR / filename) if filename else None
     bundle = None
-    # Prefer DB-primary active bundle when present.
+    # Prefer DB-primary applied current when present.
     db_bundle = await service.get_active(service_code)
     if db_bundle is not None:
         try:

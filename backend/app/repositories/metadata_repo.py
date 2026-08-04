@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.execution_log import ExecutionLog
 from app.models.scenario import Scenario
-from app.models.service_rule_bundle import ServiceRuleBundle
+from app.models.service_rule_history import ServiceRuleHistory
 from app.models.testcase import TestCase
 
 _UNSET = object()
@@ -119,7 +119,7 @@ class MetadataRepository:
         expected_status: int | None = None,
         expected_body_json: str | None = None,
         step_index: int | None = None,
-        rule_bundle_id: int | None = None,
+        rule_history_id: int | None = None,
         pool_sample_id: int | None = None,
     ) -> TestCase:
         """Insert a new test case row."""
@@ -133,7 +133,7 @@ class MetadataRepository:
             expected_status=expected_status,
             expected_body_json=expected_body_json,
             step_index=step_index,
-            rule_bundle_id=rule_bundle_id,
+            rule_history_id=rule_history_id,
             pool_sample_id=pool_sample_id,
         )
         self._session.add(entity)
@@ -160,7 +160,7 @@ class MetadataRepository:
     async def list_testcases_for_service_code(
         self, service_code: str, *, limit: int = 200
     ) -> list[TestCase]:
-        """Return persisted HTTP test cases tied to a service (name prefix or rule bundle)."""
+        """Return persisted HTTP test cases tied to a service (name prefix or rule history)."""
         code = (service_code or "").strip()
         if not code:
             return []
@@ -168,13 +168,13 @@ class MetadataRepository:
         stmt = (
             select(TestCase)
             .outerjoin(
-                ServiceRuleBundle,
-                TestCase.rule_bundle_id == ServiceRuleBundle.id,
+                ServiceRuleHistory,
+                TestCase.rule_history_id == ServiceRuleHistory.id,
             )
             .where(
                 or_(
                     TestCase.name.startswith(prefix),
-                    ServiceRuleBundle.service_code == code,
+                    ServiceRuleHistory.service_code == code,
                 )
             )
             .order_by(TestCase.id.desc())
@@ -186,15 +186,15 @@ class MetadataRepository:
         self,
         *,
         name: str,
-        rule_bundle_id: int | None,
+        rule_history_id: int | None,
     ) -> TestCase | None:
-        """Return a pool template (no scenario) matching name and optional rule bundle."""
+        """Return a pool template (no scenario) matching name and optional rule history."""
         stmt = select(TestCase).where(
             TestCase.scenario_id.is_(None),
             TestCase.name == name,
         )
-        if rule_bundle_id is not None:
-            stmt = stmt.where(TestCase.rule_bundle_id == rule_bundle_id)
+        if rule_history_id is not None:
+            stmt = stmt.where(TestCase.rule_history_id == rule_history_id)
         stmt = stmt.order_by(TestCase.id.asc()).limit(1)
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
@@ -248,13 +248,15 @@ class MetadataRepository:
         if not code:
             return 0
         prefix = f"{code} "
-        bundle_id_subq = select(ServiceRuleBundle.id).where(ServiceRuleBundle.service_code == code)
+        history_id_subq = select(ServiceRuleHistory.id).where(
+            ServiceRuleHistory.service_code == code
+        )
         result = await self._session.execute(
             delete(TestCase).where(
                 TestCase.scenario_id.is_(None),
                 or_(
                     TestCase.name.startswith(prefix),
-                    TestCase.rule_bundle_id.in_(bundle_id_subq),
+                    TestCase.rule_history_id.in_(history_id_subq),
                 ),
             )
         )

@@ -10,12 +10,11 @@ from typing import Any
 
 import yaml
 
-from app.prompts.case_significance_guidance import is_low_value_case
-from app.prompts.title_description_guidance import validate_rule_title_description
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
-from app.models.service_rule_bundle import ServiceRuleBundle
+from app.models.service_rule_current import ServiceRuleCurrent
+from app.models.service_rule_history import ServiceRuleHistory
 from app.repositories.service_rules_repo import ServiceRulesRepository
 
 logger = logging.getLogger(__name__)
@@ -186,13 +185,19 @@ def truncate_source_evidence_snippets(payload: dict[str, Any]) -> dict[str, Any]
 
 
 def autofill_missing_assertions(payload: dict[str, Any]) -> dict[str, Any]:
-    """Insert $.error_code assertion when Error cases omit assertions key but define error_code."""
+    """Ensure assertions is a list; for E+error_code, seed $.error_code when omitted."""
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return payload
     for r in rules:
         if not isinstance(r, dict):
             continue
+        had_assertions_key = "assertions" in r
+        assertions = r.get("assertions")
+        if assertions is None or not isinstance(assertions, list):
+            r["assertions"] = []
+            assertions = r["assertions"]
+
         rtype = str(r.get("rule_type") or "").strip()
         if rtype != "E":
             continue
@@ -202,14 +207,6 @@ def autofill_missing_assertions(payload: dict[str, Any]) -> dict[str, Any]:
         error_code = expect.get("error_code")
         if not (isinstance(error_code, str) and error_code.strip()):
             continue
-        had_assertions_key = "assertions" in r
-        assertions = r.get("assertions")
-        if assertions is None:
-            r["assertions"] = []
-            assertions = r["assertions"]
-        if not isinstance(assertions, list):
-            assertions = []
-            r["assertions"] = assertions
         if len(assertions) == 0 and not had_assertions_key:
             assertions.append(
                 {
@@ -259,11 +256,7 @@ def _validate_one_rule(idx: int, r: dict[str, Any], seen: set[str]) -> None:
         raise InvalidInputError(f"rules[{idx}].title이 필요합니다.")
     if not (isinstance(description, str) and description.strip()):
         raise InvalidInputError(f"rules[{idx}].description이 필요합니다.")
-    validate_rule_title_description(
-        idx=idx,
-        title=title.strip(),
-        description=description.strip(),
-    )
+    # Content quality (length, language, vagueness) is prompt guidance only — not schema.
 
     rule_input = r.get("input")
     if not isinstance(rule_input, dict):
@@ -362,11 +355,10 @@ def _validate_rules_structure(
     soft_drop_invalid_rules: bool = False,
 ) -> None:
     """
-    Validate rules list.
+    Validate rules list shape/template only (required fields and types).
 
-    - Low-value Normal filler cases are always dropped (not a hard document failure).
-    - When soft_drop_invalid_rules=True (AI generation), per-rule validation errors
-      drop that case and continue so one bad case cannot abort the whole YAML.
+    When soft_drop_invalid_rules=True (AI generation), per-rule schema errors
+    drop that case and continue so one bad case cannot abort the whole YAML.
     """
     rules = payload.get("rules") or []
     if not isinstance(rules, list):
@@ -384,15 +376,6 @@ def _validate_rules_structure(
                 continue
             raise InvalidInputError(msg)
 
-        if is_low_value_case(r):
-            title = str(r.get("title") or "").strip() or f"rules[{idx}]"
-            logger.info(
-                "Dropping low-value Normal case rules[%s] «%s»",
-                idx,
-                title,
-            )
-            continue
-
         try:
             _validate_one_rule(len(kept), r, seen)
         except InvalidInputError as e:
@@ -409,16 +392,7 @@ def _validate_rules_structure(
     payload["rules"] = kept
     if not kept:
         raise InvalidInputError(
-            "유효한 rules가 없습니다. 모든 케이스가 저가치이거나 검증에 실패했습니다."
-        )
-
-    types_present = {
-        str(r.get("rule_type")).strip() for r in kept if isinstance(r, dict)
-    }
-    missing = _RULE_TYPES - types_present
-    if missing:
-        raise InvalidInputError(
-            f"rules에 필수 rule_type이 누락되었습니다: {sorted(missing)}"
+            "유효한 rules가 없습니다. 스키마 검증에 실패한 케이스만 있었습니다."
         )
 
 
@@ -472,82 +446,48 @@ class ServiceRuleRegistryRow:
     active_bundle_version: int | None = None
     draft_bundle_version: int | None = None
     has_approved: bool = False
+    has_draft: bool = False
+    history_count: int = 0
 
 
-def _bundle_display_status(bundle: ServiceRuleBundle, *, active_id: int | None) -> str:
-    if active_id is not None and bundle.id == active_id:
-        return "active"
-    return (bundle.status or "draft").strip().lower()
-
-
-def _aggregate_registry_rows(
-    bundles: list[ServiceRuleBundle],
-    pointers: dict[str, Any],
-) -> list[ServiceRuleRegistryRow]:
-    """Collapse bundles into one registry row per service_code."""
-    by_code: dict[str, list[ServiceRuleBundle]] = {}
-    for bundle in bundles:
-        by_code.setdefault(bundle.service_code, []).append(bundle)
-
-    rows: list[ServiceRuleRegistryRow] = []
-    for code, svc_bundles in by_code.items():
-        svc_bundles.sort(key=lambda b: b.version, reverse=True)
-        ptr = pointers.get(code)
-        active_id = getattr(ptr, "active_bundle_id", None) if ptr is not None else None
-        approved_id = getattr(ptr, "approved_bundle_id", None) if ptr is not None else None
-        active_bundle = next((b for b in svc_bundles if b.id == active_id), None)
-        drafts = [
-            b
-            for b in svc_bundles
-            if (b.status or "").strip().lower() == "draft"
-        ]
-        latest_draft = drafts[0] if drafts else None
-
-        if latest_draft is not None:
-            primary = latest_draft
-            display_status = "draft"
-        elif active_bundle is not None:
-            primary = active_bundle
-            display_status = "active"
-        else:
-            primary = svc_bundles[0]
-            display_status = _bundle_display_status(primary, active_id=active_id)
-
-        name = (primary.service_name_snapshot or "").strip() or code
-        rows.append(
-            ServiceRuleRegistryRow(
-                service_code=code,
-                service_name=name,
-                source_version=primary.source_version,
-                status=display_status,
-                rules=_rule_count_from_bundle(primary),
-                bundle_id=primary.id,
-                bundle_version=primary.version,
-                last_updated_at=primary.updated_at,
-                last_updated_by=primary.created_by,
-                is_active=active_id is not None and primary.id == active_id,
-                version_count=len(svc_bundles),
-                active_bundle_version=active_bundle.version if active_bundle else None,
-                draft_bundle_version=latest_draft.version if latest_draft else None,
-                has_approved=approved_id is not None,
-            )
-        )
-    return rows
-
-
-def _rule_count_from_bundle(bundle: ServiceRuleBundle) -> int:
-    if not bundle.rules_json:
+def _rule_count_from_json(rules_json: str | None) -> int:
+    if not rules_json:
         return 0
     try:
-        parsed = json.loads(bundle.rules_json)
+        parsed = json.loads(rules_json)
     except Exception:  # noqa: BLE001
         return 0
     rules = parsed.get("rules") if isinstance(parsed, dict) else None
     return len(rules) if isinstance(rules, list) else 0
 
 
+def _editor_view(row: ServiceRuleCurrent) -> dict[str, Any]:
+    """Fields used by API adapters for the working document."""
+    if row.has_draft:
+        return {
+            "yaml_text": row.draft_yaml_text or "",
+            "rules_json": row.draft_rules_json,
+            "checksum": row.draft_checksum or "",
+            "source_version": row.draft_source_version,
+            "status": "draft",
+            "updated_at": row.draft_updated_at or row.updated_at,
+            "updated_by": row.draft_updated_by or row.updated_by,
+            "is_active": False,
+        }
+    return {
+        "yaml_text": row.yaml_text or "",
+        "rules_json": row.rules_json,
+        "checksum": row.checksum or "",
+        "source_version": row.source_version,
+        "status": "active" if row.has_applied else "draft",
+        "updated_at": row.updated_at,
+        "updated_by": row.updated_by,
+        "is_active": row.has_applied,
+    }
+
+
 class ServiceRulesService:
-    """Workflow for rule bundles."""
+    """Workflow for current YAML + draft + history."""
 
     def __init__(self, *, repo: ServiceRulesRepository) -> None:
         self._repo = repo
@@ -560,10 +500,38 @@ class ServiceRulesService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ServiceRuleRegistryRow], int]:
-        """Return one row per service (primary bundle = latest draft, else active)."""
-        pointers = {p.service_code: p for p in await self._repo.list_all_pointers()}
-        bundles = await self._repo.list_all_bundles(limit=5000, offset=0)
-        rows = _aggregate_registry_rows(bundles, pointers)
+        rows_raw = await self._repo.list_all_current(limit=5000, offset=0)
+        rows: list[ServiceRuleRegistryRow] = []
+        for row in rows_raw:
+            history_count = await self._repo.count_history(row.service_code)
+            view = _editor_view(row)
+            rules_json = (
+                row.draft_rules_json if row.has_draft else row.rules_json
+            )
+            display_status = "draft" if row.has_draft else (
+                "active" if row.has_applied else "draft"
+            )
+            name = (row.service_name_snapshot or "").strip() or row.service_code
+            rows.append(
+                ServiceRuleRegistryRow(
+                    service_code=row.service_code,
+                    service_name=name,
+                    source_version=view["source_version"],
+                    status=display_status,
+                    rules=_rule_count_from_json(rules_json),
+                    bundle_id=row.id,
+                    bundle_version=1 if row.has_applied else 0,
+                    last_updated_at=view["updated_at"],
+                    last_updated_by=view["updated_by"],
+                    is_active=row.has_applied and not row.has_draft,
+                    version_count=history_count,
+                    active_bundle_version=1 if row.has_applied else None,
+                    draft_bundle_version=1 if row.has_draft else None,
+                    has_approved=False,
+                    has_draft=row.has_draft,
+                    history_count=history_count,
+                )
+            )
 
         q = (query or "").strip().lower()
         if q:
@@ -580,9 +548,7 @@ class ServiceRulesService:
         if st == "active":
             rows = [r for r in rows if r.active_bundle_version is not None]
         elif st == "draft":
-            rows = [r for r in rows if r.draft_bundle_version is not None]
-        elif st == "approved":
-            rows = [r for r in rows if r.has_approved]
+            rows = [r for r in rows if r.has_draft]
         elif st:
             rows = [r for r in rows if r.status.lower() == st]
 
@@ -597,14 +563,14 @@ class ServiceRulesService:
         page = rows[offset : offset + limit]
         return page, total
 
-    async def create_draft(
+    async def upsert_draft(
         self,
         *,
         service_code: str,
         yaml_text: str,
         source_version: str | None,
         created_by: str | None,
-    ) -> ServiceRuleBundle:
+    ) -> ServiceRuleCurrent:
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
@@ -612,19 +578,33 @@ class ServiceRulesService:
             raise InvalidInputError("yaml_text가 비어있습니다.")
 
         canonical_yaml, parsed = validate_and_prepare_yaml(yaml_text)
-        version = await self._repo.next_version(code)
-        bundle = ServiceRuleBundle(
-            service_code=code,
-            service_name_snapshot=str(parsed.get("service_name") or "") or None,
-            status="draft",
-            version=version,
-            source_version=(source_version or None),
-            yaml_text=canonical_yaml,
-            rules_json=json.dumps(parsed, ensure_ascii=False),
-            checksum=_sha256_text(canonical_yaml),
+        row = await self._repo.ensure_current(code)
+        row.service_name_snapshot = str(parsed.get("service_name") or "") or None
+        row.draft_yaml_text = canonical_yaml
+        row.draft_rules_json = json.dumps(parsed, ensure_ascii=False)
+        row.draft_checksum = _sha256_text(canonical_yaml)
+        row.draft_source_version = source_version or None
+        row.draft_updated_by = created_by
+        from datetime import datetime, timezone
+
+        row.draft_updated_at = datetime.now(timezone.utc)
+        return await self._repo.flush_current(row)
+
+    async def create_draft(
+        self,
+        *,
+        service_code: str,
+        yaml_text: str,
+        source_version: str | None,
+        created_by: str | None,
+    ) -> ServiceRuleCurrent:
+        """AI / create paths upsert the working draft (no new version row)."""
+        return await self.upsert_draft(
+            service_code=service_code,
+            yaml_text=yaml_text,
+            source_version=source_version,
             created_by=created_by,
         )
-        return await self._repo.create_bundle(bundle)
 
     async def update_draft(
         self,
@@ -634,140 +614,170 @@ class ServiceRulesService:
         yaml_text: str,
         source_version: str | None = None,
         created_by: str | None = None,
-    ) -> ServiceRuleBundle:
+    ) -> ServiceRuleCurrent:
         code = (service_code or "").strip()
-        if not code:
-            raise InvalidInputError("service_code가 필요합니다.")
-        if not (yaml_text or "").strip():
-            raise InvalidInputError("yaml_text가 비어있습니다.")
-
-        bundle = await self._repo.get_bundle(bundle_id)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
-        if bundle.service_code != code:
+        row = await self._repo.get_current_by_id(bundle_id)
+        if row is None:
+            row = await self._repo.get_current(code)
+        if row is None:
+            raise EntityNotFoundError("ServiceRuleCurrent", bundle_id)
+        if row.service_code != code:
             raise InvalidInputError("service_code mismatch")
-        if (bundle.status or "").strip().lower() != "draft":
-            raise InvalidInputError(
-                "draft 상태 번들만 덮어쓸 수 있습니다. 새 버전 만들기를 사용하세요."
-            )
+        return await self.upsert_draft(
+            service_code=code,
+            yaml_text=yaml_text,
+            source_version=source_version,
+            created_by=created_by,
+        )
 
-        canonical_yaml, parsed = validate_and_prepare_yaml(yaml_text)
-        bundle.service_name_snapshot = str(parsed.get("service_name") or "") or None
-        bundle.yaml_text = canonical_yaml
-        bundle.rules_json = json.dumps(parsed, ensure_ascii=False)
-        bundle.checksum = _sha256_text(canonical_yaml)
-        if source_version is not None:
-            bundle.source_version = source_version or None
-        if created_by is not None:
-            bundle.created_by = created_by
-        return await self._repo.flush_bundle(bundle)
-
-    async def list_versions(self, service_code: str) -> list[ServiceRuleBundle]:
-        return await self._repo.list_versions(service_code)
-
-    async def get_active(self, service_code: str) -> ServiceRuleBundle | None:
+    async def get_active(self, service_code: str) -> ServiceRuleCurrent | None:
         return await self._repo.get_active_bundle(service_code)
 
-    async def get_bundle(self, bundle_id: int) -> ServiceRuleBundle:
-        bundle = await self._repo.get_bundle(bundle_id)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
-        return bundle
+    async def get_current(self, service_code: str) -> ServiceRuleCurrent | None:
+        return await self._repo.get_current(service_code)
 
-    async def _promote_bundle_to_active(self, bundle: ServiceRuleBundle) -> ServiceRuleBundle:
-        """Point service at bundle and ensure only one row has status=active."""
-        code = bundle.service_code
-        ptr = await self._repo.get_pointer(code)
-        previous_id = ptr.active_bundle_id if ptr is not None else None
-        if previous_id is not None and previous_id != bundle.id:
-            previous = await self._repo.get_bundle(previous_id)
-            if previous is not None and (previous.status or "").strip().lower() == "active":
-                previous.status = "superseded"
-                await self._repo.flush_bundle(previous)
-        bundle.status = "active"
-        await self._repo.set_active(code, bundle.id)
-        refreshed = await self._repo.get_bundle(bundle.id)
-        if refreshed is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle.id)
-        return refreshed
+    async def get_bundle(self, bundle_id: int) -> ServiceRuleCurrent | ServiceRuleHistory:
+        """Resolve editor id: current row id, else history id."""
+        current = await self._repo.get_current_by_id(bundle_id)
+        if current is not None:
+            return current
+        history = await self._repo.get_history(bundle_id)
+        if history is None:
+            raise EntityNotFoundError("ServiceRuleDocument", bundle_id)
+        return history
 
-    async def activate(self, bundle_id: int) -> ServiceRuleBundle:
-        bundle = await self._repo.get_bundle(bundle_id)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
-        return await self._promote_bundle_to_active(bundle)
+    async def get_editor_document(
+        self, service_code: str
+    ) -> ServiceRuleCurrent | None:
+        """Row used by the YAML editor (prefer draft content via properties)."""
+        return await self._repo.get_current(service_code)
 
-    async def rollback(self, *, service_code: str, to_version: int) -> ServiceRuleBundle:
-        bundle = await self._repo.get_bundle_by_version(service_code=service_code, version=to_version)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundleVersion", f"{service_code}:{to_version}")
-        return await self._promote_bundle_to_active(bundle)
+    async def apply_draft(
+        self, *, service_code: str, applied_by: str | None = None
+    ) -> ServiceRuleCurrent:
+        code = (service_code or "").strip()
+        row = await self._repo.get_current(code)
+        if row is None:
+            raise EntityNotFoundError("ServiceRuleCurrent", code)
+        if not row.has_draft:
+            raise InvalidInputError("적용할 작업본이 없습니다.")
+
+        # Snapshot previous applied content before overwrite.
+        if row.has_applied:
+            await self._repo.add_history(
+                ServiceRuleHistory(
+                    service_code=code,
+                    service_name_snapshot=row.service_name_snapshot,
+                    source_version=row.source_version,
+                    yaml_text=row.yaml_text,
+                    rules_json=row.rules_json,
+                    checksum=row.checksum,
+                    change_kind="apply",
+                    note="snapshot before apply",
+                    created_by=applied_by or row.updated_by,
+                )
+            )
+
+        row.yaml_text = row.draft_yaml_text or ""
+        row.rules_json = row.draft_rules_json
+        row.checksum = row.draft_checksum or _sha256_text(row.yaml_text)
+        row.source_version = row.draft_source_version
+        row.updated_by = applied_by or row.draft_updated_by
+        row.draft_yaml_text = None
+        row.draft_rules_json = None
+        row.draft_checksum = None
+        row.draft_source_version = None
+        row.draft_updated_at = None
+        row.draft_updated_by = None
+        return await self._repo.flush_current(row)
+
+    async def activate(self, bundle_id: int) -> ServiceRuleCurrent:
+        """Compatibility: apply draft for the current row id."""
+        row = await self._repo.get_current_by_id(bundle_id)
+        if row is None:
+            # If client still passes draft "bundle" id incorrectly, try as service lookup.
+            raise EntityNotFoundError("ServiceRuleCurrent", bundle_id)
+        return await self.apply_draft(
+            service_code=row.service_code, applied_by=row.draft_updated_by
+        )
+
+    async def restore_from_history(
+        self,
+        *,
+        service_code: str,
+        history_id: int,
+        restored_by: str | None = None,
+    ) -> ServiceRuleCurrent:
+        code = (service_code or "").strip()
+        hist = await self._repo.get_history(history_id)
+        if hist is None:
+            raise EntityNotFoundError("ServiceRuleHistory", history_id)
+        if hist.service_code != code:
+            raise InvalidInputError("service_code mismatch")
+
+        row = await self._repo.ensure_current(code)
+        if row.has_applied:
+            await self._repo.add_history(
+                ServiceRuleHistory(
+                    service_code=code,
+                    service_name_snapshot=row.service_name_snapshot,
+                    source_version=row.source_version,
+                    yaml_text=row.yaml_text,
+                    rules_json=row.rules_json,
+                    checksum=row.checksum,
+                    change_kind="restore",
+                    note=f"snapshot before restore from history {history_id}",
+                    created_by=restored_by or row.updated_by,
+                )
+            )
+
+        row.yaml_text = hist.yaml_text
+        row.rules_json = hist.rules_json
+        row.checksum = hist.checksum
+        row.source_version = hist.source_version
+        row.service_name_snapshot = hist.service_name_snapshot
+        row.updated_by = restored_by
+        # Clear draft so applied content is what the editor shows after restore.
+        row.draft_yaml_text = None
+        row.draft_rules_json = None
+        row.draft_checksum = None
+        row.draft_source_version = None
+        row.draft_updated_at = None
+        row.draft_updated_by = None
+        return await self._repo.flush_current(row)
+
+    async def rollback(
+        self, *, service_code: str, to_version: int
+    ) -> ServiceRuleCurrent:
+        """Compatibility: treat to_version as history_id."""
+        return await self.restore_from_history(
+            service_code=service_code, history_id=to_version
+        )
+
+    async def list_versions(self, service_code: str) -> list[ServiceRuleHistory]:
+        return await self._repo.list_history(service_code)
 
     async def list_versions_with_active_flag(
         self, service_code: str
-    ) -> list[tuple[ServiceRuleBundle, bool]]:
-        """List bundles newest-first with is_active derived from the service pointer."""
-        code = (service_code or "").strip()
-        bundles = await self._repo.list_versions(code)
-        ptr = await self._repo.get_pointer(code)
-        active_id = ptr.active_bundle_id if ptr is not None else None
-        return [(b, active_id is not None and b.id == active_id) for b in bundles]
-
-    async def reconcile_active_statuses_for_service(self, service_code: str) -> int:
-        """
-        Align bundle.status with active_bundle_id (DB repair / migration).
-
-        Returns number of bundle rows updated.
-        """
-        code = (service_code or "").strip()
-        if not code:
-            return 0
-        bundles = await self._repo.list_versions(code)
-        ptr = await self._repo.get_pointer(code)
-        active_id = ptr.active_bundle_id if ptr is not None else None
-        changed = 0
-        for bundle in bundles:
-            st = (bundle.status or "").strip().lower()
-            if active_id is not None and bundle.id == active_id:
-                if st != "active":
-                    bundle.status = "active"
-                    await self._repo.flush_bundle(bundle)
-                    changed += 1
-            elif st == "active":
-                bundle.status = "superseded"
-                await self._repo.flush_bundle(bundle)
-                changed += 1
-        return changed
-
-    async def reconcile_all_active_statuses(self) -> dict[str, int]:
-        """Repair every service: at most one status=active row, matching the pointer."""
-        pointers = await self._repo.list_all_pointers()
-        totals: dict[str, int] = {}
-        for ptr in pointers:
-            n = await self.reconcile_active_statuses_for_service(ptr.service_code)
-            if n:
-                totals[ptr.service_code] = n
-        bundles = await self._repo.list_all_bundles(limit=50_000, offset=0)
-        codes = {b.service_code for b in bundles}
-        pointer_codes = {p.service_code for p in pointers}
-        for code in sorted(codes - pointer_codes):
-            n = await self.reconcile_active_statuses_for_service(code)
-            if n:
-                totals[code] = n
-        return totals
+    ) -> list[tuple[ServiceRuleHistory, bool]]:
+        history = await self._repo.list_history(service_code)
+        current = await self._repo.get_current(service_code)
+        current_cs = (current.checksum if current and current.has_applied else "") or ""
+        return [(h, bool(current_cs) and h.checksum == current_cs) for h in history]
 
     async def delete_bundle(self, *, service_code: str, bundle_id: int) -> None:
+        """Delete a history snapshot (bundle_id == history_id)."""
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
-        bundle = await self._repo.get_bundle(bundle_id)
-        if bundle is None:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
-        if bundle.service_code != code:
+        hist = await self._repo.get_history(bundle_id)
+        if hist is None:
+            raise EntityNotFoundError("ServiceRuleHistory", bundle_id)
+        if hist.service_code != code:
             raise InvalidInputError("service_code mismatch")
-        deleted = await self._repo.delete_bundle(bundle_id)
+        deleted = await self._repo.delete_history(bundle_id)
         if not deleted:
-            raise EntityNotFoundError("ServiceRuleBundle", bundle_id)
+            raise EntityNotFoundError("ServiceRuleHistory", bundle_id)
 
     def validate_yaml_text(self, *, yaml_text: str) -> dict[str, Any]:
         """Parse, normalize, and validate rules YAML without persisting."""

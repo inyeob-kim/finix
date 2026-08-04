@@ -28,7 +28,7 @@ def _tc(tid: int, *, method: str = "POST", endpoint: str = "/v1/x") -> TestCase:
         expected_status=200,
         expected_body_json="{}",
         step_index=0,
-        rule_bundle_id=None,
+        rule_history_id=None,
     )
 
 

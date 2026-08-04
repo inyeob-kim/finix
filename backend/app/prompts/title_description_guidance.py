@@ -7,18 +7,17 @@ import re
 TITLE_AND_DESCRIPTION_GUIDANCE = """\
 Title and description quality (CRITICAL for case list usability):
 
-Language (MANDATORY):
-- title and description MUST be written in Korean (한글).
-- Do NOT write title/description in English.
-- Keep technical identifiers as-is when needed (case_id, error_code, DTO/Java field names in evidence),
-  but the human-readable title and description sentences must be Korean.
+Language (preferred, not schema-enforced):
+- Prefer Korean (한글) title/description so business users can scan case lists easily.
+- English is acceptable when the source material is English-only; still write a clear business outcome.
+- Keep technical identifiers as-is when needed (case_id, error_code, DTO/Java field names in evidence).
 
 Quality goal:
 - A business user must understand each case from case_id + title alone, without opening YAML.
 - Descriptions explain WHY the case exists; titles state WHAT is tested and WHAT outcome is expected.
 
 TITLE rules — every title MUST be:
-- Korean, human-readable, business-oriented, actionable, and specific
+- Human-readable, business-oriented, actionable, and specific
 - Understandable in a testcase list scan (not only inside YAML details)
 
 Do NOT use vague titles such as:
@@ -28,9 +27,9 @@ Do NOT use vague titles such as:
 - "거래 처리"
 - "거래 출력 조립"
 - 맥락 없는 "입력 검증" / "필수값 검증"
-- English titles (e.g. "Missing payment date prevents transfer request")
+- Generic English labels (e.g. "Field validation", "Business rule enforcement")
 
-Preferred patterns (Korean):
+Preferred patterns (Korean examples; English equivalents OK):
 - Error (E): 업무 조건 + 거절/오류 결과
   - 약정 ID 누락 시 검증 오류를 반환한다
   - 이체 금액이 일일한도를 초과하면 거절된다
@@ -44,29 +43,28 @@ Preferred patterns (Korean):
 
 Field name rule:
 - Do NOT use raw DTO/Java field names as the primary title (e.g. pymntDt, arrIdNbr, ATR).
-- Translate to Korean business language:
+- Prefer business language over field codes:
   - Good: "지급일이 없으면 이체 요청이 거절된다"
   - Bad: "Validation of pymntDt" / "pymntDt 검증"
 
 DESCRIPTION rules — every description MUST:
-- Be Korean
 - Explain why the case exists and what business condition is validated
 - State what behavior the service should perform on success or failure
 - Be concise but meaningful; use business language
 - NOT repeat the title word-for-word (expand with context, trigger, and domain meaning)
 
-Good description examples (Korean):
+Good description examples:
 - "약정 ID가 없으면 이체 해지에 필요한 대상을 특정할 수 없어 요청을 거절한다."
 - "요청한 대출계좌의 상환스케줄 정보를 응답으로 반환한다."
 - "동일 고객·계좌 조합의 중복 등록을 차단한다."
 
 Source analysis (when inferring from code):
 - Infer business intent from validation logic, exceptions, and branches — not setter names alone
-- Prefer Korean business terminology over implementation terminology
+- Prefer Korean business terminology when the domain language is Korean
 - Consolidate multiple low-level checks into one cohesive business scenario with one title/description pair
 
 Fallback when intent is unclear:
-- Use the most user-understandable Korean explanation possible
+- Use the most user-understandable business explanation possible
 - Avoid framework/DI/internal wording in title and description
 """
 
@@ -141,59 +139,10 @@ def validate_rule_title_description(
     description: str,
 ) -> None:
     """
-    Raise InvalidInputError when title/description fail quality checks.
+    No-op for save/validate boundaries.
 
-    Used at YAML validate/save boundaries so LLM repair loops get actionable errors.
+    Title/description content quality lives in prompt guidance only.
+    Schema validation checks non-empty title/description elsewhere.
     """
-    from app.core.exceptions import InvalidInputError
-
-    t = _normalize_text(title)
-    d = _normalize_text(description)
-
-    if not t:
-        raise InvalidInputError(f"rules[{idx}].title이 필요합니다.")
-    if not d:
-        raise InvalidInputError(f"rules[{idx}].description이 필요합니다.")
-
-    if len(t) < _MIN_TITLE_LEN:
-        raise InvalidInputError(
-            f"rules[{idx}].title이 너무 짧습니다. 비즈니스 조건과 기대 결과를 담은 "
-            f"구체적인 한국어 문장으로 작성하세요 (최소 {_MIN_TITLE_LEN}자)."
-        )
-    if len(d) < _MIN_DESCRIPTION_LEN:
-        raise InvalidInputError(
-            f"rules[{idx}].description이 너무 짧습니다. 케이스 목적과 검증 이유를 "
-            f"한국어로 설명하세요 (최소 {_MIN_DESCRIPTION_LEN}자)."
-        )
-
-    if not has_hangul(t):
-        raise InvalidInputError(
-            f"rules[{idx}].title은 한국어로 작성해야 합니다: «{t}». "
-            "예: «지급일 누락 시 급여이체 요청이 거절된다», "
-            "«대출 조회 시 상환스케줄 목록을 반환한다»."
-        )
-    if not has_hangul(d):
-        raise InvalidInputError(
-            f"rules[{idx}].description은 한국어로 작성해야 합니다: «{d}». "
-            "케이스 목적과 업무 조건을 한국어로 구체적으로 설명하세요."
-        )
-
-    if is_vague_title(t):
-        raise InvalidInputError(
-            f"rules[{idx}].title이 모호하거나 필드 중심입니다: «{t}». "
-            "비즈니스 조건과 기대 결과(거절/성공)를 명확히 한국어로 적으세요. "
-            "예: «지급일 누락 시 이체 요청이 거절된다», "
-            "«대출 조회 시 상환스케줄 목록을 반환한다»."
-        )
-
-    if t.lower() == d.lower():
-        raise InvalidInputError(
-            f"rules[{idx}].description은 title과 동일할 수 없습니다. "
-            "왜 이 케이스가 필요한지, 어떤 업무 조건을 검증하는지 추가로 설명하세요."
-        )
-
-    if d.lower().startswith(t.lower()) and len(d) - len(t) < 15:
-        raise InvalidInputError(
-            f"rules[{idx}].description이 title을 거의 반복합니다. "
-            "업무 맥락·거절/성공 동작을 description에 구체적으로 작성하세요."
-        )
+    _ = (idx, title, description)
+    return

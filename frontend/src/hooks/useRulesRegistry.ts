@@ -21,6 +21,7 @@ export type RuleRegistryItem = {
   activeBundleVersion: number | null;
   draftBundleVersion: number | null;
   hasApproved: boolean;
+  hasDraft: boolean;
 };
 
 export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem {
@@ -40,14 +41,15 @@ export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem 
     lastUpdatedAt: at,
     lastUpdatedBy: r.last_updated_by ?? "—",
     isActive: r.is_active,
-    versionCount: r.version_count ?? 0,
+    versionCount: r.history_count ?? r.version_count ?? 0,
     activeBundleVersion: r.active_bundle_version ?? null,
     draftBundleVersion: r.draft_bundle_version ?? null,
     hasApproved: r.has_approved ?? false,
+    hasDraft: r.has_draft ?? false,
   };
 }
 
-/** Merge API bundle + optional registry row into the open edit-modal selection. */
+/** Merge API document + optional registry row into the open edit-modal selection. */
 export function mergeSelectedWithBundle(
   prev: RuleRegistryItem,
   bundle: ServiceRuleBundleReadDto,
@@ -59,8 +61,9 @@ export function mergeSelectedWithBundle(
       : null;
   const base = registryRow ?? prev;
   const status = bundle.status ?? prev.status;
+  const hasDraft = bundle.has_draft ?? status.toLowerCase() === "draft";
   const isActive =
-    bundle.is_active ?? status.toLowerCase() === "active";
+    bundle.is_active ?? (!hasDraft && status.toLowerCase() === "active");
   return {
     ...base,
     bundleId: bundle.id,
@@ -69,9 +72,11 @@ export function mergeSelectedWithBundle(
     rules: rulesArr?.length ?? base.rules,
     sourceVersion: bundle.source_version ?? base.sourceVersion,
     isActive,
-    activeBundleVersion: isActive
-      ? bundle.version
+    hasDraft,
+    activeBundleVersion: isActive || base.activeBundleVersion != null
+      ? (isActive ? 1 : base.activeBundleVersion)
       : base.activeBundleVersion,
+    draftBundleVersion: hasDraft ? 1 : null,
   };
 }
 
@@ -115,8 +120,10 @@ export function useRulesRegistry(params: {
     void load();
   }, [load]);
 
-  const activeCount = registry.filter((r) => r.activeBundleVersion != null).length;
-  const draftCount = registry.filter((r) => r.draftBundleVersion != null).length;
+  const activeCount = registry.filter(
+    (r) => r.activeBundleVersion != null || r.isActive,
+  ).length;
+  const draftCount = registry.filter((r) => r.hasDraft).length;
 
   return { registry, loading, error, load, activeCount, draftCount };
 }

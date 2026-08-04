@@ -137,7 +137,7 @@ Total Scenarios, AI Generated %, Success %, Coverage % — UI 계산값.
 | 버튼 | 설명 |
 |------|------|
 | 편집 | 상세 Dialog |
-| 삭제 (휴지통) | bundle DELETE |
+| 삭제 (휴지통) | 이력 스냅샷 DELETE |
 
 ### 상세 Dialog
 
@@ -145,10 +145,9 @@ Total Scenarios, AI Generated %, Success %, Coverage % — UI 계산값.
 |---------|------|
 | 메타 요약 | 코드, 이름, 규칙 수, 수정자 |
 | YAML 편집 | textarea |
-| 저장(드래프트) | POST draft |
+| 저장 | 작업본 upsert |
 | Export | YAML 파일 다운로드 |
-| 승인 | approve |
-| 활성화 | **Active** — TC materialize 필수 |
+| 적용 | 작업본 → 현재본 — TC materialize 필수 |
 | 닫기 | — |
 
 ### 소스 AI 모달

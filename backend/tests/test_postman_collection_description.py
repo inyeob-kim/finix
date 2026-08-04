@@ -29,7 +29,7 @@ def _tc(
         expected_status=200,
         expected_body_json="{}",
         step_index=step_index,
-        rule_bundle_id=None,
+        rule_history_id=None,
     )
 
 
@@ -54,21 +54,21 @@ def test_build_postman_collection_description_includes_flow_and_bindings():
         ],
     )
     text = build_postman_collection_description(
-        title="출금 시나리오",
-        prompt="고객 개설 후 출금",
+        title="출금 ?�나리오",
+        prompt="고객 개설 ??출금",
         testcases=[t1, t2],
         binding_map=binding_map,
         step_service_codes={0: "PY025", 1: "PY026"},
         postman_config=cfg,
         native=True,
     )
-    assert "# 출금 시나리오" in text
-    assert "고객 개설 후 출금" in text
-    assert "## 시나리오 흐름" in text
+    assert "# 출금 ?�나리오" in text
+    assert "고객 개설 ??출금" in text
+    assert "## ?�나리오 ?�름" in text
     assert "1. **PY025**" in text
     assert "extract `arrIdNbr`" in text
     assert "2. **PY026**" in text
-    assert "inject `$.arrIdNbr` ← `{{arrIdNbr}}`" in text
-    assert "## 시작 변수" in text
-    assert "`custNm` ← generator `uuid`" in text
+    assert "inject `$.arrIdNbr` ??`{{arrIdNbr}}`" in text
+    assert "## ?�작 변?? in text
+    assert "`custNm` ??generator `uuid`" in text
     assert "Collection Runner" in text

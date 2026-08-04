@@ -64,21 +64,23 @@ export function FinixScenarioStatusBadge({ status, className }: ScenarioProps) {
   );
 }
 
-/** Rules registry / version history status → tone + label. */
+/** Rules registry / history status → tone + label. */
 export function rulesRegistryStatusBadge(
   status: string,
   options?: { isActive?: boolean },
 ): { tone: FinixStatusTone; label: string } {
   const st = (status || "draft").toLowerCase();
   if (options?.isActive === true) {
-    return { tone: "success", label: "운영" };
+    return { tone: "success", label: "적용됨" };
   }
-  // History: persisted active row that is no longer the live bundle.
-  if (options?.isActive === false && st === "active") {
-    return { tone: "neutral", label: "운영 (구버전)" };
+  if (st === "history" || (options?.isActive === false && st === "active")) {
+    return { tone: "neutral", label: "이력" };
   }
   if (st === "active") {
-    return { tone: "success", label: "운영" };
+    return { tone: "success", label: "적용됨" };
+  }
+  if (st === "apply" || st === "restore" || st === "migrate") {
+    return { tone: "muted", label: st === "restore" ? "복원" : st === "migrate" ? "이관" : "적용" };
   }
   if (st === "approved") {
     return { tone: "muted", label: "승인됨" };
@@ -86,7 +88,7 @@ export function rulesRegistryStatusBadge(
   if (st === "superseded") {
     return { tone: "muted", label: "대체됨" };
   }
-  return { tone: "warning", label: "초안" };
+  return { tone: "warning", label: "작업 중" };
 }
 
 type ExecutionStatus = "running" | "success" | "failed";

@@ -24,7 +24,7 @@ def _tc(
         expected_status=status,
         expected_body_json="{}",
         step_index=step_index,
-        rule_bundle_id=None,
+        rule_history_id=None,
     )
 
 
