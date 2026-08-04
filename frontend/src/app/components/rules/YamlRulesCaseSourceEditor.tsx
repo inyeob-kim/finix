@@ -49,6 +49,7 @@ export function YamlRulesCaseSourceEditor({
   const [jumpSignal, setJumpSignal] = useState(0);
   const [jumpLine, setJumpLine] = useState<number | null>(null);
   const skipCaseSyncRef = useRef(false);
+  const prevRulesLenRef = useRef(rules.length);
   const selectedRuleIndex = selection.kind === "rule" ? selection.index : -1;
 
   const selectDocument = () => {
@@ -64,11 +65,20 @@ export function YamlRulesCaseSourceEditor({
   };
 
   useEffect(() => {
-    if (selectedRuleIndex < 0) return;
+    const prevLen = prevRulesLenRef.current;
+    prevRulesLenRef.current = rules.length;
+
     if (rules.length === 0) {
       setSelection({ kind: "document" });
       return;
     }
+
+    // Modal often opens with empty yaml then loads — pick first case once rules appear.
+    if (prevLen === 0 && rules.length > 0) {
+      setSelection({ kind: "rule", index: 0 });
+      return;
+    }
+
     if (selectedRuleIndex >= rules.length) {
       setSelection({ kind: "rule", index: rules.length - 1 });
     }

@@ -23,7 +23,10 @@ Your task is to analyze Postman HTTP request candidates for ONE service and gene
    - English is acceptable ONLY if the original request has no Korean context.
 4. Input Constraints:
    - Do NOT invent or fabricate input body fields. The system will merge Postman body values with DTO skeletons automatically.
-5. Strict Output Formatting:
+5. Error codes:
+   - For rule_type "E", set expect_hint.error_code ONLY when the Postman test/name/description clearly states a concrete code (e.g. messageId / AAPCME0006).
+   - Otherwise set error_code to null (do not invent codes).
+6. Strict Output Formatting:
    - Output MUST be valid JSON only.
    - Do NOT include markdown formatting, code block backticks (```json), or conversational filler.
 

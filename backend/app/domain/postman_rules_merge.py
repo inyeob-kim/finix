@@ -28,6 +28,11 @@ _ERROR_FOLDER_RE = re.compile(
     re.IGNORECASE,
 )
 _MACRO_RE = re.compile(r"\{\{[^{}]+\}\}")
+_POSTMAN_ERROR_CODE_RE = re.compile(
+    r"(?:messageId|error[_]?code|errorCode)\s*[:=)]?\s*['\"]([A-Z][A-Z0-9_]{3,})['\"]"
+    r"|['\"]([A-Z]{2,}[A-Z0-9]*E\d{3,5})['\"]",
+    re.IGNORECASE,
+)
 
 
 def _looks_like_error_case(candidate: PostmanRequestCandidate) -> bool:
@@ -87,12 +92,37 @@ def _apply_input_strategy(
     return merge_skeleton_overlay(skeleton, {**base, **body})
 
 
-def _primary_candidate(
-    candidates: list[PostmanRequestCandidate], indices: list[int]
+def reindex_candidates(
+    candidates: list[PostmanRequestCandidate],
+) -> list[PostmanRequestCandidate]:
+    """Renumber ``index`` to 0..n-1 for a per-service candidate group.
+
+    Collection-wide indices must not be used as list positions after grouping.
+    """
+    return [
+        PostmanRequestCandidate(
+            index=i,
+            name=c.name,
+            folder=c.folder,
+            method=c.method,
+            path=c.path,
+            body=c.body,
+            description=c.description,
+            test_script_excerpt=c.test_script_excerpt,
+        )
+        for i, c in enumerate(candidates)
+    ]
+
+
+def _lookup_candidate(
+    candidates: list[PostmanRequestCandidate], index: int
 ) -> PostmanRequestCandidate | None:
-    for i in indices:
-        if 0 <= i < len(candidates):
-            return candidates[i]
+    """Resolve by ``candidate.index`` first; fall back to list position."""
+    for c in candidates:
+        if c.index == index:
+            return c
+    if 0 <= index < len(candidates):
+        return candidates[index]
     return None
 
 
@@ -101,10 +131,12 @@ def _merged_body(
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for i in indices:
-        if 0 <= i < len(candidates):
-            body = candidates[i].body
-            if isinstance(body, dict):
-                merged.update(body)
+        found = _lookup_candidate(candidates, i)
+        if found is None:
+            continue
+        body = found.body
+        if isinstance(body, dict):
+            merged.update(body)
     return merged
 
 
@@ -135,9 +167,10 @@ def _resolve_postman_body(
     if body:
         return body
     for i in indices:
-        if not (0 <= i < len(candidates)):
+        c = _lookup_candidate(candidates, i)
+        if c is None:
+            notes.append(f"candidate index {i} not found in service group")
             continue
-        c = candidates[i]
         sibling = _sibling_body_same_path(
             candidates, path=c.path, exclude_index=c.index
         )
@@ -153,18 +186,81 @@ def _resolve_postman_body(
     return {}
 
 
-def _expect_from_hint(hint: ExpectHint, rule_type: str) -> dict[str, Any]:
+def _normalize_outcome(raw: str | None, *, rule_type: str) -> str:
+    """Coerce AI/Postman outcome hints to schema ``error|success``."""
+    text = (raw or "").strip().lower()
+    if text in {"error", "success"}:
+        return text
+    if text in {
+        "fail",
+        "failed",
+        "failure",
+        "reject",
+        "rejected",
+        "rejection",
+        "invalid",
+        "exception",
+        "negative",
+        "err",
+        "false",
+        "거절",
+        "실패",
+        "오류",
+    }:
+        return "error"
+    if text in {
+        "ok",
+        "pass",
+        "passed",
+        "happy",
+        "normal",
+        "true",
+        "성공",
+        "정상",
+    }:
+        return "success"
+    return "error" if rule_type == "E" else "success"
+
+
+def _extract_error_code_from_text(*parts: str) -> str | None:
+    blob = "\n".join(p for p in parts if p)
+    if not blob.strip():
+        return None
+    m = _POSTMAN_ERROR_CODE_RE.search(blob)
+    if not m:
+        return None
+    return (m.group(1) or m.group(2) or "").strip() or None
+
+
+def _expect_from_hint(
+    hint: ExpectHint,
+    rule_type: str,
+    *,
+    candidate: PostmanRequestCandidate | None = None,
+) -> dict[str, Any]:
     expect: dict[str, Any] = {}
-    outcome = (hint.outcome or "").strip().lower()
-    if not outcome:
-        outcome = "error" if rule_type == "E" else "success"
-    expect["outcome"] = outcome
-    if hint.error_code:
-        expect["error_code"] = hint.error_code
+    expect["outcome"] = _normalize_outcome(hint.outcome, rule_type=rule_type)
+    error_code = (hint.error_code or "").strip() if hint.error_code else ""
+    if not error_code and candidate is not None and rule_type == "E":
+        error_code = (
+            _extract_error_code_from_text(
+                candidate.test_script_excerpt,
+                candidate.description,
+                candidate.name,
+            )
+            or ""
+        )
+    if rule_type == "E":
+        # null allowed for draft/Postman until a concrete CBS code is known
+        expect["error_code"] = error_code or None
+    elif error_code:
+        expect["error_code"] = error_code
     if hint.http_status is not None:
         expect["http_status"] = hint.http_status
     elif rule_type == "N":
         expect["http_status"] = 200
+    elif rule_type == "E":
+        expect["http_status"] = 400
     if rule_type == "N" and "validation_target" not in expect:
         expect["validation_target"] = "response matches expected outcome"
     return expect
@@ -218,14 +314,21 @@ def apply_create_plan(
     notes: list[str] = []
 
     for spec in effective.cases:
-        indices = [i for i in spec.candidate_indices if 0 <= i < len(candidates)]
+        ordered: list[PostmanRequestCandidate] = []
+        seen: set[int] = set()
+        for i in spec.candidate_indices:
+            found = _lookup_candidate(candidates, i)
+            if found is None or found.index in seen:
+                continue
+            seen.add(found.index)
+            ordered.append(found)
+        indices = [c.index for c in ordered]
         if not indices:
             notes.append("skipped create case with invalid candidate_indices")
             continue
         if not (spec.title or "").strip():
             notes.append(f"empty title for candidates {indices}; used fallback name")
-        primary = _primary_candidate(candidates, indices)
-        assert primary is not None
+        primary = ordered[0]
         for i in indices:
             covered.add(i)
         rule_type = spec.rule_type if spec.rule_type in {"E", "N"} else "N"
@@ -247,7 +350,9 @@ def apply_create_plan(
                 base_input={},
                 postman_body=body,
             ),
-            "expect": _expect_from_hint(spec.expect_hint, rule_type),
+            "expect": _expect_from_hint(
+                spec.expect_hint, rule_type, candidate=primary
+            ),
             "assertions": [],
             "source_evidence": _source_evidence(primary),
         }
@@ -277,7 +382,9 @@ def apply_create_plan(
                     postman_body=body,
                 ),
                 "expect": _expect_from_hint(
-                    ExpectHint(outcome="success", http_status=200), rule_type
+                    ExpectHint(outcome="success", http_status=200),
+                    rule_type,
+                    candidate=c,
                 ),
                 "assertions": [],
                 "source_evidence": _source_evidence(c),
@@ -469,7 +576,11 @@ def apply_merge_plan(
                 base_input={},
                 postman_body=body,
             ),
-            "expect": _expect_from_hint(ExpectHint(outcome="success", http_status=200), "N"),
+            "expect": _expect_from_hint(
+                ExpectHint(outcome="success", http_status=200),
+                "N",
+                candidate=cand,
+            ),
             "assertions": [],
             "source_evidence": _source_evidence(cand),
         }

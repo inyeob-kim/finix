@@ -5,8 +5,10 @@ import pytest
 from app.domain.dynamic_macro_resolver import (
     evaluate_macro,
     is_macro_string,
+    looks_like_finix_macro,
     parse_macro,
     resolve_mapping,
+    validate_input_macros,
     validate_macro_or_raise,
 )
 
@@ -32,10 +34,25 @@ def test_parse_date_and_generator():
     assert g is not None and g.fn == "ssn"
 
 
+def test_parse_extended_generators():
+    assert parse_macro("{{$generator.uuid()}}").fn == "uuid"
+    assert parse_macro("{{$generator.random_digits()}}").fn == "random_digits"
+    assert parse_macro("{{$generator.my_shared_gen()}}").fn == "my_shared_gen"
+    assert parse_macro("{{$generator.korean_name()}}").fn == "korean_name"
+
+
 def test_is_macro_string():
     assert is_macro_string("{{pool.a}}")
     assert not is_macro_string("plain")
     assert not is_macro_string(None)
+    assert not is_macro_string("{{custId}}")
+
+
+def test_looks_like_finix_macro_ignores_postman_vars():
+    assert looks_like_finix_macro("{{pool.a}}")
+    assert looks_like_finix_macro("{{$generator.uuid()}}")
+    assert not looks_like_finix_macro("{{custId}}")
+    assert not looks_like_finix_macro("plain")
 
 
 def test_evaluate_context_and_pool():
@@ -43,6 +60,19 @@ def test_evaluate_context_and_pool():
     assert evaluate_macro("{{pool.staffId}}", pool_fields={"staffId": "S1"}) == "S1"
     with pytest.raises(KeyError):
         evaluate_macro("{{pool.missing}}", pool_fields={})
+
+
+def test_evaluate_date_and_generator_builtins():
+    today = evaluate_macro("{{$date.today()}}")
+    assert isinstance(today, str) and len(today) == 8 and today.isdigit()
+    uid = evaluate_macro("{{$generator.uuid()}}")
+    assert isinstance(uid, str) and len(uid) >= 32
+    name = evaluate_macro("{{$generator.name()}}")
+    assert isinstance(name, str) and len(name) >= 2
+    assert (
+        evaluate_macro("{{pool.missing}}", pool_fields={}, on_missing="keep")
+        == "{{pool.missing}}"
+    )
 
 
 def test_resolve_mapping_nested():
@@ -54,6 +84,28 @@ def test_resolve_mapping_nested():
     assert out == {"a": "px", "b": {"c": 9}, "z": 1}
 
 
+def test_resolve_mapping_resolves_date():
+    out = resolve_mapping({"pymntDt": "{{$date.today()}}", "z": 1})
+    assert out["z"] == 1
+    assert isinstance(out["pymntDt"], str) and out["pymntDt"].isdigit()
+
+
+
 def test_validate_unknown():
     with pytest.raises(ValueError):
         validate_macro_or_raise("{{unknown.x}}")
+
+
+def test_validate_input_macros_walk():
+    errs = validate_input_macros(
+        {
+            "custId": "{{custId}}",
+            "pymntDt": "{{$date.today()}}",
+            "bad": "{{$generator.}}",
+            "nested": {"x": "{{$date.nope()}}"},
+        }
+    )
+    assert any("bad" in e for e in errs)
+    assert any("nested.x" in e for e in errs)
+    assert not any("custId" in e for e in errs)
+    assert validate_input_macros({"pymntDt": "{{$date.today()}}"}) == []

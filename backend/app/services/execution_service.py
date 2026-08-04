@@ -152,6 +152,7 @@ class ExecutionService:
             steps_json=scenario.steps_json,
             initial_context=initial_context,
             simulate_response=response_fn,
+            generator_catalog=catalog,
         )
         passed = 0
         failed = 0

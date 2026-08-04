@@ -100,3 +100,15 @@ def test_missing_inject_var_warns():
     tc = _tc(1, step_index=0, body={})
     preview = resolve_scenario_run([tc], steps_json=steps_json)
     assert preview.steps[0].inject_warnings
+
+
+def test_resolves_yaml_dynamic_macros():
+    tc = _tc(
+        1,
+        step_index=0,
+        body={"pymntDt": "{{$date.today()}}", "traceId": "{{$generator.uuid()}}"},
+    )
+    preview = resolve_scenario_run([tc], steps_json="[]")
+    body = preview.steps[0].resolved_request_body
+    assert isinstance(body["pymntDt"], str) and body["pymntDt"].isdigit()
+    assert isinstance(body["traceId"], str) and len(body["traceId"]) >= 32

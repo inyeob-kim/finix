@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from app.domain.collection_var_generators import CatalogGeneratorSpec
+from app.domain.dynamic_macro_resolver import resolve_mapping
 from app.domain.scenario_bindings import (
     ExtractSpec,
     InjectSpec,
@@ -83,12 +85,18 @@ def resolve_scenario_run(
         [TestCase, dict[str, Any]], StepHttpResult | tuple[int, Any]
     ]
     | None = None,
+    generator_catalog: dict[str, CatalogGeneratorSpec] | None = None,
+    pool_fields: dict[str, Any] | None = None,
 ) -> ScenarioResolvePreview:
     """
-    Walk testcases in order; apply injects per logical step; optionally simulate responses for extracts.
+    Walk testcases in order; resolve YAML macros, apply injects; optionally run responses.
 
-    When ``simulate_response`` is provided, context is updated after each testcase using that step's
-    extract specs (stub or real HTTP). When omitted, only inject resolution runs.
+    Order per step:
+    1. Load template body
+    2. Resolve Finix dynamic macros (date/generator/pool/context)
+    3. Apply scenario overrides
+    4. Apply injects from context
+    5. Optional HTTP / simulate for extracts
     """
     bindings = bindings_by_logical_step(steps_json)
     context: dict[str, Any] = dict(initial_context or {})
@@ -102,7 +110,22 @@ def resolve_scenario_run(
         template = raw_body if isinstance(raw_body, dict) else {}
         exp_raw = loads_json(tc.expected_body_json, {})
         expected_resp = exp_raw if isinstance(exp_raw, dict) else {}
-        body_after_overrides = apply_overrides(template, overrides)
+
+        macro_warnings: list[str] = []
+        body_after_macros = resolve_mapping(
+            template,
+            context=context,
+            pool_fields=pool_fields,
+            catalog=generator_catalog,
+            on_missing="keep",
+            warnings=macro_warnings,
+        )
+        if macro_warnings:
+            global_warnings.extend(
+                f"Step {logical_step + 1}: {w}" for w in macro_warnings
+            )
+
+        body_after_overrides = apply_overrides(body_after_macros, overrides)
         resolved_body, inject_warnings = apply_injects(
             body_after_overrides,
             context,
@@ -140,7 +163,7 @@ def resolve_scenario_run(
                 endpoint=tc.endpoint,
                 template_request_body=template,
                 resolved_request_body=resolved_body,
-                inject_warnings=list(inject_warnings),
+                inject_warnings=list(inject_warnings) + list(macro_warnings),
                 expected_status=tc.expected_status,
                 expected_response_body=expected_resp,
                 actual_status=actual_status,

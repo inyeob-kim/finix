@@ -5,8 +5,6 @@ import {
   LITERAL_GENERATOR_MODE,
   filterGeneratorPickerOptions,
   labelForGeneratorMode,
-  loadRecentGeneratorKeys,
-  pushRecentGeneratorKey,
   toGeneratorPickerOptions,
   type GeneratorPickerOption,
 } from "@/lib/collectionVarGeneratorPicker";
@@ -19,6 +17,10 @@ type Props = {
   onValueChange: (mode: string) => void;
   loading?: boolean;
   disabled?: boolean;
+  /** popover = scenario dialog; inline = YAML helper (search list always visible). */
+  variant?: "popover" | "inline";
+  /** Include 「고정값」 row (scenario only). */
+  includeLiteral?: boolean;
 };
 
 function OptionRow({
@@ -63,27 +65,17 @@ export function CollectionVarGeneratorPicker({
   onValueChange,
   loading = false,
   disabled = false,
+  variant = "popover",
+  includeLiteral,
 }: Props) {
+  const showLiteral = includeLiteral ?? variant === "popover";
   const options = useMemo(() => toGeneratorPickerOptions(catalog), [catalog]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [recentKeys, setRecentKeys] = useState<string[]>(() =>
-    loadRecentGeneratorKeys(),
-  );
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setRecentKeys(loadRecentGeneratorKeys());
-  }, [value, catalog]);
-
-  const recentOptions = useMemo(() => {
-    const byKey = new Map(options.map((o) => [o.key, o] as const));
-    return recentKeys
-      .map((k) => byKey.get(k))
-      .filter((o): o is GeneratorPickerOption => o != null);
-  }, [options, recentKeys]);
+  const inline = variant === "inline";
 
   const filtered = useMemo(
     () => filterGeneratorPickerOptions(options, query),
@@ -100,43 +92,46 @@ export function CollectionVarGeneratorPicker({
   );
 
   const flatList = useMemo(() => {
-    const rows: Array<{ kind: "literal" } | { kind: "option"; option: GeneratorPickerOption }> =
-      [];
+    const rows: Array<
+      { kind: "literal" } | { kind: "option"; option: GeneratorPickerOption }
+    > = [];
     const q = query.trim().toLowerCase();
     const literalMatches =
-      !q ||
-      "고정값".includes(q) ||
-      "literal".includes(q) ||
-      "고정".includes(q);
+      showLiteral &&
+      (!q ||
+        "고정값".includes(q) ||
+        "literal".includes(q) ||
+        "고정".includes(q));
     if (literalMatches) rows.push({ kind: "literal" });
     for (const o of filtered) rows.push({ kind: "option", option: o });
     return rows;
-  }, [filtered, query]);
+  }, [filtered, query, showLiteral]);
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query, open]);
+  }, [query, open, inline]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !inline) return;
     const el = listRef.current?.querySelector<HTMLElement>(
       `[data-option-index="${activeIndex}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex, open]);
+  }, [activeIndex, open, inline]);
 
   useEffect(() => {
+    if (inline) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
     if (!open) return;
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open]);
+  }, [open, inline]);
 
   const pick = (mode: string) => {
     onValueChange(mode);
-    if (mode !== LITERAL_GENERATOR_MODE) {
-      setRecentKeys(pushRecentGeneratorKey(mode));
-    }
     setQuery("");
-    setOpen(false);
+    if (!inline) setOpen(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -158,86 +153,47 @@ export function CollectionVarGeneratorPicker({
       pick(row.kind === "literal" ? LITERAL_GENERATOR_MODE : row.option.key);
       return;
     }
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !inline) {
       e.preventDefault();
       setQuery("");
       setOpen(false);
     }
   };
 
-  const triggerLabel = loading
-    ? "불러오는 중…"
-    : labelForGeneratorMode(value, options);
-
-  return (
-    <div className="space-y-1.5">
-      {recentOptions.length > 0 && !open ? (
-        <div className="flex flex-wrap gap-1">
-          {recentOptions.slice(0, 5).map((o) => (
-            <button
-              key={o.key}
-              type="button"
-              disabled={disabled || loading}
-              className={cn(
-                "rounded-sm border px-1.5 py-0.5 text-[10px] font-medium",
-                value === o.key
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground",
-              )}
-              title={o.hint ?? o.description ?? o.key}
-              onClick={() => pick(o.key)}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <Popover open={open} onOpenChange={setOpen} modal>
-        <PopoverAnchor asChild>
-          <button
-            type="button"
-            disabled={disabled || loading}
-            className={cn(
-              "h-9 w-full rounded-sm border border-border bg-background px-2 text-xs",
-              "inline-flex items-center justify-between gap-2 outline-none",
-              "focus:ring-1 focus:ring-primary/30 disabled:opacity-50",
-            )}
-            onClick={() => setOpen(true)}
-            aria-label="값 출처 선택"
-          >
-            <span className="truncate text-left">{triggerLabel}</span>
-            <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
-          </button>
-        </PopoverAnchor>
-        <PopoverContent
-          align="start"
-          className="w-[var(--radix-popover-trigger-width)] p-0"
-          onOpenAutoFocus={(e) => e.preventDefault()}
-        >
-          <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
-            <Search className="size-3.5 shrink-0 text-muted-foreground" />
-            <input
-              ref={inputRef}
-              className="h-7 w-full bg-transparent text-xs outline-none"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="생성기 검색 (이름·key)"
-              spellCheck={false}
-            />
-          </div>
-          <ul
-            ref={listRef}
-            role="listbox"
-            className="max-h-56 overflow-y-auto p-1 space-y-0.5"
-          >
-            {flatList.length === 0 ? (
-              <li className="px-2.5 py-2 text-[11px] text-muted-foreground">
-                검색 결과 없음
-              </li>
-            ) : null}
-            {flatList.map((row, index) => {
+  const listBody = (
+    <>
+      <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
+        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          className="h-7 w-full bg-transparent text-xs outline-none"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="생성기 검색 (이름·key)"
+          spellCheck={false}
+          disabled={disabled || loading}
+        />
+      </div>
+      <ul
+        ref={listRef}
+        role="listbox"
+        className={cn(
+          "overflow-y-auto p-1 space-y-0.5",
+          inline ? "max-h-44" : "max-h-56",
+        )}
+      >
+        {loading ? (
+          <li className="px-2.5 py-2 text-[11px] text-muted-foreground">
+            불러오는 중…
+          </li>
+        ) : flatList.length === 0 ? (
+          <li className="px-2.5 py-2 text-[11px] text-muted-foreground">
+            검색 결과 없음
+          </li>
+        ) : null}
+        {!loading
+          ? flatList.map((row, index) => {
               if (row.kind === "literal") {
                 return (
                   <li
@@ -276,16 +232,54 @@ export function CollectionVarGeneratorPicker({
                   onPick={() => pick(row.option.key)}
                 />
               );
-            })}
-          </ul>
-          {!query.trim() && (builtin.length > 0 || shared.length > 0) ? (
-            <p className="border-t border-border px-2.5 py-1.5 text-[10px] text-muted-foreground">
-              내장 {builtin.length} · 공유 {shared.length}
-              {recentOptions.length > 0
-                ? ` · 최근 ${recentOptions.length}`
-                : ""}
-            </p>
-          ) : null}
+            })
+          : null}
+      </ul>
+      {!query.trim() && (builtin.length > 0 || shared.length > 0) ? (
+        <p className="border-t border-border px-2.5 py-1.5 text-[10px] text-muted-foreground">
+          내장 {builtin.length} · 공유 {shared.length}
+        </p>
+      ) : null}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="rounded-sm border border-border overflow-hidden bg-background">
+        {listBody}
+      </div>
+    );
+  }
+
+  const triggerLabel = loading
+    ? "불러오는 중…"
+    : labelForGeneratorMode(value, options);
+
+  return (
+    <div>
+      <Popover open={open} onOpenChange={setOpen} modal>
+        <PopoverAnchor asChild>
+          <button
+            type="button"
+            disabled={disabled || loading}
+            className={cn(
+              "h-9 w-full rounded-sm border border-border bg-background px-2 text-xs",
+              "inline-flex items-center justify-between gap-2 outline-none",
+              "focus:ring-1 focus:ring-primary/30 disabled:opacity-50",
+            )}
+            onClick={() => setOpen(true)}
+            aria-label="값 출처 선택"
+          >
+            <span className="truncate text-left">{triggerLabel}</span>
+            <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+          </button>
+        </PopoverAnchor>
+        <PopoverContent
+          align="start"
+          className="w-[var(--radix-popover-trigger-width)] p-0"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          {listBody}
         </PopoverContent>
       </Popover>
     </div>

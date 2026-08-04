@@ -13,6 +13,7 @@ import yaml
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
+from app.domain.dynamic_macro_resolver import validate_input_macros
 from app.models.service_rule_current import ServiceRuleCurrent
 from app.models.service_rule_history import ServiceRuleHistory
 from app.repositories.service_rules_repo import ServiceRulesRepository
@@ -261,6 +262,9 @@ def _validate_one_rule(idx: int, r: dict[str, Any], seen: set[str]) -> None:
     rule_input = r.get("input")
     if not isinstance(rule_input, dict):
         raise InvalidInputError(f"rules[{idx}].input은 object(map) 형태여야 합니다.")
+    macro_errors = validate_input_macros(rule_input, path=f"rules[{idx}].input")
+    if macro_errors:
+        raise InvalidInputError(macro_errors[0])
 
     for meta_key in ("extract", "use"):
         block = r.get(meta_key)
@@ -310,11 +314,15 @@ def _validate_one_rule(idx: int, r: dict[str, Any], seen: set[str]) -> None:
 
     if rtype_norm == "E":
         error_code = expect.get("error_code")
-        if not (isinstance(error_code, str) and error_code.strip()):
+        has_error_code = isinstance(error_code, str) and bool(error_code.strip())
+        # Draft/Postman E cases often know "should fail" but not the CBS code yet.
+        # Require a concrete code only when assertions claim to verify one.
+        if assertions and not has_error_code:
             raise InvalidInputError(
-                f"rules[{idx}].expect.error_code가 필요합니다 (rule_type=E)."
+                f"rules[{idx}].expect.error_code가 필요합니다 "
+                "(rule_type=E 이고 assertions가 있을 때)."
             )
-        if assertions:
+        if has_error_code and assertions:
             first = assertions[0] if assertions else None
             if isinstance(first, dict):
                 first_value = first.get("value")

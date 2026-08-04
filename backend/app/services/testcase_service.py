@@ -88,7 +88,7 @@ class TestCaseService:
             if current is not None and current.has_draft and not current.has_applied:
                 return (
                     f"{code}: 작업본만 있고 적용된 규칙이 없습니다. "
-                    "규칙/메타 관리에서 「적용」한 뒤 다시 「YAML에서 생성」을 실행하세요."
+                    "규칙/메타 관리에서 「적용」한 뒤 다시 「테스트케이스 생성」을 실행하세요."
                 )
             history = await self._service_rules_repo.list_versions(code)
             with_rules = [
@@ -98,7 +98,7 @@ class TestCaseService:
                 return (
                     f"{code}: YAML 이력은 있으나 적용된 현재본이 없습니다. "
                     "규칙/메타 관리에서 작업본을 적용하거나 이력에서 복원한 뒤 "
-                    "다시 「YAML에서 생성」을 실행하세요."
+                    "다시 「테스트케이스 생성」을 실행하세요."
                 )
             if history and active is None:
                 return (
@@ -480,6 +480,10 @@ class TestCaseService:
         body_raw = request_body if request_body is not None else loads_json(
             testcase.request_body_json, {},
         )
+        if request_body is None and isinstance(body_raw, dict):
+            from app.domain.dynamic_macro_resolver import resolve_mapping
+
+            body_raw = resolve_mapping(body_raw, on_missing="keep")
         headers = (
             request_headers
             if request_headers is not None
@@ -566,12 +570,14 @@ class TestCaseService:
                 testcases,
                 steps_json=steps_json,
                 simulate_response=simulate_response,
+                generator_catalog=catalog,
             )
         elif resolved and use_native:
             preview = resolve_scenario_run(
                 testcases,
                 steps_json=steps_json,
                 simulate_response=None,
+                generator_catalog=catalog,
             )
 
         binding_map = bindings_by_logical_step(steps_json)
@@ -713,5 +719,10 @@ class TestCaseService:
         row = next((r for r in preview.steps if r.testcase_id == testcase_id), None)
         if row is None:
             tc = await self.get_testcase(testcase_id)
-            return loads_json(tc.request_body_json, {})
+            raw = loads_json(tc.request_body_json, {})
+            if isinstance(raw, dict):
+                from app.domain.dynamic_macro_resolver import resolve_mapping
+
+                return resolve_mapping(raw, on_missing="keep")
+            return raw
         return row.resolved_request_body

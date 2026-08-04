@@ -15,7 +15,11 @@ from app.domain.postman_collection_parse import (
     PostmanRequestCandidate,
     parse_collection_requests,
 )
-from app.domain.postman_rules_merge import apply_create_plan, apply_merge_plan
+from app.domain.postman_rules_merge import (
+    apply_create_plan,
+    apply_merge_plan,
+    reindex_candidates,
+)
 from app.domain.postman_rules_plans import CreatePlan, MergePlan
 from app.domain.service_uri_match import match_service_code
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
@@ -157,7 +161,9 @@ class PostmanRulesImportService:
             work.append(
                 _ServiceWork(
                     code=code,
-                    items=items,
+                    # Remap collection-wide indices → 0..n-1 for this service group
+                    # so AI plans and apply_create/merge share the same index space.
+                    items=reindex_candidates(items),
                     mode=mode,
                     service_name=service_name,
                     skeleton=skeleton,

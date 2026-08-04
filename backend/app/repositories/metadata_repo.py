@@ -13,6 +13,16 @@ from app.models.testcase import TestCase
 _UNSET = object()
 
 
+def _service_pool_name_filters(code: str):
+    """SQL filters for current + legacy materialized name shapes."""
+    return or_(
+        TestCase.name.startswith(f"{code} "),
+        TestCase.name.startswith(f"[E] {code}-"),
+        TestCase.name.startswith(f"[N] {code}-"),
+        TestCase.name.like(f"[%] {code}-%"),
+    )
+
+
 class MetadataRepository:
     """Repository for domain entities stored as structured metadata rows."""
 
@@ -160,11 +170,10 @@ class MetadataRepository:
     async def list_testcases_for_service_code(
         self, service_code: str, *, limit: int = 200
     ) -> list[TestCase]:
-        """Return persisted HTTP test cases tied to a service (name prefix or rule history)."""
+        """Return persisted HTTP test cases tied to a service (name or rule history)."""
         code = (service_code or "").strip()
         if not code:
             return []
-        prefix = f"{code} "
         stmt = (
             select(TestCase)
             .outerjoin(
@@ -173,7 +182,7 @@ class MetadataRepository:
             )
             .where(
                 or_(
-                    TestCase.name.startswith(prefix),
+                    _service_pool_name_filters(code),
                     ServiceRuleHistory.service_code == code,
                 )
             )
@@ -247,7 +256,6 @@ class MetadataRepository:
         code = (service_code or "").strip()
         if not code:
             return 0
-        prefix = f"{code} "
         history_id_subq = select(ServiceRuleHistory.id).where(
             ServiceRuleHistory.service_code == code
         )
@@ -255,7 +263,7 @@ class MetadataRepository:
             delete(TestCase).where(
                 TestCase.scenario_id.is_(None),
                 or_(
-                    TestCase.name.startswith(prefix),
+                    _service_pool_name_filters(code),
                     TestCase.rule_history_id.in_(history_id_subq),
                 ),
             )

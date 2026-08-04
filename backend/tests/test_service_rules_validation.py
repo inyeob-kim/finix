@@ -195,6 +195,83 @@ rules:
         raise AssertionError("expected InvalidInputError")
 
 
+def test_validate_allows_e_without_error_code_when_assertions_empty():
+    """Postman import often knows the case is E but not the CBS messageId yet."""
+    yaml_text = f"""
+service_code: PY016
+rules:
+  - case_id: PY016-E-001
+    rule_type: E
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
+    input: {{}}
+    expect:
+      outcome: error
+      error_code: null
+      http_status: 400
+    assertions: []
+    tags: ["input"]
+    source_evidence:
+      method: postman_import
+      snippet: "Validation / MissingRequired"
+{_case_rule("PY016-N-001", "N", tags='["business"]')}
+"""
+    _, payload = validate_and_prepare_yaml(yaml_text)
+    assert payload["rules"][0]["expect"].get("error_code") is None
+
+
+def test_validate_rejects_invalid_finix_macro_but_allows_postman_vars():
+    bad = f"""
+service_code: PY016
+rules:
+  - case_id: PY016-N-001
+    rule_type: N
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
+    input:
+      pymntDt: "{{{{$date.nope()}}}}"
+    expect:
+      outcome: success
+      http_status: 200
+      validation_target: ok
+    assertions: []
+    tags: ["business"]
+    source_evidence:
+      method: m
+      snippet: ok
+"""
+    try:
+        validate_and_prepare_yaml(bad)
+    except InvalidInputError as e:
+        assert "매크로" in str(e) or "$date" in str(e)
+    else:
+        raise AssertionError("expected InvalidInputError")
+
+    ok = f"""
+service_code: PY016
+rules:
+  - case_id: PY016-N-001
+    rule_type: N
+    title: {_GOOD_TITLE}
+    description: {_GOOD_DESC}
+    input:
+      custId: "{{{{custId}}}}"
+      pymntDt: "{{{{$date.today()}}}}"
+    expect:
+      outcome: success
+      http_status: 200
+      validation_target: ok
+    assertions: []
+    tags: ["business"]
+    source_evidence:
+      method: m
+      snippet: ok
+"""
+    _, payload = validate_and_prepare_yaml(ok)
+    assert payload["rules"][0]["input"]["custId"] == "{{custId}}"
+    assert payload["rules"][0]["input"]["pymntDt"] == "{{$date.today()}}"
+
+
 def test_truncate_source_evidence_snippet():
     long_snippet = "x" * 300
     payload = {
@@ -275,19 +352,16 @@ rules:
         raise AssertionError("expected InvalidInputError")
 
 
-def test_validate_requires_both_rule_types():
-    try:
-        validate_and_prepare_yaml(
-            f"""
+def test_validate_allows_e_only_rule_types():
+    canonical, payload = validate_and_prepare_yaml(
+        f"""
 service_code: PY016
 rules:
 {_case_rule("PY016-E-001", "E")}
 """
-        )
-    except InvalidInputError as e:
-        assert "누락" in str(e)
-    else:
-        raise AssertionError("expected InvalidInputError")
+    )
+    assert payload["rules"][0]["rule_type"] == "E"
+    assert "PY016-E-001" in canonical
 
 
 def test_normalize_legacy_rule_fields_maps_old_schema():

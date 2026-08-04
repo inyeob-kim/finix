@@ -8,7 +8,7 @@ import {
   inferPathKindFromTestCase,
   testCaseMatchesQuery,
 } from "@/lib/materializedTestCaseMeta";
-import { RefreshCw, Search, Sparkles } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConfirmPopover } from "../scenarioRegistry/components/ConfirmPopover";
 import { FinixPrimaryButton } from "../ui/finix-button";
@@ -24,7 +24,6 @@ type PathFilter = "" | "N" | "E";
 
 type RulesMetaTestCasesPanelProps = {
   serviceCode: string;
-  serviceName?: string;
   /** Operating (active) YAML version for this service, if any. */
   activeBundleVersion?: number | null;
   /** True when the open modal bundle is a draft, not the active one. */
@@ -35,7 +34,6 @@ type RulesMetaTestCasesPanelProps = {
 
 export function RulesMetaTestCasesPanel({
   serviceCode,
-  serviceName,
   activeBundleVersion = null,
   editingDraft = false,
   active = true,
@@ -46,7 +44,7 @@ export function RulesMetaTestCasesPanel({
   const [listError, setListError] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateNotice, setGenerateNotice] = useState<string | null>(null);
-  const [replaceExisting, setReplaceExisting] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(true);
   const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
@@ -54,7 +52,6 @@ export function RulesMetaTestCasesPanel({
 
   const code = serviceCode.trim();
   const hasActiveYaml = activeBundleVersion != null;
-  const serviceLabel = serviceName ? `${code} — ${serviceName}` : code || "—";
 
   const loadTestCases = useCallback(async () => {
     if (!code) {
@@ -110,7 +107,16 @@ export function RulesMetaTestCasesPanel({
         replace_existing: replaceExisting,
       });
       setGenerateNotice(`${created.length}건의 테스트 케이스를 생성했습니다.`);
-      await loadTestCases();
+      // Prefer create payload so the grid is never blank after a successful generate.
+      setRows(created);
+      try {
+        const listed = await listTestCasesByServiceCode(code, 500);
+        if (listed.length > 0) {
+          setRows(listed);
+        }
+      } catch {
+        // Keep `created` rows if refresh fails.
+      }
     } catch (e) {
       setListError(
         e instanceof ApiError
@@ -134,7 +140,7 @@ export function RulesMetaTestCasesPanel({
   const emptyMessage = !hasActiveYaml
     ? "적용된 YAML이 없어 테스트케이스를 생성할 수 없습니다. YAML 탭에서 저장·적용하세요."
     : rows.length === 0
-      ? "이 서비스에 적재된 테스트케이스가 없습니다. 「YAML에서 생성」을 눌러 적용된 규칙으로 만들어 주세요."
+      ? "이 서비스에 적재된 테스트케이스가 없습니다. 「테스트케이스 생성」을 눌러 적용된 규칙으로 만들어 주세요."
       : "검색 조건에 맞는 테스트케이스가 없습니다.";
 
   const busy = disabled || generateLoading;
@@ -181,9 +187,6 @@ export function RulesMetaTestCasesPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
-            <span className="text-xs text-muted-foreground min-w-0 truncate max-sm:basis-full">
-              {code ? `${serviceLabel} · ${rows.length}건` : "—"}
-            </span>
             <ConfirmPopover
               open={replaceConfirmOpen}
               onOpenChange={setReplaceConfirmOpen}
@@ -206,10 +209,8 @@ export function RulesMetaTestCasesPanel({
                   >
                     {generateLoading ? (
                       <FinixLoading size="sm" inline />
-                    ) : (
-                      <Sparkles className="w-3.5 h-3.5" />
-                    )}
-                    YAML에서 생성
+                    ) : null}
+                    테스트케이스 생성
                   </FinixPrimaryButton>
                 </span>
               }

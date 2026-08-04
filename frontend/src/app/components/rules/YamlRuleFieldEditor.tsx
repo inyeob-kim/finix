@@ -1,6 +1,9 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Undo2 } from "lucide-react";
 import { FinixField, FinixUnderlineInput, FinixUnderlineSelect } from "../ui/finix-form";
 import type { YamlRuleRecord } from "@/lib/yamlRulesDocument";
-import { normalizeCaseType } from "@/lib/yamlRulesDocument";
+import { getCaseId, normalizeCaseType } from "@/lib/yamlRulesDocument";
+import { YamlInputMacroHelper } from "./YamlInputMacroHelper";
 
 export type RuleFieldDraft = {
   title: string;
@@ -23,6 +26,9 @@ type YamlRuleFieldEditorProps = {
   onApply: () => void;
 };
 
+const INPUT_UNDO_LIMIT = 50;
+const INPUT_UNDO_COALESCE_MS = 600;
+
 export function YamlRuleFieldEditor({
   rule,
   draft,
@@ -34,6 +40,61 @@ export function YamlRuleFieldEditor({
   const showErrorFields =
     caseType === "E" || draft.outcome === "error" || !draft.outcome;
   const showNormalFields = caseType === "N" || draft.outcome === "success";
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputUndoStackRef = useRef<string[]>([]);
+  const inputJsonRef = useRef(draft.inputJson);
+  const applyingUndoRef = useRef(false);
+  const lastUndoPushAtRef = useRef(0);
+  const [canUndoInput, setCanUndoInput] = useState(false);
+  const caseKey = getCaseId(rule);
+
+  useEffect(() => {
+    inputJsonRef.current = draft.inputJson;
+  }, [draft.inputJson]);
+
+  useEffect(() => {
+    inputUndoStackRef.current = [];
+    lastUndoPushAtRef.current = 0;
+    setCanUndoInput(false);
+  }, [caseKey]);
+
+  const setInputJson = useCallback(
+    (next: string, forceUndoPoint = false) => {
+      const prev = inputJsonRef.current;
+      if (next === prev) return;
+      if (!applyingUndoRef.current) {
+        const now = Date.now();
+        const stack = inputUndoStackRef.current;
+        const coalesce =
+          !forceUndoPoint &&
+          stack.length > 0 &&
+          now - lastUndoPushAtRef.current < INPUT_UNDO_COALESCE_MS;
+        if (!coalesce) {
+          stack.push(prev);
+          if (stack.length > INPUT_UNDO_LIMIT) stack.shift();
+          setCanUndoInput(true);
+        }
+        lastUndoPushAtRef.current = now;
+      }
+      inputJsonRef.current = next;
+      onDraftChange({ ...draft, inputJson: next });
+    },
+    [draft, onDraftChange],
+  );
+
+  const undoInput = useCallback(() => {
+    const prev = inputUndoStackRef.current.pop();
+    if (prev == null) return;
+    applyingUndoRef.current = true;
+    lastUndoPushAtRef.current = 0;
+    inputJsonRef.current = prev;
+    onDraftChange({ ...draft, inputJson: prev });
+    setCanUndoInput(inputUndoStackRef.current.length > 0);
+    requestAnimationFrame(() => {
+      applyingUndoRef.current = false;
+      inputRef.current?.focus();
+    });
+  }, [draft, onDraftChange]);
 
   return (
     <div className="space-y-4 pb-2 pt-1">
@@ -60,12 +121,38 @@ export function YamlRuleFieldEditor({
 
       <FinixField
         label="input (JSON)"
-        helperText="테스트케이스 request_body로 사용됩니다"
+        helperText="테스트케이스 request_body로 사용됩니다 · 변경은 Ctrl+Z / 되돌리기로 취소"
       >
+        <div className="flex items-center justify-end gap-1.5 mb-1.5">
+          <button
+            type="button"
+            disabled={disabled || !canUndoInput}
+            title="input 변경 되돌리기 (Ctrl+Z)"
+            className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-sm border border-border text-xs font-medium bg-background hover:bg-muted disabled:opacity-40"
+            onClick={undoInput}
+          >
+            <Undo2 className="size-3.5" />
+            되돌리기
+          </button>
+          <YamlInputMacroHelper
+            disabled={disabled}
+            value={draft.inputJson}
+            textareaRef={inputRef}
+            onInsert={(next) => setInputJson(next, true)}
+          />
+        </div>
         <textarea
+          ref={inputRef}
           placeholder={'{\n  "fieldName": "value"\n}'}
           value={draft.inputJson}
-          onChange={(e) => onDraftChange({ ...draft, inputJson: e.target.value })}
+          onChange={(e) => setInputJson(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+              if (inputUndoStackRef.current.length === 0) return;
+              e.preventDefault();
+              undoInput();
+            }
+          }}
           onBlur={onApply}
           disabled={disabled}
           spellCheck={false}

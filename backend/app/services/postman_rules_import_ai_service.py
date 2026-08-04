@@ -76,8 +76,13 @@ def _parse_expect_hint(raw: Any) -> ExpectHint:
         http_status = int(status) if status is not None and status != "" else None
     except (TypeError, ValueError):
         http_status = None
+    outcome_raw = raw.get("outcome")
+    if outcome_raw is None or outcome_raw == "":
+        outcome = None
+    else:
+        outcome = str(outcome_raw).strip()
     return ExpectHint(
-        outcome=str(raw["outcome"]).strip() if raw.get("outcome") else None,
+        outcome=outcome,
         error_code=str(raw["error_code"]).strip() if raw.get("error_code") else None,
         http_status=http_status,
     )

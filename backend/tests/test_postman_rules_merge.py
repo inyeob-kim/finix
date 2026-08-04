@@ -71,6 +71,49 @@ def test_apply_create_plan_builds_case_ids_and_inputs():
     assert payload.rules[1]["expect"]["error_code"] == "E001"
 
 
+def test_apply_create_normalizes_invalid_outcome_hints():
+    candidates = [_cand(0, name="MissingRequired", body={"a": ""})]
+    plan = CreatePlan(
+        cases=[
+            CreateCaseSpec(
+                candidate_indices=[0],
+                rule_type="E",
+                title="필수값 누락",
+                description="fail",
+                expect_hint=ExpectHint(outcome="fail", http_status=400),
+            )
+        ]
+    )
+    payload, _ = apply_create_plan(
+        service_code="SVC",
+        service_name="Service",
+        candidates=candidates,
+        plan=plan,
+        skeleton={},
+    )
+    assert payload.rules[0]["expect"]["outcome"] == "error"
+
+    plan_ok = CreatePlan(
+        cases=[
+            CreateCaseSpec(
+                candidate_indices=[0],
+                rule_type="N",
+                title="정상",
+                description="ok",
+                expect_hint=ExpectHint(outcome="passed"),
+            )
+        ]
+    )
+    payload2, _ = apply_create_plan(
+        service_code="SVC",
+        service_name="Service",
+        candidates=candidates,
+        plan=plan_ok,
+        skeleton={},
+    )
+    assert payload2.rules[0]["expect"]["outcome"] == "success"
+
+
 def test_apply_create_plan_fallback_when_plan_none():
     candidates = [_cand(0, name="happy", body={"x": 1})]
     payload, diff = apply_create_plan(

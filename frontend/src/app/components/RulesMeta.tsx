@@ -872,7 +872,6 @@ export function RulesMeta() {
                 {activeTab === "testcases" ? (
                   <RulesMetaTestCasesPanel
                     serviceCode={selected.serviceCode}
-                    serviceName={selected.serviceName}
                     activeBundleVersion={selected.activeBundleVersion}
                     editingDraft={
                       selected.hasDraft ||
@@ -1026,7 +1025,7 @@ export function RulesMeta() {
                   </span>
                   <span className="block text-xs">
                     적용하면 작업본이 현재 규칙이 되며, 테스트케이스
-                    「YAML에서 생성」에 사용됩니다. 기존 적용본은 이력으로
+                    「테스트케이스 생성」에 사용됩니다. 기존 적용본은 이력으로
                     보관됩니다.
                   </span>
                 </>

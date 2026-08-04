@@ -78,12 +78,57 @@ def _strip_json_comments(text: str) -> str:
     return "".join(out)
 
 
+def _strip_trailing_commas(text: str) -> str:
+    """Drop trailing commas before } / ] outside strings (Postman/JS-style JSON)."""
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    in_string = False
+    escape = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j].isspace():
+                j += 1
+            if j < n and text[j] in "}]":
+                i = j
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _loads_body_json(raw: str) -> dict[str, Any]:
-    text = (raw or "").strip()
+    text = (raw or "").replace("\ufeff", "").strip()
     if not text:
         return {}
-    # Postman raw often includes JS comments (e.g. `// balance update`) which break JSON.
-    for base in (text, _strip_json_comments(text)):
+    # Postman raw often has JS comments / trailing commas which break strict JSON.
+    bases: list[str] = []
+    for candidate in (
+        text,
+        _strip_json_comments(text),
+        _strip_trailing_commas(text),
+        _strip_trailing_commas(_strip_json_comments(text)),
+    ):
+        if candidate not in bases:
+            bases.append(candidate)
+    for base in bases:
         try:
             return _coerce_json_object(json.loads(base))
         except Exception:  # noqa: BLE001
