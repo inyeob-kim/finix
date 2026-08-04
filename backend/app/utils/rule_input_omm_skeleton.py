@@ -219,8 +219,22 @@ def _parse_catalog_fields_value(raw_fields: Any) -> list[dict[str, Any]]:
     return [x for x in raw_fields if isinstance(x, dict)]
 
 
-def skeleton_from_fields_list(raw_fields: Any) -> dict[str, Any]:
-    """Build { field: null | {} } from catalog ``input_fields`` / ``output_fields`` list."""
+def skeleton_from_fields_list(
+    raw_fields: Any,
+    *,
+    dto_fields_by_class: dict[str, list[dict[str, Any]]] | None = None,
+    _depth: int = 0,
+    _visiting: set[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Build ``{ field: null | {} | [{...}] }`` from catalog field lists.
+
+    When ``dto_fields_by_class`` is provided, nested/list DTO class names are
+    expanded so list item leaf paths (e.g. ``outList.0.dt``) appear in pickers.
+    """
+    if _depth > 8:
+        return {}
+    visiting = _visiting if _visiting is not None else set()
     out: dict[str, Any] = {}
     for item in _parse_catalog_fields_value(raw_fields):
         fname = item.get("field_name") or item.get("FIELD_NAME")
@@ -229,8 +243,25 @@ def skeleton_from_fields_list(raw_fields: Any) -> dict[str, Any]:
         key = fname.strip()
         nested = item.get("nested_dto_class_name") or item.get("NESTED_DTO_CLASS_NAME")
         list_flag = str(item.get("list_flag") or item.get("LIST_DTO_YN") or "").upper()
-        if isinstance(nested, str) and nested.strip():
-            out[key] = [{}] if list_flag == "Y" else {}
+        nested_name = nested.strip() if isinstance(nested, str) else ""
+
+        nested_sk: dict[str, Any] = {}
+        if nested_name and dto_fields_by_class is not None:
+            if nested_name not in visiting:
+                visiting.add(nested_name)
+                try:
+                    nested_sk = skeleton_from_fields_list(
+                        dto_fields_by_class.get(nested_name),
+                        dto_fields_by_class=dto_fields_by_class,
+                        _depth=_depth + 1,
+                        _visiting=visiting,
+                    )
+                finally:
+                    visiting.discard(nested_name)
+
+        if nested_name:
+            shaped = nested_sk if nested_sk else {}
+            out[key] = [shaped] if list_flag == "Y" else shaped
         else:
             out[key] = [] if list_flag == "Y" else None
     return out
@@ -240,12 +271,16 @@ def skeleton_from_catalog_row(
     row: dict[str, Any] | None,
     *,
     kind: str = "input",
+    dto_fields_by_class: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Build skeleton from one CBS catalog row dict (``input_fields`` or ``output_fields``)."""
     if not row:
         return {}
     key = "output_fields" if kind == "output" else "input_fields"
-    return skeleton_from_fields_list(row.get(key))
+    return skeleton_from_fields_list(
+        row.get(key),
+        dto_fields_by_class=dto_fields_by_class,
+    )
 
 
 def skeleton_from_catalog_raw_json(raw_json: str | None) -> dict[str, Any]:

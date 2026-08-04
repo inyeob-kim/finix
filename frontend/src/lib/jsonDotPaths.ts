@@ -40,10 +40,11 @@ export function collectDotPaths(
 
 /** Read a dot path from a JSON object (for template preview hints). */
 export function getByDotPath(root: unknown, dotPath: string): unknown {
-  const parts = dotPath
-    .replace(/^\$\.?/, "")
-    .split(".")
-    .filter(Boolean);
+  const parts =
+    dotPath
+      .replace(/^\$\.?/, "")
+      .match(/[^.\[\]]+/g)
+      ?.filter(Boolean) ?? [];
   let cur: unknown = root;
   for (const part of parts) {
     if (cur === null || cur === undefined) return undefined;
@@ -60,7 +61,7 @@ export function getByDotPath(root: unknown, dotPath: string): unknown {
   return cur;
 }
 
-/** Immutably set a dot path on a JSON object tree. */
+/** Immutably set a dot path on a JSON object tree (supports list indices). */
 export function setByDotPath(
   root: Record<string, unknown>,
   dotPath: string,
@@ -68,20 +69,58 @@ export function setByDotPath(
 ): Record<string, unknown> {
   const parts = dotPath
     .replace(/^\$\.?/, "")
-    .split(".")
-    .filter(Boolean);
+    .match(/[^.\[\]]+/g)
+    ?.filter(Boolean) ?? [];
   if (parts.length === 0) return root;
+  if (/^\d+$/.test(parts[0]!)) return root;
 
   const clone = structuredClone(root);
-  let cur: Record<string, unknown> = clone;
+  let cur: unknown = clone;
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i]!;
-    const next = cur[part];
-    if (next === null || typeof next !== "object" || Array.isArray(next)) {
-      cur[part] = {};
+    const nextPart = parts[i + 1]!;
+    const wantList = /^\d+$/.test(nextPart);
+    if (Array.isArray(cur) && /^\d+$/.test(part)) {
+      const idx = Number(part);
+      while (cur.length <= idx) cur.push(wantList ? [] : {});
+      const child = cur[idx];
+      if (wantList) {
+        if (!Array.isArray(child)) cur[idx] = [];
+      } else if (
+        child === null ||
+        typeof child !== "object" ||
+        Array.isArray(child)
+      ) {
+        cur[idx] = {};
+      }
+      cur = cur[idx];
+      continue;
     }
-    cur = cur[part] as Record<string, unknown>;
+    if (cur !== null && typeof cur === "object" && !Array.isArray(cur)) {
+      const obj = cur as Record<string, unknown>;
+      const child = obj[part];
+      if (wantList) {
+        if (!Array.isArray(child)) obj[part] = [];
+      } else if (
+        child === null ||
+        typeof child !== "object" ||
+        Array.isArray(child)
+      ) {
+        obj[part] = {};
+      }
+      cur = obj[part];
+      continue;
+    }
+    return clone;
   }
-  cur[parts[parts.length - 1]!] = value as never;
+
+  const last = parts[parts.length - 1]!;
+  if (Array.isArray(cur) && /^\d+$/.test(last)) {
+    const idx = Number(last);
+    while (cur.length <= idx) cur.push(null);
+    cur[idx] = value;
+  } else if (cur !== null && typeof cur === "object" && !Array.isArray(cur)) {
+    (cur as Record<string, unknown>)[last] = value as never;
+  }
   return clone;
 }

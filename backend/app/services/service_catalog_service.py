@@ -108,6 +108,10 @@ class ServiceCatalogService:
         """
         Input/output OMM field skeletons from ``cbs_srvc.json`` (not DB-trimmed row).
 
+        Nested/list DTO fields are expanded using ``cbs_dto_atr.json`` when present
+        (see ``scripts/export_cbs_dto_atr.sql``), falling back to other services'
+        In/Out field lists in ``cbs_srvc.json``.
+
         ``output_fields`` may be null when Out DTO metadata is missing in source DB.
         """
         row = await self._cbs.get_raw_row_by_service_code(service_code)
@@ -121,10 +125,19 @@ class ServiceCatalogService:
                 "output_field_count": 0,
                 "output_dto_name": None,
             }
+        dto_index = await self._cbs.build_dto_fields_index()
         in_fields = _parse_catalog_fields_value(row.get("input_fields"))
         out_fields = _parse_catalog_fields_value(row.get("output_fields"))
-        input_sk = skeleton_from_catalog_row(row, kind="input")
-        output_sk = skeleton_from_catalog_row(row, kind="output")
+        input_sk = skeleton_from_catalog_row(
+            row,
+            kind="input",
+            dto_fields_by_class=dto_index,
+        )
+        output_sk = skeleton_from_catalog_row(
+            row,
+            kind="output",
+            dto_fields_by_class=dto_index,
+        )
         return {
             "service_code": service_code,
             "found": True,

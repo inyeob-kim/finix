@@ -113,6 +113,10 @@ import {
   buildScenarioRegistryItem,
   resolveScenarioSaveStatus,
 } from "./scenarioRegistry/wizardPersist";
+import {
+  createScenarioPickInstance,
+  scenarioPickSourceKey,
+} from "@/lib/scenarioPickInstance";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
 import {
     Dialog,
@@ -437,18 +441,13 @@ export function ScenarioRegistry() {
     };
   }, [folders.length, selectedFolderId]);
 
-  const selectedRuleIdSet = useMemo(
-    () => new Set(selectedRulePicks.map((r) => r.id)),
-    [selectedRulePicks],
-  );
-
   const leftRulePool = useMemo(() => {
-    let pool = allYamlRuleRefs.filter((r) => !selectedRuleIdSet.has(r.id));
+    let pool = allYamlRuleRefs;
     if (activeServiceCode) {
       pool = pool.filter((r) => r.serviceCode === activeServiceCode);
     }
     return pool;
-  }, [allYamlRuleRefs, selectedRuleIdSet, activeServiceCode]);
+  }, [allYamlRuleRefs, activeServiceCode]);
 
   useEffect(() => {
     if (serviceDrafts.length === 0) {
@@ -500,9 +499,10 @@ export function ScenarioRegistry() {
   }, [open, scenarioWizardStep, serviceDrafts]);
 
   const addRuleToSelected = (r: ScenarioRuleTestcaseRef) => {
-    setSelectedRulePicks((prev) =>
-      prev.some((x) => x.id === r.id) ? prev : [...prev, r],
-    );
+    setSelectedRulePicks((prev) => [
+      ...prev,
+      createScenarioPickInstance(r, newId),
+    ]);
   };
 
   const removeRuleFromSelected = (id: string) => {
@@ -511,15 +511,16 @@ export function ScenarioRegistry() {
 
   const addRulesByCaseType = (caseType: "E" | "N" | "all") => {
     setSelectedRulePicks((prev) => {
-      const seen = new Set(prev.map((x) => x.id));
+      const present = new Set(prev.map((x) => scenarioPickSourceKey(x)));
       const next = [...prev];
       for (const row of leftRulePool) {
         if (caseType !== "all" && resolveScenarioCaseType(row) !== caseType) {
           continue;
         }
-        if (seen.has(row.id)) continue;
-        seen.add(row.id);
-        next.push(row);
+        const sourceKey = scenarioPickSourceKey(row);
+        if (present.has(sourceKey)) continue;
+        present.add(sourceKey);
+        next.push(createScenarioPickInstance(row, newId));
       }
       return next;
     });
@@ -527,6 +528,25 @@ export function ScenarioRegistry() {
 
   const removeAllRulesFromSelected = () => {
     setSelectedRulePicks([]);
+  };
+
+  const reorderSelectedRules = (dragIndex: number, hoverIndex: number) => {
+    setSelectedRulePicks((prev) => {
+      if (
+        dragIndex < 0 ||
+        hoverIndex < 0 ||
+        dragIndex >= prev.length ||
+        hoverIndex >= prev.length ||
+        dragIndex === hoverIndex
+      ) {
+        return prev;
+      }
+      const next = [...prev];
+      const [item] = next.splice(dragIndex, 1);
+      if (!item) return prev;
+      next.splice(hoverIndex, 0, item);
+      return next;
+    });
   };
 
   const selectServiceInSequence = (code: string) => {
@@ -733,9 +753,7 @@ export function ScenarioRegistry() {
   const persistWizard = (mode: ScenarioSaveStatus) => {
     const flushed = bodyFlushRef.current?.flush();
     if (flushed && !flushed.ok) {
-      setError(
-        "요청 body JSON이 올바르지 않습니다. Input을 수정한 뒤 다시 저장하세요.",
-      );
+      // Invalid JSON is already shown on the Input panel; avoid footer/page banner.
       setScenarioWizardStep(2);
       return;
     }
@@ -1695,6 +1713,7 @@ export function ScenarioRegistry() {
                   activeServiceCode={activeServiceCode}
                   onAdd={addRuleToSelected}
                   onRemove={removeRuleFromSelected}
+                  onReorder={reorderSelectedRules}
                   onAddByCaseType={addRulesByCaseType}
                   onRemoveAll={removeAllRulesFromSelected}
                   parseDragRuleId={parseDragRuleId}
@@ -1772,11 +1791,6 @@ export function ScenarioRegistry() {
           </div>
 
           <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 gap-2 sm:gap-2">
-            {error ? (
-              <p className="w-full text-left text-[11px] text-destructive sm:mr-auto">
-                {error}
-              </p>
-            ) : null}
             {scenarioWizardStep === 1 ? (
               <>
                 <button

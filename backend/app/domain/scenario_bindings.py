@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+_PATH_SEGMENT = re.compile(r"[^.\[\]]+")
 
 
 class ExtractSpec(BaseModel):
@@ -43,16 +46,33 @@ def normalize_json_path_prefix(json_path: str) -> str:
 
 
 def _normalize_path(json_path: str) -> list[str]:
+    """
+    Split a path into segments.
+
+    Supports dotted indices (``outList.0.dt``) and bracket indices
+    (``outList[0].dt``, ``$[0].id``) — same segments Postman JS uses.
+    """
     raw = normalize_json_path_prefix(json_path)
     if raw.startswith("$."):
         raw = raw[2:]
     elif raw.startswith("$"):
         raw = raw[1:].lstrip(".")
-    return [p for p in raw.split(".") if p]
+    return [p for p in _PATH_SEGMENT.findall(raw) if p]
+
+
+def canonicalize_json_path(json_path: str) -> str:
+    """Normalize to dotted ``$.a.0.b`` form (brackets → numeric segments)."""
+    parts = _normalize_path(json_path)
+    if not parts:
+        stripped = (json_path or "").strip()
+        if stripped == "$" or stripped == "$.":
+            return "$"
+        return ""
+    return "$." + ".".join(parts)
 
 
 def json_path_get(data: Any, json_path: str) -> Any:
-    """Resolve a simple dot path on dict/list roots (lists use numeric segments)."""
+    """Resolve a simple dot/bracket path on dict/list roots."""
     parts = _normalize_path(json_path)
     if not parts:
         return None
@@ -69,19 +89,55 @@ def json_path_get(data: Any, json_path: str) -> Any:
 
 
 def json_path_set(data: dict[str, Any], json_path: str, value: Any) -> dict[str, Any]:
-    """Set a dot path on a dict, creating intermediate dicts."""
+    """Set a path on a dict, creating intermediate dicts/lists as needed."""
     parts = _normalize_path(json_path)
     if not parts:
         return data
     root = deepcopy(data)
-    cur: dict[str, Any] = root
-    for part in parts[:-1]:
-        nxt = cur.get(part)
-        if not isinstance(nxt, dict):
-            nxt = {}
-            cur[part] = nxt
-        cur = nxt
-    cur[parts[-1]] = value
+    if parts[0].isdigit():
+        # Inject targets are request bodies (objects); ignore root-list paths.
+        return root
+
+    cur: Any = root
+    for i, part in enumerate(parts[:-1]):
+        nxt_part = parts[i + 1]
+        want_list = nxt_part.isdigit()
+        if isinstance(cur, dict):
+            child = cur.get(part)
+            if want_list:
+                if not isinstance(child, list):
+                    child = []
+                    cur[part] = child
+            else:
+                if not isinstance(child, dict):
+                    child = {}
+                    cur[part] = child
+            cur = child
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            while len(cur) <= idx:
+                cur.append([] if want_list else {})
+            child = cur[idx]
+            if want_list:
+                if not isinstance(child, list):
+                    child = []
+                    cur[idx] = child
+            else:
+                if not isinstance(child, dict):
+                    child = {}
+                    cur[idx] = child
+            cur = child
+        else:
+            return root
+
+    last = parts[-1]
+    if isinstance(cur, dict):
+        cur[last] = value
+    elif isinstance(cur, list) and last.isdigit():
+        idx = int(last)
+        while len(cur) <= idx:
+            cur.append(None)
+        cur[idx] = value
     return root
 
 
@@ -113,11 +169,11 @@ def apply_injects(
 
 
 def apply_extracts(
-    response_body: dict[str, Any],
+    response_body: Any,
     context: dict[str, Any],
     extracts: list[ExtractSpec],
 ) -> dict[str, Any]:
-    """Update context from response body."""
+    """Update context from response body (object or list root)."""
     out = dict(context)
     for spec in extracts:
         val = json_path_get(response_body, spec.json_path)

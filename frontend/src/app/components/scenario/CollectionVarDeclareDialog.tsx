@@ -32,7 +32,12 @@ import {
   isValidCollectionVarKey,
   type CollectionVarDeclarePayload,
 } from "./CollectionVarAddField";
+import { CollectionVarGeneratorPicker } from "./CollectionVarGeneratorPicker";
 import { CollectionVarGeneratorSourcePanel } from "./CollectionVarGeneratorSourcePanel";
+import {
+  LITERAL_GENERATOR_MODE,
+  pushRecentGeneratorKey,
+} from "@/lib/collectionVarGeneratorPicker";
 
 const AI_MODE = "__ai__";
 
@@ -337,6 +342,7 @@ export function CollectionVarDeclareDialog({
   };
 
   const useRecommendedGenerator = (recKey: string) => {
+    pushRecentGeneratorKey(recKey);
     setMode(recKey);
     setAiDraft(null);
     setAiPrompt("");
@@ -490,8 +496,8 @@ export function CollectionVarDeclareDialog({
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
           <DialogTitle className="pr-8">컬렉션 변수 추가</DialogTitle>
           <DialogDescription>
-            고정값·내장/공유 동적 생성기를 선택하거나, AI로 새 생성기를 만들어
-            공유 목록에 저장합니다.
+            고정값·내장/공유 동적 생성기를 검색해 고르거나, AI로 새 생성기를
+            만들어 공유 목록에 저장합니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -664,31 +670,27 @@ export function CollectionVarDeclareDialog({
               </div>
             ) : (
               <>
-                <select
-                  className="h-9 w-full rounded-sm border border-border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                <CollectionVarGeneratorPicker
+                  catalog={catalog}
                   value={mode}
-                  onChange={(e) => {
-                    const next = e.target.value;
+                  loading={catalogLoading}
+                  onValueChange={(next) => {
                     setMode(next);
                     setSourceOpen(false);
                     setSourceError(null);
-                    if (next !== "literal") {
+                    setPreviewValue(null);
+                    setPreviewError(null);
+                    if (next !== LITERAL_GENERATOR_MODE) {
                       const local = resolveCollectionVarGenerator(next);
                       if (local) {
                         setPreviewValue(local);
                         setPreviewError(null);
+                      } else {
+                        void loadPreviewForKey(next);
                       }
                     }
                   }}
-                  disabled={catalogLoading}
-                >
-                  <option value="literal">고정값</option>
-                  {catalog.map((g) => (
-                    <option key={`${g.source}-${g.key}`} value={g.key}>
-                      {g.source === "shared" ? `[공유] ${g.label}` : g.label}
-                    </option>
-                  ))}
-                </select>
+                />
                 {mode === "literal" ? (
                   <FinixUnderlineInput
                     value={literalValue}

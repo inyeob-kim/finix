@@ -24,7 +24,7 @@ class ResolvedTestCaseStepRead(BaseModel):
     inject_warnings: list[str] = Field(default_factory=list)
     expected_status: int | None = None
     expected_response_body: dict[str, Any] = Field(default_factory=dict)
-    simulated_response_body: dict[str, Any] | None = Field(
+    simulated_response_body: dict[str, Any] | list[Any] | None = Field(
         default=None,
         description="Stub/local preview response used for extract chain.",
     )
@@ -65,7 +65,9 @@ def _step_to_read(row: ResolvedTestCaseStep) -> ResolvedTestCaseStepRead:
         expected_status=row.expected_status,
         expected_response_body=row.expected_response_body,
         simulated_response_body=(
-            row.actual_body if isinstance(row.actual_body, dict) else None
+            row.actual_body
+            if isinstance(row.actual_body, (dict, list))
+            else None
         ),
     )
 

@@ -27,9 +27,20 @@
 | 필드 | 역할 |
 |------|------|
 | injects | 이전 context → 요청 body 필드 치환 |
-| extracts | 응답 JSON → context 변수 |
+| extracts | 응답 JSON → context 변수 (리스트·브라켓 경로 `outList[0].dt` / `outList.0.dt` 지원) |
 | overrides | 템플릿 body 고정 덮어쓰기 |
 | postman | export·Live 실행 시 baseUrl·헤더·변수 |
+
+리스트 응답 필드: nested DTO 필드는 `backend/cbs_dto_atr.json`(전체 CLASS_NM 속성 덤프)으로 펼칩니다.
+없으면 `cbs_srvc.json`의 다른 서비스 In/Out에 같은 클래스가 있을 때만 보강됩니다.
+
+덤프 SQL (둘 다 필요):
+- `backend/scripts/export_cbs_srvc.sql` → `cbs_srvc.json` (서비스 + In/Out DTO 필드)
+- `backend/scripts/export_cbs_dto_atr.sql` → `cbs_dto_atr.json` (모든 DTO 클래스 필드, nested SubOut 포함)
+
+환경변수: `CBS_SERVICE_JSON_PATH`, `CBS_DTO_ATR_JSON_PATH` (기본은 `backend/` 아래 동명 파일).
+
+참고: 서비스 쿼리에서 `IN_DTO_NM`만 조인하면 `output_fields`가 비어 Output path picker가 깨집니다. Out도 같은 방식으로 조인하세요.
 
 ## resolve-preview (드라이런)
 

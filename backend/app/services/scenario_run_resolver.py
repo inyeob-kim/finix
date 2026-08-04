@@ -124,11 +124,11 @@ def resolve_scenario_run(
             response_time_ms = http.response_time_ms
             response_size_bytes = http.response_size_bytes
             request_url = http.request_url
-            if isinstance(actual_body, dict):
+            if isinstance(actual_body, (dict, list)):
                 context = apply_extracts(actual_body, context, extracts)
-            else:
+            elif actual_body is not None:
                 global_warnings.append(
-                    f"Step {logical_step + 1}: response body is not a JSON object; extracts skipped",
+                    f"Step {logical_step + 1}: response body is not JSON object/array; extracts skipped",
                 )
 
         resolved_steps.append(

@@ -103,15 +103,23 @@ def raw_rows_to_cbs_records(raw_rows: list[dict]) -> list[CbsServiceRecord]:
 
 
 class CbsServiceCatalogRepository:
-    """Repository that loads and searches `cbs_srvc.json`."""
+    """Repository that loads and searches `cbs_srvc.json` (+ optional DTO atr dump)."""
 
-    def __init__(self, json_path: str) -> None:
+    def __init__(
+        self,
+        json_path: str,
+        *,
+        dto_atr_json_path: str | None = None,
+    ) -> None:
         """Initialize repository with JSON file path."""
         self._json_path = Path(json_path)
+        self._dto_atr_json_path = Path(dto_atr_json_path) if dto_atr_json_path else None
         self._loaded = False
         self._lock = asyncio.Lock()
         self._rows: list[CbsServiceRecord] = []
         self._raw_by_code: dict[str, dict] = {}
+        self._dto_atr_index: dict[str, list[dict]] = {}
+        self._dto_atr_loaded = False
 
     async def _ensure_loaded(self) -> None:
         """Load and normalize JSON rows once using background thread IO."""
@@ -148,6 +156,54 @@ class CbsServiceCatalogRepository:
         if not code:
             return None
         return self._raw_by_code.get(code)
+
+    def _ensure_dto_atr_loaded_sync(self) -> None:
+        if self._dto_atr_loaded:
+            return
+        from app.domain.cbs_dto_atr import load_dto_atr_index
+
+        path = self._dto_atr_json_path
+        self._dto_atr_index = load_dto_atr_index(path) if path is not None else {}
+        self._dto_atr_loaded = True
+
+    async def build_dto_fields_index(self) -> dict[str, list[dict]]:
+        """
+        Map DTO class name → field attribute rows.
+
+        Prefer the full ``cbs_dto_atr.json`` dump (all CLASS_NM), then fill gaps
+        from service In/Out fields in ``cbs_srvc.json``.
+        """
+        await self._ensure_loaded()
+        await asyncio.to_thread(self._ensure_dto_atr_loaded_sync)
+
+        index: dict[str, list[dict]] = {
+            k: list(v) for k, v in self._dto_atr_index.items()
+        }
+        for row in self._raw_by_code.values():
+            for dto_key, fields_key in (
+                ("input_dto_name", "input_fields"),
+                ("IN_DTO_NM", "input_fields"),
+                ("output_dto_name", "output_fields"),
+                ("OUT_DTO_NM", "output_fields"),
+            ):
+                dto = (row.get(dto_key) or "").strip()
+                if not dto:
+                    continue
+                fields = row.get(fields_key)
+                if isinstance(fields, str):
+                    try:
+                        fields = json.loads(fields)
+                    except (json.JSONDecodeError, TypeError):
+                        fields = None
+                if not isinstance(fields, list) or not fields:
+                    continue
+                cleaned = [x for x in fields if isinstance(x, dict)]
+                if not cleaned:
+                    continue
+                existing = index.get(dto)
+                if existing is None or len(cleaned) > len(existing):
+                    index[dto] = cleaned
+        return index
 
     async def search_by_prompt(self, prompt: str, *, limit: int = 5) -> list[CbsServiceRecord]:
         """

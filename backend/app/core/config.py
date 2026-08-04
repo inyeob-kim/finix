@@ -41,6 +41,14 @@ class Settings(BaseSettings):
         default=str(_BACKEND_ROOT / "cbs_srvc.json"),
         description="Path to CBS service catalog JSON used for scenario generation.",
     )
+    cbs_dto_atr_json_path: str = Field(
+        default=str(_BACKEND_ROOT / "cbs_dto_atr.json"),
+        description=(
+            "Optional DTO attribute dump (all CLASS_NM fields). "
+            "Expands nested/list skeletons for binding path pickers. "
+            "See scripts/export_cbs_dto_atr.sql."
+        ),
+    )
 
     # --- LLM (optional; consumed when AI features are wired) ---
     llm_provider: str = Field(

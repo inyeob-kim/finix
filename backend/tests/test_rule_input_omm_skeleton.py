@@ -58,6 +58,28 @@ def test_skeleton_from_catalog_output_fields():
     assert sk["items"] == [{}]
 
 
+def test_skeleton_expands_nested_list_dto_from_index():
+    from app.utils.rule_input_omm_skeleton import skeleton_from_fields_list
+
+    fields = [
+        {"field_name": "totCnt", "list_flag": "N"},
+        {
+            "field_name": "outList",
+            "list_flag": "Y",
+            "nested_dto_class_name": "SubOut",
+        },
+    ]
+    dto_index = {
+        "SubOut": [
+            {"field_name": "dt", "list_flag": "N"},
+            {"field_name": "amt", "list_flag": "N"},
+        ],
+    }
+    sk = skeleton_from_fields_list(fields, dto_fields_by_class=dto_index)
+    assert sk["totCnt"] is None
+    assert sk["outList"] == [{"dt": None, "amt": None}]
+
+
 def test_skeleton_from_catalog_input_fields():
     raw = '{"input_fields": [{"field_name": "foo", "nested_dto_class_name": null}, {"field_name": "bar", "nested_dto_class_name": "X"}]}'
     sk = skeleton_from_catalog_raw_json(raw)

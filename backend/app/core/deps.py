@@ -83,7 +83,10 @@ async def get_manual_chunk_repository(
 def get_cbs_service_catalog_repository() -> CbsServiceCatalogRepository:
     """Return shared JSON catalog repository instance."""
     settings = get_settings()
-    return CbsServiceCatalogRepository(settings.cbs_service_json_path)
+    return CbsServiceCatalogRepository(
+        settings.cbs_service_json_path,
+        dto_atr_json_path=settings.cbs_dto_atr_json_path,
+    )
 
 
 @lru_cache

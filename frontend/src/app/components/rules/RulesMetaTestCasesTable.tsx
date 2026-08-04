@@ -1,7 +1,6 @@
 import type { TestCaseReadDto } from "@/api/types";
 import { downloadPostmanCollection } from "@/api/testcaseApi";
 import {
-  formatTestCaseCreatedAt,
   inferPathKindFromTestCase,
   parseMaterializedTestCaseName,
 } from "@/lib/materializedTestCaseMeta";
@@ -146,12 +145,6 @@ function TestCaseRow({
         <TableCell className="max-w-[240px]">
           <span className="line-clamp-2 text-sm">
             {meta.shortLabel || test.name}
-          </span>
-          <span className="block text-[10px] text-muted-foreground mt-0.5">
-            {formatTestCaseCreatedAt(test.created_at)}
-            {test.scenario_id != null
-              ? ` · 시나리오 #${test.scenario_id}`
-              : ""}
           </span>
         </TableCell>
         <TableCell>

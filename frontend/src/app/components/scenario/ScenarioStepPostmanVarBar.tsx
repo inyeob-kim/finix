@@ -91,6 +91,7 @@ export function ScenarioStepPostmanVarBar({
                   <button
                     key={v.name}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onInsertVar(v.name)}
                     className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-primary hover:border-primary/40"
                     title={detail}
@@ -111,6 +112,7 @@ export function ScenarioStepPostmanVarBar({
                 >
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onInsertVar(v.name)}
                     className="pl-1.5 py-0.5 font-mono text-[10px] text-primary"
                   >

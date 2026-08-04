@@ -19,6 +19,32 @@ def test_json_path_get_set():
     assert merged == {"data": {"accountNo": "123"}}
 
 
+def test_json_path_get_list_bracket_and_dotted():
+    body = {"outList": [{"dt": "20240101", "amt": 1}], "totCnt": 1}
+    assert json_path_get(body, "$.outList.0.dt") == "20240101"
+    assert json_path_get(body, "outList[0].dt") == "20240101"
+    assert json_path_get(body, "$.outList[0].dt") == "20240101"
+
+
+def test_json_path_get_root_list():
+    body = [{"token": "abc"}, {"token": "def"}]
+    assert json_path_get(body, "$[0].token") == "abc"
+    assert json_path_get(body, "$.0.token") == "abc"
+
+
+def test_json_path_set_into_list_item():
+    body = json_path_set({}, "$.rows[0].acctNbr", "A1")
+    assert body == {"rows": [{"acctNbr": "A1"}]}
+
+
+def test_apply_extracts_from_list_root():
+    ctx = apply_extracts(
+        [{"id": "X1"}],
+        {},
+        [ExtractSpec(var="id", json_path="$[0].id")],
+    )
+    assert ctx["id"] == "X1"
+
 def test_apply_injects_and_extracts():
     ctx: dict = {}
     body, warns = apply_injects(

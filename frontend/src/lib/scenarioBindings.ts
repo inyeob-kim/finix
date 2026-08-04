@@ -137,16 +137,16 @@ export function stripBindingPathForInput(stored: string): string {
   return raw;
 }
 
-/** Normalize to ``$.segment`` before API (backend accepts both; keeps exports consistent). */
+/** Normalize to ``$.segment`` before API; brackets ``a[0].b`` → ``$.a.0.b``. */
 export function normalizeBindingPathForApi(input: string): string {
   const raw = (input || "").trim();
   if (!raw) return "";
-  if (raw.startsWith("$.")) return raw;
-  if (raw.startsWith("$")) {
-    const rest = raw.slice(1).replace(/^\./, "");
-    return rest ? `$.${rest}` : "$";
-  }
-  return `$.${raw}`;
+  let body = raw;
+  if (body.startsWith("$.")) body = body.slice(2);
+  else if (body.startsWith("$")) body = body.slice(1).replace(/^\./, "");
+  const parts = body.match(/[^.\[\]]+/g)?.filter(Boolean) ?? [];
+  if (parts.length === 0) return raw === "$" || raw === "$." ? "$" : "";
+  return `$.${parts.join(".")}`;
 }
 
 function cleanRows<T extends { var: string; json_path: string }>(rows: T[]): T[] {

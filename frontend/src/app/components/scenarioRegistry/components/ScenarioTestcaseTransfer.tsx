@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { ChevronLeft, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronLeft, ChevronsLeft, ChevronsRight, GripVertical } from "lucide-react";
 import {
   countScenarioCaseTypes,
   filterScenarioCaseType,
@@ -11,8 +11,15 @@ import {
 } from "@/lib/scenarioCaseTypeFilter";
 import { FinixLoading } from "../../ui/finix-loading";
 import { FinixStatusBadge } from "../../ui/finix-status-badge";
+import {
+  countPicksBySourceKey,
+  scenarioPickOccurrence,
+  scenarioPickSourceKey,
+} from "@/lib/scenarioPickInstance";
 import { cn } from "../../ui/utils";
 import type { ScenarioRuleTestcaseRef } from "../types";
+
+type DragSource = "pool" | "selected";
 
 type ScenarioTestcaseTransferProps = {
   leftRulePool: ScenarioRuleTestcaseRef[];
@@ -22,6 +29,7 @@ type ScenarioTestcaseTransferProps = {
   activeServiceCode?: string | null;
   onAdd: (row: ScenarioRuleTestcaseRef) => void;
   onRemove: (id: string) => void;
+  onReorder: (dragIndex: number, hoverIndex: number) => void;
   onAddByCaseType: (caseType: ScenarioCaseType | "all") => void;
   onRemoveAll: () => void;
   parseDragRuleId: (e: DragEvent) => string | null;
@@ -69,26 +77,85 @@ function FilterSegment({
   );
 }
 
+function parseDragPayload(
+  e: DragEvent,
+): { id: string; from: DragSource } | null {
+  try {
+    const raw = e.dataTransfer.getData("application/json");
+    if (!raw) return null;
+    const o = JSON.parse(raw) as { id?: string; from?: string };
+    if (typeof o.id !== "string" || !o.id) return null;
+    const from: DragSource = o.from === "selected" ? "selected" : "pool";
+    return { id: o.id, from };
+  } catch {
+    return null;
+  }
+}
+
 function TestcasePickRow({
   row,
   onClick,
   variant,
+  index,
+  onReorder,
+  includeCount,
+  occurrence,
+  duplicateTotal,
 }: {
   row: ScenarioRuleTestcaseRef;
   onClick: () => void;
   variant: "pool" | "selected";
+  index?: number;
+  onReorder?: (dragIndex: number, hoverIndex: number) => void;
+  includeCount?: number;
+  occurrence?: number;
+  duplicateTotal?: number;
 }) {
   const caseType = resolveScenarioCaseType(row);
+  const from: DragSource = variant === "selected" ? "selected" : "pool";
+  const showOccurrence =
+    variant === "selected" &&
+    occurrence != null &&
+    duplicateTotal != null &&
+    duplicateTotal > 1;
+
   return (
-    <li>
+    <li
+      onDragOver={
+        variant === "selected" && onReorder != null && index != null
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
+            }
+          : undefined
+      }
+      onDrop={
+        variant === "selected" && onReorder != null && index != null
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const payload = parseDragPayload(e);
+              if (!payload || payload.from !== "selected") return;
+              const fromIdx = Number(e.dataTransfer.getData("text/plain"));
+              if (!Number.isFinite(fromIdx) || fromIdx < 0) return;
+              if (fromIdx === index) return;
+              onReorder(fromIdx, index);
+            }
+          : undefined
+      }
+    >
       <button
         type="button"
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData(
             "application/json",
-            JSON.stringify({ id: row.id }),
+            JSON.stringify({ id: row.id, from }),
           );
+          if (variant === "selected" && index != null) {
+            e.dataTransfer.setData("text/plain", String(index));
+          }
           e.dataTransfer.effectAllowed = "move";
         }}
         onClick={onClick}
@@ -99,14 +166,36 @@ function TestcasePickRow({
         }
       >
         <div className="flex items-start justify-between gap-2">
-          <span className="font-mono text-[11px] text-primary shrink-0">
-            {row.ruleId?.trim()
-              ? row.ruleId
-              : row.backendTestcaseId != null
-                ? `#${row.backendTestcaseId}`
-                : row.serviceCode}
-          </span>
+          <div className="flex items-start gap-1 min-w-0 flex-1">
+            {variant === "selected" ? (
+              <span
+                className="mt-0.5 shrink-0 text-muted-foreground cursor-grab active:cursor-grabbing"
+                title="드래그로 순서 변경"
+                aria-hidden
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </span>
+            ) : null}
+            <span className="font-mono text-[11px] text-primary shrink-0">
+              {row.ruleId?.trim()
+                ? row.ruleId
+                : row.backendTestcaseId != null
+                  ? `#${row.backendTestcaseId}`
+                  : row.serviceCode}
+              {showOccurrence ? (
+                <span className="text-muted-foreground"> · {occurrence}회</span>
+              ) : null}
+            </span>
+          </div>
           <div className="flex items-center gap-1 shrink-0">
+            {variant === "pool" && includeCount != null && includeCount > 0 ? (
+              <span
+                className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
+                title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
+              >
+                {includeCount}
+              </span>
+            ) : null}
             <CaseTypeBadge caseType={caseType} />
             {variant === "selected" ? (
               <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
@@ -132,6 +221,7 @@ export function ScenarioTestcaseTransfer({
   activeServiceCode,
   onAdd,
   onRemove,
+  onReorder,
   onAddByCaseType,
   onRemoveAll,
   parseDragRuleId,
@@ -151,6 +241,10 @@ export function ScenarioTestcaseTransfer({
     () => selectedCaseTypeSummary(selectedRulePicks),
     [selectedRulePicks],
   );
+  const includeCounts = useMemo(
+    () => countPicksBySourceKey(selectedRulePicks),
+    [selectedRulePicks],
+  );
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 flex-1 min-h-[min(360px,42vh)]">
@@ -162,7 +256,12 @@ export function ScenarioTestcaseTransfer({
         }}
         onDrop={(e) => {
           e.preventDefault();
-          const id = parseDragRuleId(e);
+          const payload = parseDragPayload(e);
+          if (payload?.from === "selected") {
+            onRemove(payload.id);
+            return;
+          }
+          const id = payload?.id ?? parseDragRuleId(e);
           if (id) onRemove(id);
         }}
       >
@@ -210,7 +309,7 @@ export function ScenarioTestcaseTransfer({
                 ? "먼저 서비스를 추가하세요."
                 : activeServiceCode
                   ? caseTypeFilter === "all"
-                    ? `${activeServiceCode}에 적재된 후보가 없거나 모두 포함되었습니다.`
+                    ? `${activeServiceCode}에 적재된 후보가 없습니다.`
                     : `${activeServiceCode} · ${caseTypeFilter} 후보가 없습니다.`
                   : "시퀀스에서 서비스를 클릭해 후보를 필터하세요."}
             </p>
@@ -221,6 +320,7 @@ export function ScenarioTestcaseTransfer({
                   key={r.id}
                   row={r}
                   variant="pool"
+                  includeCount={includeCounts.get(scenarioPickSourceKey(r)) ?? 0}
                   onClick={() => onAdd(r)}
                 />
               ))}
@@ -228,7 +328,8 @@ export function ScenarioTestcaseTransfer({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-          클릭·드래그로 포함 · 가운데 버튼으로 N/E/전체 일괄 추가
+          클릭·드래그로 포함(같은 TC 여러 번 가능) · 가운데 버튼은 아직 없는
+          케이스만 일괄 추가
         </p>
       </div>
 
@@ -281,7 +382,11 @@ export function ScenarioTestcaseTransfer({
         }}
         onDrop={(e) => {
           e.preventDefault();
-          const id = parseDragRuleId(e);
+          const payload = parseDragPayload(e);
+          if (payload?.from === "selected") {
+            return;
+          }
+          const id = payload?.id ?? parseDragRuleId(e);
           const row = leftRulePool.find((x) => x.id === id);
           if (row) onAdd(row);
         }}
@@ -302,19 +407,27 @@ export function ScenarioTestcaseTransfer({
             </p>
           ) : (
             <ul className="space-y-1">
-              {selectedRulePicks.map((r) => (
-                <TestcasePickRow
-                  key={r.id}
-                  row={r}
-                  variant="selected"
-                  onClick={() => onRemove(r.id)}
-                />
-              ))}
+              {selectedRulePicks.map((r, index) => {
+                const sourceKey = scenarioPickSourceKey(r);
+                const duplicateTotal = includeCounts.get(sourceKey) ?? 1;
+                return (
+                  <TestcasePickRow
+                    key={r.id}
+                    row={r}
+                    variant="selected"
+                    index={index}
+                    occurrence={scenarioPickOccurrence(selectedRulePicks, index)}
+                    duplicateTotal={duplicateTotal}
+                    onReorder={onReorder}
+                    onClick={() => onRemove(r.id)}
+                  />
+                );
+              })}
             </ul>
           )}
         </div>
         <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-          클릭·드래그로 제외 · 가운데 버튼으로 일괄 제거
+          드래그로 순서 변경 · 클릭·왼쪽으로 드래그해 제외
         </p>
       </div>
     </div>

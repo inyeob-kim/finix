@@ -10,6 +10,8 @@ import { AlertCircle, X } from "lucide-react";
 import type { ScenarioResolvePreviewDto } from "@/api/types";
 import {
   emptyStepBinding,
+  type BindingInjectSpec,
+  type BindingOverrideSpec,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
 import {
@@ -20,6 +22,10 @@ import {
   formatPostmanVar,
 } from "@/lib/postmanBodyBindings";
 import { insertOrReplaceJsonStringValue } from "@/lib/jsonStringReplace";
+import {
+  looksCompleteJsonText,
+  tryParseBodyObject,
+} from "@/lib/parseRequestBodyJson";
 import {
   runStepCaseIdLabel,
   runStepShortDescription,
@@ -37,6 +43,12 @@ import { cn } from "../ui/utils";
 const AUTO_APPLY_MS = 250;
 
 type PanelTab = "input" | "output";
+
+type BodyRevertSnapshot = {
+  draft: string;
+  injects: BindingInjectSpec[];
+  overrides: BindingOverrideSpec[];
+};
 
 export type ScenarioStepPostmanPanelHandle = {
   /**
@@ -61,20 +73,6 @@ type Props = {
   onAddCustomVar?: (payload: CollectionVarDeclarePayload) => void;
   onRemoveCustomVar?: (key: string) => void;
 };
-
-function tryParseBodyObject(
-  draft: string,
-): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
-  try {
-    const parsed = JSON.parse(draft) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "최상위는 JSON 객체여야 합니다." };
-    }
-    return { ok: true, value: parsed as Record<string, unknown> };
-  } catch {
-    return { ok: false, error: "JSON 형식이 올바르지 않습니다." };
-  }
-}
 
 export const ScenarioStepPostmanPanel = forwardRef<
   ScenarioStepPostmanPanelHandle,
@@ -101,7 +99,10 @@ export const ScenarioStepPostmanPanel = forwardRef<
   const [jsonDraft, setJsonDraft] = useState("");
   const [jsonDirty, setJsonDirty] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [canRevert, setCanRevert] = useState(false);
   const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revertSnapshotRef = useRef<BodyRevertSnapshot | null>(null);
+  const prevStepKeyRef = useRef(step?.stepKey);
 
   const bindingsRef = useRef(bindings);
   const stepRef = useRef(step);
@@ -134,6 +135,28 @@ export const ScenarioStepPostmanPanel = forwardRef<
     [runSteps, bindings, startVarKeys, stepIndex],
   );
 
+  const captureRevertSnapshotIfNeeded = () => {
+    // Keep the first snapshot for this edit streak (survives auto-apply).
+    if (revertSnapshotRef.current) return;
+    const currentStep = stepRef.current;
+    if (!currentStep) return;
+    const current = bindingsRef.current[currentStep.stepKey] ?? emptyStepBinding();
+    revertSnapshotRef.current = {
+      draft: JSON.stringify(
+        bodyForPostmanEditor(
+          templateBodyRef.current,
+          current.overrides,
+          current.injects,
+        ),
+        null,
+        2,
+      ),
+      injects: current.injects.map((row) => ({ ...row })),
+      overrides: current.overrides.map((row) => ({ ...row })),
+    };
+    setCanRevert(true);
+  };
+
   const commitDraft = (
     draft: string,
   ): StepBindingsByStepKey | null => {
@@ -157,6 +180,29 @@ export const ScenarioStepPostmanPanel = forwardRef<
     return next;
   };
 
+  const revertDraft = () => {
+    const currentStep = stepRef.current;
+    const snap = revertSnapshotRef.current;
+    if (!currentStep || !snap) return;
+
+    clearApplyTimer();
+    const prev = bindingsRef.current[currentStep.stepKey] ?? emptyStepBinding();
+    const next: StepBindingsByStepKey = {
+      ...bindingsRef.current,
+      [currentStep.stepKey]: {
+        extracts: prev.extracts,
+        injects: snap.injects,
+        overrides: snap.overrides,
+      },
+    };
+    onBindingsChangeRef.current(next);
+    setJsonDraft(snap.draft);
+    setJsonDirty(false);
+    setJsonError(null);
+    revertSnapshotRef.current = null;
+    setCanRevert(false);
+  };
+
   const clearApplyTimer = () => {
     if (applyTimerRef.current) {
       clearTimeout(applyTimerRef.current);
@@ -168,10 +214,12 @@ export const ScenarioStepPostmanPanel = forwardRef<
     clearApplyTimer();
     applyTimerRef.current = setTimeout(() => {
       applyTimerRef.current = null;
-      // Incomplete JSON while typing — keep draft, no hard error yet.
       const parsed = tryParseBodyObject(draft);
       if (!parsed.ok) {
-        setJsonError(parsed.error);
+        // Incomplete text while typing — keep draft, no hard error yet.
+        if (looksCompleteJsonText(draft)) {
+          setJsonError(parsed.error);
+        }
         return;
       }
       commitDraft(draft);
@@ -198,21 +246,49 @@ export const ScenarioStepPostmanPanel = forwardRef<
 
   useEffect(() => {
     clearApplyTimer();
+    revertSnapshotRef.current = null;
+    setCanRevert(false);
     setTab("input");
     setJsonDirty(false);
     setJsonError(null);
   }, [step?.stepKey]);
 
   useEffect(() => {
-    if (!jsonDirty) {
-      setJsonDraft(JSON.stringify(editorBody, null, 2));
+    const stepChanged = prevStepKeyRef.current !== step?.stepKey;
+    prevStepKeyRef.current = step?.stepKey;
+
+    if (jsonDirty) return;
+
+    // Auto-apply updates bindings → editorBody; rewriting the textarea while
+    // focused jumps scroll. Keep the live draft until blur / step change.
+    if (
+      !stepChanged &&
+      textareaRef.current &&
+      document.activeElement === textareaRef.current
+    ) {
       setJsonError(null);
+      return;
     }
+
+    const box = textareaRef.current;
+    const scrollTop = box?.scrollTop ?? 0;
+    const selStart = box?.selectionStart ?? 0;
+    const selEnd = box?.selectionEnd ?? 0;
+    setJsonDraft(JSON.stringify(editorBody, null, 2));
+    setJsonError(null);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.scrollTop = scrollTop;
+      const max = el.value.length;
+      el.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    });
   }, [editorBody, jsonDirty, step?.stepKey]);
 
   if (!step) return null;
 
   const updateDraft = (next: string) => {
+    captureRevertSnapshotIfNeeded();
     setJsonDraft(next);
     setJsonDirty(true);
     setJsonError(null);
@@ -224,6 +300,7 @@ export const ScenarioStepPostmanPanel = forwardRef<
     const el = textareaRef.current;
     const start = el?.selectionStart ?? jsonDraft.length;
     const end = el?.selectionEnd ?? start;
+    const scrollTop = el?.scrollTop ?? 0;
     const { next, cursor } = insertOrReplaceJsonStringValue(
       jsonDraft,
       start,
@@ -236,6 +313,7 @@ export const ScenarioStepPostmanPanel = forwardRef<
       const box = textareaRef.current;
       if (!box) return;
       box.focus();
+      box.scrollTop = scrollTop;
       box.setSelectionRange(cursor, cursor);
     });
   };
@@ -312,7 +390,7 @@ export const ScenarioStepPostmanPanel = forwardRef<
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 mt-3 flex flex-col">
+            <div className="min-h-0 flex-1 mt-3 flex flex-col gap-2">
               {previewLoading && !previewRow ? (
                 <FinixLoading inline label="불러오는 중…" />
               ) : (
@@ -327,6 +405,21 @@ export const ScenarioStepPostmanPanel = forwardRef<
                   spellCheck={false}
                 />
               )}
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!canRevert}
+                  className={cn(
+                    "h-8 px-3 rounded-sm border text-[11px]",
+                    canRevert
+                      ? "border-border hover:bg-muted"
+                      : "border-border text-muted-foreground cursor-not-allowed",
+                  )}
+                  onClick={revertDraft}
+                >
+                  되돌리기
+                </button>
+              </div>
             </div>
           </>
         ) : (

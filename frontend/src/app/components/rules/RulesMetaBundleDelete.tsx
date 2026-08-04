@@ -52,7 +52,7 @@ export function RulesMetaBundleDelete({
           type="button"
           disabled={disabled || submitting}
           onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-sm border border-destructive/40 bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/15 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
           aria-label={`v${bundleVersion} 번들 삭제`}
         >
           <Trash2 className="w-3.5 h-3.5" />

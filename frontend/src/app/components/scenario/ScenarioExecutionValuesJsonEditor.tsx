@@ -7,6 +7,7 @@ import {
   type BindingOverrideSpec,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
+import { tryParseBodyObject } from "@/lib/parseRequestBodyJson";
 import { cn } from "../ui/utils";
 
 type Props = {
@@ -55,22 +56,15 @@ export function ScenarioExecutionValuesJsonEditor({
   }, [mergedBody, jsonDirty, stepKey]);
 
   const applyJson = () => {
-    setJsonError(null);
-    try {
-      const parsed = JSON.parse(jsonDraft) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setJsonError("최상위는 JSON 객체여야 합니다.");
-        return;
-      }
-      const nextOverrides = overridesFromBodyDiff(
-        template,
-        parsed as Record<string, unknown>,
-      );
-      onBindingsChange(setStepOverrides(bindings, stepKey, nextOverrides));
-      setJsonDirty(false);
-    } catch {
-      setJsonError("JSON 형식이 올바르지 않습니다.");
+    const parsed = tryParseBodyObject(jsonDraft);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return;
     }
+    const nextOverrides = overridesFromBodyDiff(template, parsed.value);
+    onBindingsChange(setStepOverrides(bindings, stepKey, nextOverrides));
+    setJsonDirty(false);
+    setJsonError(null);
   };
 
   const resetFromTemplate = () => {
