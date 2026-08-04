@@ -13,6 +13,7 @@ def build_postman_collection_variables(
     config: PostmanCollectionConfig | None,
     *,
     runtime_var_names: list[str],
+    catalog: dict | None = None,
 ) -> list[dict[str, str]]:
     """
     Merge baseUrl, collection start vars, and extract-driven runtime vars.
@@ -36,7 +37,11 @@ def build_postman_collection_variables(
     for row in collection_start_vars(cfg):
         add(
             row.key,
-            resolve_start_var_value(value=row.value, generator=row.generator),
+            resolve_start_var_value(
+                value=row.value,
+                generator=row.generator,
+                catalog=catalog,
+            ),
         )
     for name in runtime_var_names:
         add(name, "")

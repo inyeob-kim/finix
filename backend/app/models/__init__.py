@@ -1,5 +1,6 @@
 """ORM models package."""
 
+from app.models.collection_var_generator import CollectionVarGenerator
 from app.models.execution_log import ExecutionLog
 from app.models.execution_run import ExecutionRun
 from app.models.execution_step_result import ExecutionStepResult
@@ -15,6 +16,7 @@ from app.models.testcase import TestCase
 
 __all__ = [
     "ApiOperation",
+    "CollectionVarGenerator",
     "ExecutionLog",
     "ExecutionRun",
     "ExecutionStepResult",

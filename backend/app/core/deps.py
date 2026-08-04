@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_async_session
 from app.integrations.llm_client import LlmClient
+from app.repositories.collection_var_generator_repo import (
+    CollectionVarGeneratorRepository,
+)
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.repositories.execution_repo import ExecutionRepository
 from app.repositories.metadata_repo import MetadataRepository
@@ -18,6 +21,7 @@ from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.repositories.manual_chunk_repo import ManualChunkRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
+from app.services.collection_var_generator_service import CollectionVarGeneratorService
 from app.services.execution_service import ExecutionService
 from app.services.log_ingest_service import LogIngestService
 from app.services.openapi_ingest_service import OpenApiIngestService
@@ -306,14 +310,33 @@ def get_scenario_bindings_ai_service(
     )
 
 
+async def get_collection_var_generator_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[CollectionVarGeneratorRepository, None]:
+    yield CollectionVarGeneratorRepository(session)
+
+
+def get_collection_var_generator_service(
+    repo: CollectionVarGeneratorRepository = Depends(
+        get_collection_var_generator_repository,
+    ),
+    llm: LlmClient | None = Depends(get_llm_client),
+) -> CollectionVarGeneratorService:
+    return CollectionVarGeneratorService(repo=repo, llm=llm)
+
+
 def get_execution_service(
     metadata_repo: MetadataRepository = Depends(get_metadata_repository),
     registry_repo: ServiceRegistryRepository = Depends(get_service_registry_repository),
     execution_repo: ExecutionRepository = Depends(get_execution_repository),
+    generator_service: CollectionVarGeneratorService = Depends(
+        get_collection_var_generator_service,
+    ),
 ) -> ExecutionService:
     """Build ExecutionService with injected repositories."""
     return ExecutionService(
         metadata_repo=metadata_repo,
         registry_repo=registry_repo,
         execution_repo=execution_repo,
+        generator_service=generator_service,
     )

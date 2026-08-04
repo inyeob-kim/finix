@@ -18,6 +18,7 @@ from app.models.execution_run import ExecutionRun
 from app.repositories.execution_repo import ExecutionRepository
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
+from app.services.collection_var_generator_service import CollectionVarGeneratorService
 from app.services.execution_simulator import simulate_response
 from app.services.scenario_run_resolver import resolve_scenario_run
 from app.utils.json_text import dumps_json, loads_json
@@ -34,11 +35,13 @@ class ExecutionService:
         metadata_repo: MetadataRepository,
         registry_repo: ServiceRegistryRepository,
         execution_repo: ExecutionRepository,
+        generator_service: CollectionVarGeneratorService | None = None,
     ) -> None:
         """Construct the service with its data dependencies."""
         self._metadata = metadata_repo
         self._registry = registry_repo
         self._execution = execution_repo
+        self._generators = generator_service
 
     async def run_testcase(
         self,
@@ -117,7 +120,15 @@ class ExecutionService:
             raise InvalidInputError("Live 실행에는 base_url이 필요합니다.")
 
         step_service_codes = step_service_codes_from_steps(scenario.steps_json)
-        initial_context = initial_context_from_postman(postman_config)
+        catalog = (
+            await self._generators.build_catalog_map()
+            if self._generators is not None
+            else None
+        )
+        initial_context = initial_context_from_postman(
+            postman_config,
+            catalog=catalog,
+        )
 
         run = await self._execution.create_run(
             scenario_id=scenario_id,

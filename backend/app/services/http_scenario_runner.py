@@ -10,7 +10,10 @@ import httpx
 
 from app.domain.postman_collection_config import PostmanCollectionConfig
 from app.domain.postman_bxm_system_header import collection_start_vars
-from app.domain.collection_var_generators import resolve_start_var_value
+from app.domain.collection_var_generators import (
+    CatalogGeneratorSpec,
+    resolve_start_var_value,
+)
 from app.domain.step_http_result import StepHttpResult
 from app.models.testcase import TestCase
 
@@ -19,6 +22,8 @@ DEFAULT_TIMEOUT_SEC = 30.0
 
 def initial_context_from_postman(
     config: PostmanCollectionConfig | None,
+    *,
+    catalog: dict[str, CatalogGeneratorSpec] | None = None,
 ) -> dict[str, Any]:
     """Seed scenario runtime context from collection variables (not header vars)."""
     ctx: dict[str, Any] = {}
@@ -31,6 +36,7 @@ def initial_context_from_postman(
         ctx[key] = resolve_start_var_value(
             value=row.value,
             generator=row.generator,
+            catalog=catalog,
         )
     return ctx
 

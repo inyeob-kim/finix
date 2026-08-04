@@ -14,7 +14,8 @@ export function isValidCollectionVarKey(key: string): boolean {
 export type CollectionVarDeclarePayload = {
   key: string;
   value: string;
-  generator: CollectionVarGeneratorId | null;
+  /** Builtin or shared catalog key; null = literal. */
+  generator: string | null;
 };
 
 type Mode = "literal" | CollectionVarGeneratorId;
@@ -23,6 +24,7 @@ type Props = {
   onSubmit: (payload: CollectionVarDeclarePayload) => void;
 };
 
+/** @deprecated Prefer CollectionVarDeclareDialog modal. */
 export function CollectionVarAddField({ onSubmit }: Props) {
   const [key, setKey] = useState("");
   const [mode, setMode] = useState<Mode>("literal");

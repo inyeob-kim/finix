@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    collection_var_generators,
     dashboard,
     data_pool,
     executions,
@@ -30,3 +31,7 @@ api_v1_router.include_router(data_pool.router, tags=["data-pool"])
 api_v1_router.include_router(openapi_docs.router, tags=["openapi"])
 api_v1_router.include_router(log_ingest.router, tags=["log-ingest"])
 api_v1_router.include_router(dashboard.router, tags=["dashboard"])
+api_v1_router.include_router(
+    collection_var_generators.router,
+    tags=["collection-var-generators"],
+)
