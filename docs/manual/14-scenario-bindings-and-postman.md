@@ -49,7 +49,8 @@ POST /api/v1/scenarios/suggest-bindings
 
 카탈로그 input/output 필드 기반 inject/extract 초안. 사용자가 레지스트리에서 검토·수정 후 저장.
 
-자동 추론(저장 시): `ScenarioAutoBindingsService` — export postman 시 바인딩 보강.
+자동 추론(저장 시): `ScenarioAutoBindingsService` — 시나리오 저장·마법사에서 바인딩 초안.
+Postman export는 **저장된 바인딩만** 사용합니다(export 시점 자동 보강 없음).
 
 ## Postman Collection export
 
@@ -61,7 +62,17 @@ POST /api/v1/scenarios/suggest-bindings
 | native | true | `{{var}}` + pm.test extract 스크립트 |
 
 - `build_postman_for_scenario`: 스텝 순서, 헤더, 이벤트 스크립트, collection variables
-- 레지스트리 **컬렉션 ZIP**: 시나리오별 collection을 묶어 다운로드
+- 공유/커스텀 생성기(`pick_from_list` 등): generator catalog를 넘겨 초기값을 resolve하고, 컬렉션 pre-request에서 **Runner 실행의 첫 요청**에 재생성
+- 레지스트리 **컬렉션 ZIP**: 완료(`ready`)이고 **모든** pick에 DB testcase id가 있는 시나리오만 포함 (draft·부분 미저장 제외)
+
+### 생성기 vs Postman
+
+| 채널 | 동작 |
+|------|------|
+| Live 실행 | 매 실행 catalog로 resolve |
+| Postman export | 초기값 스냅샷 + 컬렉션 prerequest로 Runner iteration마다 첫 요청에서 재시드 |
+
+FINIX 전용 생성기 엔진이 Postman 안에 그대로 들어가지는 않습니다. builtin·`pick_from_list`·`date_offset` 등은 JS로 이식됩니다.
 
 ## Live HTTP 실행 시 헤더
 
@@ -101,6 +112,7 @@ POST /api/v1/scenarios/{id}/save-definition
 ```
 
 - `per_step`: logical step마다 풀 testcase id 목록 → 시나리오에 clone attach
+- `postman`만 보내고 `steps` 생략 시: 기존 steps를 유지한 채 Postman 설정만 envelope에 병합
 - 실행·export 전 persist에 사용
 
 ## 관련 API·화면

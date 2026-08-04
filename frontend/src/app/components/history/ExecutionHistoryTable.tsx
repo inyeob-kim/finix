@@ -15,27 +15,14 @@ import {
   FinixDataTableRow,
   FINIX_DATA_TABLE_GHOST_BTN_CLASS,
 } from "../ui/finix-data-table";
+import {
+  FinixStatusBadge,
+  executionStatusBadge,
+} from "../ui/finix-status-badge";
 
 function StatusPill({ status }: { status: ExecutionHistoryStatus }) {
-  if (status === "running") {
-    return (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-primary/10 text-primary border border-primary/20">
-        진행
-      </span>
-    );
-  }
-  if (status === "success") {
-    return (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-50 text-emerald-800 border border-emerald-200">
-        성공
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-red-50 text-red-800 border border-red-200">
-      실패
-    </span>
-  );
+  const { tone, label } = executionStatusBadge(status);
+  return <FinixStatusBadge tone={tone}>{label}</FinixStatusBadge>;
 }
 
 type Props = {

@@ -87,7 +87,7 @@ describe("scenarioBindingCanvas", () => {
     expect(varEdges[0]?.linked).toBe(true);
   });
 
-  it("adds dataModel node and override edges", () => {
+  it("does not show data/override nodes in the flow graph", () => {
     const bindings: StepBindingsByStepKey = {
       a: {
         extracts: [],
@@ -96,8 +96,8 @@ describe("scenarioBindingCanvas", () => {
       },
     };
     const { nodes, edges } = buildBindingCanvasGraph(runSteps, bindings, []);
-    expect(nodes.some((n) => n.kind === "dataModel")).toBe(true);
-    expect(edges.some((e) => e.kind === "override")).toBe(true);
+    expect(nodes.map((n) => n.kind).sort()).toEqual(["end", "start", "step", "step"]);
+    expect(edges).toHaveLength(0);
   });
 
   it("applyVarLink creates extract + inject", () => {

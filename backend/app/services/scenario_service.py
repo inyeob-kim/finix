@@ -386,18 +386,33 @@ class ScenarioService:
         steps: list[dict[str, Any]] | None,
         postman: dict[str, Any] | None = None,
     ) -> Scenario:
+        from app.domain.postman_collection_config import PostmanCollectionConfig
+        from app.utils.scenario_steps_document import (
+            dump_steps_document,
+            parse_steps_document,
+        )
+
+        def _parse_postman(raw: dict[str, Any] | None) -> PostmanCollectionConfig | None:
+            if raw is None:
+                return None
+            try:
+                return PostmanCollectionConfig.model_validate(raw)
+            except Exception:
+                return None
+
         steps_json = None
         if steps is not None:
-            from app.domain.postman_collection_config import PostmanCollectionConfig
-            from app.utils.scenario_steps_document import dump_steps_document
-
-            pm_cfg = None
-            if postman is not None:
-                try:
-                    pm_cfg = PostmanCollectionConfig.model_validate(postman)
-                except Exception:
-                    pm_cfg = None
-            steps_json = dump_steps_document(steps, pm_cfg)
+            steps_json = dump_steps_document(steps, _parse_postman(postman))
+        elif postman is not None:
+            # Postman-only save (e.g. TestCase export dialog): keep steps, merge config.
+            existing = await self._metadata.get_scenario_by_id(scenario_id)
+            if existing is None:
+                raise EntityNotFoundError("Scenario", scenario_id)
+            existing_steps, _ = parse_steps_document(existing.steps_json)
+            steps_json = dump_steps_document(
+                existing_steps,
+                _parse_postman(postman),
+            )
         entity = await self._metadata.update_scenario_fields(
             scenario_id,
             title=title,

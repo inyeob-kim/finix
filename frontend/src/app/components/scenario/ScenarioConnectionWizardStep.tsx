@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { ScenarioRuleTestcaseRef } from "../scenarioRegistry/types";
 import {
   buildScenarioStepsWithBindings,
@@ -24,7 +24,10 @@ import {
 } from "@/lib/scenarioPostmanVariables";
 import { ScenarioBindingCanvas } from "./bindingCanvas/ScenarioBindingCanvas";
 import { ScenarioBindingLinkDrawer } from "./bindingCanvas/ScenarioBindingLinkDrawer";
-import { ScenarioStepPostmanPanel } from "./ScenarioStepPostmanPanel";
+import {
+  ScenarioStepPostmanPanel,
+  type ScenarioStepPostmanPanelHandle,
+} from "./ScenarioStepPostmanPanel";
 import { cn } from "../ui/utils";
 
 type Props = {
@@ -35,6 +38,7 @@ type Props = {
   postmanConfig: ScenarioPostmanConfig;
   onPostmanConfigChange: (next: ScenarioPostmanConfig) => void;
   onOpenCollectionVars: () => void;
+  bodyFlushRef?: RefObject<ScenarioStepPostmanPanelHandle | null>;
 };
 
 export function ScenarioConnectionWizardStep({
@@ -45,6 +49,7 @@ export function ScenarioConnectionWizardStep({
   postmanConfig,
   onPostmanConfigChange,
   onOpenCollectionVars,
+  bodyFlushRef,
 }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEdge, setEditingEdge] = useState<BindingCanvasEdge | null>(null);
@@ -170,12 +175,6 @@ export function ScenarioConnectionWizardStep({
             selectedStepIndex={selectedStepIndex}
             onSelectEdge={openEditEdge}
             onOpenCollectionVars={onOpenCollectionVars}
-            onOpenOverrides={(stepIndex) => {
-              if (typeof stepIndex === "number") {
-                setSelectedStepIndex(stepIndex);
-              }
-              setDrawerOpen(false);
-            }}
             onSelectStep={(idx) => {
               setSelectedStepIndex(idx);
               setDrawerOpen(false);
@@ -207,6 +206,7 @@ export function ScenarioConnectionWizardStep({
           />
         ) : (
           <ScenarioStepPostmanPanel
+            ref={bodyFlushRef}
             runSteps={runSteps}
             stepIndex={selectedStepIndex}
             bindings={bindings}

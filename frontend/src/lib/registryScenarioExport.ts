@@ -6,6 +6,7 @@ import {
 } from "@/api/scenarioApi";
 import { ApiError } from "@/api/client";
 import type { ScenarioRegistryItem } from "@/app/components/scenarioRegistry/types";
+import { resolveScenarioSaveStatus } from "@/app/components/scenarioRegistry/wizardPersist";
 import { migrateBindingsToStepKeys } from "@/lib/scenarioBindings";
 import {
   defaultCollectionPostmanZipName,
@@ -30,11 +31,34 @@ function sanitizeFilenameStem(title: string): string {
   return stem || "scenario";
 }
 
+/** Ready status + every pick has a persisted DB testcase id. */
 export function canExportRegistryScenarioPostman(
   item: ScenarioRegistryItem,
 ): boolean {
+  if (resolveScenarioSaveStatus(item) === "draft") {
+    return false;
+  }
   const picks = item.selectedRuleTestcases ?? [];
-  return picks.some((p) => p.backendTestcaseId != null);
+  if (picks.length === 0) {
+    return false;
+  }
+  return picks.every((p) => p.backendTestcaseId != null);
+}
+
+export function registryScenarioPostmanExportBlockReason(
+  item: ScenarioRegistryItem,
+): string | null {
+  if (resolveScenarioSaveStatus(item) === "draft") {
+    return "임시저장 시나리오는 완료 저장 후 export할 수 있습니다.";
+  }
+  const picks = item.selectedRuleTestcases ?? [];
+  if (picks.length === 0) {
+    return "포스트맨 export를 위해 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.";
+  }
+  if (!picks.every((p) => p.backendTestcaseId != null)) {
+    return "포스트맨 export를 위해 시나리오의 모든 테스트 케이스가 DB에 저장되어 있어야 합니다.";
+  }
+  return null;
 }
 
 function postmanJsonNames(items: ScenarioRegistryItem[]): Map<string, string> {
@@ -54,10 +78,9 @@ async function persistRegistryItemForExport(
   item: ScenarioRegistryItem,
 ): Promise<number> {
   const picks = item.selectedRuleTestcases ?? [];
-  if (!canExportRegistryScenarioPostman(item)) {
-    throw new Error(
-      "포스트맨 export를 위해 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
-    );
+  const block = registryScenarioPostmanExportBlockReason(item);
+  if (block) {
+    throw new Error(block);
   }
 
   const stepBindingsByStepKey = migrateBindingsToStepKeys(
@@ -150,7 +173,7 @@ export async function exportRegistryCollectionPostmanZip(
   const skipped = items.length - exportable.length;
   if (exportable.length === 0) {
     throw new Error(
-      "다운로드할 시나리오가 없습니다. DB 테스트 케이스가 포함된 시나리오만 export할 수 있습니다.",
+      "다운로드할 시나리오가 없습니다. 완료 저장되고 모든 테스트 케이스가 DB에 있는 시나리오만 export할 수 있습니다.",
     );
   }
 

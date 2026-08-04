@@ -33,9 +33,25 @@ from app.schemas.collection_var_generator_schema import (
     CollectionVarGeneratorListRead,
     CollectionVarGeneratorPreviewRead,
     CollectionVarGeneratorRead,
+    CollectionVarGeneratorRecommendationRead,
+    CollectionVarGeneratorUpdateRequest,
 )
 
 logger = logging.getLogger(__name__)
+
+_ENGLISH_NAME_SAMPLES = (
+    "James", "Mary", "John", "Patricia", "Robert", "Jennifer",
+    "Michael", "Linda", "William", "Elizabeth", "David", "Barbara",
+    "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah",
+    "Charles", "Karen",
+)
+
+_PAKISTANI_NAME_SAMPLES = (
+    "Ahmed", "Fatima", "Hassan", "Ayesha", "Omar", "Zainab",
+    "Ali", "Maryam", "Bilal", "Sana", "Usman", "Hira",
+    "Imran", "Noor", "Hamza", "Amina", "Saad", "Saba",
+    "Yusuf", "Iqra",
+)
 
 
 def _strip_json_fences(text: str) -> str:
@@ -97,6 +113,17 @@ class CollectionVarGeneratorService:
         rows = await self._repo.list_active()
         return {r.key: _row_to_spec(r) for r in rows}
 
+    async def _existing_items(self) -> list[CollectionVarGeneratorRead]:
+        return (await self.list_for_ui()).items
+
+    @staticmethod
+    def _catalog_lines(items: list[CollectionVarGeneratorRead]) -> str:
+        lines: list[str] = []
+        for it in items:
+            kind = it.impl_kind or it.key
+            lines.append(f"- key={it.key} label={it.label} kind={kind} source={it.source}")
+        return "\n".join(lines)
+
     async def preview(
         self,
         *,
@@ -139,37 +166,85 @@ class CollectionVarGeneratorService:
         if len(text) < 3:
             raise InvalidInputError("프롬프트를 입력하세요.")
 
+        existing = await self._existing_items()
         if self._llm is not None:
             try:
-                return await self._llm_draft(text)
+                return await self._llm_draft(text, existing)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("generator AI draft failed: %s", exc)
 
-        return self._heuristic_draft(text)
+        return self._heuristic_draft(text, existing)
 
-    async def _llm_draft(self, prompt: str) -> CollectionVarGeneratorDraftRead:
-        assert self._llm is not None
-        raw = await self._llm.complete_json(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_user_prompt(prompt),
-        )
-        data = json.loads(_strip_json_fences(raw))
+    def _filter_recommendations(
+        self,
+        raw: list[Any],
+        existing: list[CollectionVarGeneratorRead],
+    ) -> list[CollectionVarGeneratorRecommendationRead]:
+        by_key = {it.key: it for it in existing}
+        out: list[CollectionVarGeneratorRecommendationRead] = []
+        seen: set[str] = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip().lower()
+            if not key or key in seen or key not in by_key:
+                continue
+            seen.add(key)
+            meta = by_key[key]
+            sample = ""
+            try:
+                if meta.source == "builtin":
+                    sample = resolve_start_var_value(value="", generator=key)
+                else:
+                    sample = resolve_catalog_spec(
+                        CatalogGeneratorSpec(
+                            key=key,
+                            impl_kind=meta.impl_kind or key,
+                            impl=meta.impl or {},
+                        ),
+                    )
+            except Exception:  # noqa: BLE001
+                sample = ""
+            out.append(
+                CollectionVarGeneratorRecommendationRead(
+                    key=key,
+                    label=meta.label,
+                    source=meta.source,
+                    reason=str(item.get("reason") or "").strip(),
+                    sample_preview=sample,
+                ),
+            )
+            if len(out) >= 5:
+                break
+        return out
+
+    def _parse_draft_block(
+        self,
+        data: dict[str, Any] | None,
+        *,
+        source: str,
+    ) -> CollectionVarGeneratorDraftRead | None:
         if not isinstance(data, dict):
-            raise InvalidInputError("LLM JSON 형식이 올바르지 않습니다.")
+            return None
         key = str(data.get("key") or "").strip().lower()
         label = str(data.get("label") or "").strip()
         description = str(data.get("description") or "").strip()
         impl_kind = str(data.get("impl_kind") or "").strip()
         impl_raw = data.get("impl") if isinstance(data.get("impl"), dict) else {}
-        if not is_valid_generator_key(key):
+        if not impl_kind:
+            return None
+        if key and not is_valid_generator_key(key):
             raise InvalidInputError("생성기 key 형식이 올바르지 않습니다.")
         if not label:
             raise InvalidInputError("생성기 label 이 비어 있습니다.")
+        if not key:
+            key = f"gen_{impl_kind}"[:64]
+            if not is_valid_generator_key(key):
+                key = "custom_generator"
         impl = validate_custom_impl(impl_kind, impl_raw)
         sample = resolve_catalog_spec(
             CatalogGeneratorSpec(key=key, impl_kind=impl_kind, impl=impl),
         )
-        logger.info("collection_var_generator draft ok version=%s key=%s", PROMPT_VERSION, key)
         return CollectionVarGeneratorDraftRead(
             key=key,
             label=label,
@@ -177,12 +252,185 @@ class CollectionVarGeneratorService:
             impl_kind=impl_kind,
             impl=impl,
             sample_preview=str(data.get("sample_preview") or sample),
-            source="llm",
+            source=source,  # type: ignore[arg-type]
+            has_draft=True,
         )
 
-    def _heuristic_draft(self, prompt: str) -> CollectionVarGeneratorDraftRead:
-        """Fallback when LLM unavailable: parse simple Korean date offset phrases."""
+    async def _llm_draft(
+        self,
+        prompt: str,
+        existing: list[CollectionVarGeneratorRead],
+    ) -> CollectionVarGeneratorDraftRead:
+        assert self._llm is not None
+        raw = await self._llm.complete_json(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=build_user_prompt(prompt, self._catalog_lines(existing)),
+        )
+        data = json.loads(_strip_json_fences(raw))
+        if not isinstance(data, dict):
+            raise InvalidInputError("LLM JSON 형식이 올바르지 않습니다.")
+
+        recommendations = self._filter_recommendations(
+            data.get("recommendations") if isinstance(data.get("recommendations"), list) else [],
+            existing,
+        )
+
+        draft_block = data.get("draft")
+        # Backward-compatible: flat draft fields without nested "draft"
+        if draft_block is None and data.get("impl_kind"):
+            draft_block = data
+
+        parsed: CollectionVarGeneratorDraftRead | None = None
+        try:
+            parsed = self._parse_draft_block(draft_block if isinstance(draft_block, dict) else None, source="llm")
+        except InvalidInputError:
+            if not recommendations:
+                raise
+            parsed = None
+        except ValueError as exc:
+            if not recommendations:
+                raise InvalidInputError(str(exc)) from exc
+            parsed = None
+
+        if parsed is None and not recommendations:
+            raise InvalidInputError("추천 생성기나 신규 초안을 만들지 못했습니다.")
+
+        if parsed is None:
+            result = CollectionVarGeneratorDraftRead(
+                source="llm",
+                recommendations=recommendations,
+                has_draft=False,
+            )
+        else:
+            result = parsed.model_copy(
+                update={
+                    "recommendations": recommendations,
+                    "has_draft": True,
+                },
+            )
+
+        logger.info(
+            "collection_var_generator draft ok version=%s recs=%s has_draft=%s",
+            PROMPT_VERSION,
+            len(recommendations),
+            result.has_draft,
+        )
+        return result
+
+    def _recommendation_for_key(
+        self,
+        key: str,
+        existing: list[CollectionVarGeneratorRead],
+        reason: str,
+    ) -> CollectionVarGeneratorRecommendationRead | None:
+        meta = next((it for it in existing if it.key == key), None)
+        if meta is None:
+            return None
+        sample = ""
+        try:
+            if meta.source == "builtin":
+                sample = resolve_start_var_value(value="", generator=key)
+            else:
+                sample = resolve_catalog_spec(
+                    CatalogGeneratorSpec(
+                        key=key,
+                        impl_kind=meta.impl_kind or key,
+                        impl=meta.impl or {},
+                    ),
+                )
+        except Exception:  # noqa: BLE001
+            sample = ""
+        return CollectionVarGeneratorRecommendationRead(
+            key=key,
+            label=meta.label,
+            source=meta.source,
+            reason=reason,
+            sample_preview=sample,
+        )
+
+    def _heuristic_draft(
+        self,
+        prompt: str,
+        existing: list[CollectionVarGeneratorRead],
+    ) -> CollectionVarGeneratorDraftRead:
+        """Fallback when LLM unavailable."""
         p = prompt.lower()
+
+        # Match existing builtins first.
+        if any(x in prompt for x in ("한글", "한국")) and any(
+            x in prompt for x in ("이름", "성명", "name")
+        ):
+            rec = self._recommendation_for_key(
+                "korean_name", existing, "한글 이름 요청과 일치",
+            )
+            if rec:
+                return CollectionVarGeneratorDraftRead(
+                    source="heuristic",
+                    recommendations=[rec],
+                    has_draft=False,
+                )
+
+        if "uuid" in p:
+            rec = self._recommendation_for_key("uuid", existing, "UUID 요청과 일치")
+            if rec:
+                return CollectionVarGeneratorDraftRead(
+                    source="heuristic",
+                    recommendations=[rec],
+                    has_draft=False,
+                )
+
+        if any(x in prompt for x in ("주민", "rrn")):
+            rec = self._recommendation_for_key(
+                "korean_rrn", existing, "주민번호 요청과 일치",
+            )
+            if rec:
+                return CollectionVarGeneratorDraftRead(
+                    source="heuristic",
+                    recommendations=[rec],
+                    has_draft=False,
+                )
+
+        if any(x in p for x in ("난수", "숫자 랜덤", "random digit", "random number")):
+            rec = self._recommendation_for_key(
+                "random_digits", existing, "난수 숫자 요청과 일치",
+            )
+            if rec:
+                return CollectionVarGeneratorDraftRead(
+                    source="heuristic",
+                    recommendations=[rec],
+                    has_draft=False,
+                )
+
+        # Name-like requests that are not Korean → pick_from_list
+        name_like = any(x in prompt for x in ("이름", "성명", "name", "네임"))
+        if name_like:
+            if any(x in p for x in ("pakistan", "파키스탄", "pakistani", "우르두")):
+                values = list(_PAKISTANI_NAME_SAMPLES)
+                key = "pakistani_name"
+                label = "파키스탄 이름"
+            elif any(x in p for x in ("english", "영문", "영어", "서양")):
+                values = list(_ENGLISH_NAME_SAMPLES)
+                key = "english_name"
+                label = "영문 이름"
+            else:
+                values = list(_ENGLISH_NAME_SAMPLES)
+                key = "random_name"
+                label = "랜덤 이름"
+            impl = validate_custom_impl("pick_from_list", {"values": values})
+            sample = resolve_catalog_spec(
+                CatalogGeneratorSpec(key=key, impl_kind="pick_from_list", impl=impl),
+            )
+            return CollectionVarGeneratorDraftRead(
+                key=key,
+                label=label,
+                description=prompt[:200],
+                impl_kind="pick_from_list",
+                impl=impl,
+                sample_preview=sample,
+                source="heuristic",
+                has_draft=True,
+            )
+
         months = re.search(r"(\d+)\s*개월", prompt)
         days = re.search(r"(\d+)\s*일", prompt)
         years = re.search(r"(\d+)\s*년", prompt)
@@ -198,6 +446,15 @@ class CollectionVarGeneratorService:
             n = int(days.group(1))
             unit = "days"
         elif "오늘" in prompt or "today" in p:
+            rec = self._recommendation_for_key(
+                "today_yyyymmdd", existing, "오늘 날짜 요청과 일치",
+            )
+            if rec:
+                return CollectionVarGeneratorDraftRead(
+                    source="heuristic",
+                    recommendations=[rec],
+                    has_draft=False,
+                )
             impl = validate_custom_impl("today_yyyymmdd", {})
             sample = resolve_catalog_spec(
                 CatalogGeneratorSpec(key="today", impl_kind="today_yyyymmdd", impl=impl),
@@ -210,6 +467,7 @@ class CollectionVarGeneratorService:
                 impl=impl,
                 sample_preview=sample,
                 source="heuristic",
+                has_draft=True,
             )
         else:
             n = 3
@@ -220,9 +478,16 @@ class CollectionVarGeneratorService:
         else:
             n = abs(n) if n else 3
 
-        impl = validate_custom_impl("date_offset", {"unit": unit, "n": n, "format": "YYYYMMDD"})
+        impl = validate_custom_impl(
+            "date_offset",
+            {"unit": unit, "n": n, "format": "YYYYMMDD"},
+        )
         key = f"date_{'minus' if n < 0 else 'plus'}_{abs(n)}_{unit}"
-        label = f"{abs(n)}{({'days': '일', 'months': '개월', 'years': '년'}[unit])}{'전' if n < 0 else '후'} 날짜"
+        label = (
+            f"{abs(n)}"
+            f"{({'days': '일', 'months': '개월', 'years': '년'}[unit])}"
+            f"{'전' if n < 0 else '후'} 날짜"
+        )
         sample = resolve_catalog_spec(
             CatalogGeneratorSpec(key=key, impl_kind="date_offset", impl=impl),
         )
@@ -234,6 +499,7 @@ class CollectionVarGeneratorService:
             impl=impl,
             sample_preview=sample,
             source="heuristic",
+            has_draft=True,
         )
 
     async def create(
@@ -300,6 +566,50 @@ class CollectionVarGeneratorService:
             source="shared",
             impl_kind=row.impl_kind,
             impl=impl,
+            prompt=row.prompt,
+            created_by=row.created_by or None,
+            created_at=row.created_at,
+        )
+
+    async def update(
+        self,
+        key: str,
+        body: CollectionVarGeneratorUpdateRequest,
+    ) -> CollectionVarGeneratorRead:
+        k = (key or "").strip().lower()
+        if not k:
+            raise InvalidInputError("key가 필요합니다.")
+        if k in {m[0] for m in BUILTIN_META}:
+            raise InvalidInputError("내장 생성기는 수정할 수 없습니다.")
+        row = await self._repo.get_by_key(k)
+        if row is None or row.status != "active":
+            raise InvalidInputError(f"알 수 없는 생성기: {k}")
+
+        next_kind = (body.impl_kind or row.impl_kind).strip().lower()
+        next_impl_raw = body.impl if body.impl is not None else parse_impl_json(row.impl_json)
+        try:
+            next_impl = validate_custom_impl(next_kind, next_impl_raw)
+        except ValueError as exc:
+            raise InvalidInputError(str(exc)) from exc
+
+        if body.label is not None:
+            row.label = body.label.strip()
+        if body.description is not None:
+            row.description = body.description.strip()
+        if body.prompt is not None:
+            row.prompt = body.prompt.strip()
+        row.impl_kind = next_kind
+        row.impl_json = json.dumps(next_impl, ensure_ascii=False)
+        await self._repo.save(row)
+        logger.info("collection_var_generator updated key=%s kind=%s", k, next_kind)
+        return CollectionVarGeneratorRead(
+            key=row.key,
+            label=row.label,
+            description=row.description,
+            hint=row.description or row.prompt[:80],
+            source="shared",
+            impl_kind=row.impl_kind,
+            impl=next_impl,
             prompt=row.prompt,
             created_by=row.created_by or None,
             created_at=row.created_at,

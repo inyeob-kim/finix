@@ -1,5 +1,4 @@
-import finixLoginPoster from "@/assets/finix_login.jpeg";
-import finixLoginAnimation from "@/assets/finix_login_animation.mp4";
+import finixLogoMark from "@/assets/finix-logo-mark-dark.png";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Eye, EyeOff } from "lucide-react";
@@ -10,6 +9,7 @@ import {
   FinixUnderlineSelect,
 } from "./ui/finix-form";
 import { FinixPrimaryButton } from "./ui/finix-button";
+import { LoginScenarioFlow } from "./LoginScenarioFlow";
 
 const PRESETS: Array<{ role: UserRole; label: string; description: string }> = [
   {
@@ -59,45 +59,69 @@ export function Login() {
   }, [from, isAuthenticated, navigate]);
 
   return (
-    <div className="min-h-screen text-foreground relative overflow-hidden">
-      <video
-        className="absolute inset-0 -z-10 h-full w-full object-cover object-center lg:object-[40%_center] pointer-events-none"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        poster={finixLoginPoster}
+    <div className="min-h-screen text-foreground relative overflow-hidden bg-[#0F1419]">
+      {/* Atmosphere — full-bleed, not a card */}
+      <div
+        className="pointer-events-none absolute inset-0 -z-10"
+        aria-hidden
       >
-        <source src={finixLoginAnimation} type="video/mp4" />
-      </video>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_30%,rgba(13,148,136,0.28),transparent_55%),radial-gradient(ellipse_at_80%_70%,rgba(14,165,233,0.12),transparent_50%),linear-gradient(160deg,#0B1016_0%,#121820_45%,#0F1419_100%)]" />
+        <div
+          className="absolute inset-0 opacity-[0.35]"
+          style={{
+            backgroundImage:
+              "radial-gradient(rgba(148,163,184,0.22) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+        <div className="login-flow-glow absolute -left-24 top-1/4 h-72 w-72 rounded-full bg-teal-500/10 blur-3xl" />
+        <div className="login-flow-glow-delayed absolute bottom-0 right-1/3 h-64 w-64 rounded-full bg-sky-500/10 blur-3xl" />
+      </div>
+
       <div className="min-h-screen w-full grid grid-cols-1 lg:grid-cols-12">
-        {/* Left illustration */}
-        <div className="hidden lg:col-span-9 lg:flex items-center justify-center px-12">
-          <div className="w-full">
-            <div className="flex items-center gap-2 text-sm text-white/85">
-              <span className="font-semibold tracking-[0.18em]">FINIX</span>
+        {/* Brand + flow hero */}
+        <div className="relative flex flex-col justify-center px-8 py-12 lg:col-span-8 lg:px-16 xl:px-24">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-3">
+              <img
+                src={finixLogoMark}
+                alt=""
+                className="size-11 rounded-md shadow-lg shadow-black/40 ring-1 ring-white/10"
+              />
+              <h1 className="text-[clamp(2.5rem,6vw,4.25rem)] font-semibold leading-none tracking-[0.14em] text-white">
+                FINIX
+              </h1>
+            </div>
+
+            <p className="mt-6 max-w-md text-base leading-relaxed text-slate-300 sm:text-lg">
+              CBS 규칙을 시나리오로 묶고, 연결·실행까지 한 흐름으로 검증합니다.
+            </p>
+
+            <div className="mt-12 login-flow-enter">
+              <LoginScenarioFlow />
             </div>
           </div>
         </div>
 
-        {/* Right panel */}
-        <div className="lg:col-span-3 bg-white flex items-center justify-center px-6 py-10 border-l border-border/60">
+        {/* Login panel */}
+        <div className="flex items-center justify-center border-t border-white/10 bg-white px-6 py-10 lg:col-span-4 lg:border-l lg:border-t-0 border-border/60">
           <div className="w-full max-w-xs">
+            <div className="text-center lg:hidden mb-8">
+              <div className="inline-flex items-center gap-2">
+                <img
+                  src={finixLogoMark}
+                  alt=""
+                  className="size-7 rounded-sm"
+                />
+                <span className="text-sm font-semibold tracking-[0.18em] text-foreground">
+                  FINIX
+                </span>
+              </div>
+            </div>
+
             <div className="text-center">
               <div className="text-sm font-semibold tracking-[0.18em] text-muted-foreground">
                 LOGIN
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  className="underline underline-offset-4 hover:text-foreground transition-colors"
-                  onClick={() => {
-                    // mock: keep UI parity with reference (no-op)
-                  }}
-                >
-                  계정개설요청
-                </button>
               </div>
             </div>
 
@@ -177,8 +201,8 @@ export function Login() {
               </FinixPrimaryButton>
 
               <div className="text-[11px] text-muted-foreground leading-relaxed">
-                현재는 데모용 Mock 로그인입니다. 비밀번호/센터/언어는 UI만 반영되고,
-                실제 인증(SSO/JWT)은 추후 연동 가능합니다.
+                현재는 데모용 Mock 로그인입니다. 비밀번호/센터/언어는 UI만
+                반영되고, 실제 인증(SSO/JWT)은 추후 연동 가능합니다.
               </div>
             </div>
           </div>

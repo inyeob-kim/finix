@@ -50,9 +50,13 @@ export function useScenarioBindingSuggestions(
   }, [runSteps]);
 
   const applySuggestions = useCallback(
-    async (mode: "append" | "replace" = "replace") => {
-      const links =
+    async (
+      mode: "append" | "replace" = "replace",
+      selectedLinks?: SuggestedBindingLinkDto[],
+    ) => {
+      const pool =
         lastLinks.length > 0 ? lastLinks : await fetchSuggestions();
+      const links = selectedLinks ?? pool;
       if (links.length === 0) return;
       const next = bindingsFromSuggestionLinks(
         runSteps,

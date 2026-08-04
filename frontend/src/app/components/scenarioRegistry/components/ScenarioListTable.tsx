@@ -1,7 +1,11 @@
 import { BarChart3, Download, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import { canExportRegistryScenarioPostman } from "@/lib/registryScenarioExport";
+import {
+  canExportRegistryScenarioPostman,
+  registryScenarioPostmanExportBlockReason,
+} from "@/lib/registryScenarioExport";
 import { canRunRegistryScenario } from "@/lib/registryScenarioRun";
 import { FinixPrimaryButton } from "../../ui/finix-button";
+import { FinixScenarioStatusBadge } from "../../ui/finix-status-badge";
 import {
   FinixDataTable,
   FinixDataTableBody,
@@ -14,6 +18,10 @@ import {
 } from "../../ui/finix-data-table";
 import { cn } from "../../ui/utils";
 import type { ScenarioRegistryItem } from "../types";
+import {
+  resolveScenarioSaveStatus,
+  scenarioSaveStatusToBadge,
+} from "../wizardPersist";
 import { ConfirmPopover } from "./ConfirmPopover";
 
 export type ScenarioListEmptyCopy = {
@@ -68,6 +76,9 @@ export function ScenarioListTable({
       <FinixDataTableHeader>
         <FinixDataTableRow className="hover:bg-transparent">
           <FinixDataTableHead className="min-w-[220px]">시나리오</FinixDataTableHead>
+          <FinixDataTableHead className="w-[88px] whitespace-nowrap">
+            상태
+          </FinixDataTableHead>
           <FinixDataTableHead className="w-[100px] whitespace-nowrap">
             테스트케이스
           </FinixDataTableHead>
@@ -87,7 +98,7 @@ export function ScenarioListTable({
         {items.length === 0 ? (
           <FinixDataTableRow>
             <FinixDataTableCell
-              colSpan={6}
+              colSpan={7}
               className="py-12 text-center text-muted-foreground text-sm"
             >
               <div className="max-w-lg mx-auto space-y-4">
@@ -118,6 +129,7 @@ export function ScenarioListTable({
             const isSelected = item.id === selectedScenarioId;
             const rowActive = isSelected && !previewCollapsed;
             const tcCount = item.selectedRuleTestcases?.length ?? 0;
+            const saveStatus = resolveScenarioSaveStatus(item);
             return (
               <FinixDataTableRow
                 key={item.id}
@@ -137,6 +149,11 @@ export function ScenarioListTable({
                       </p>
                     ) : null}
                   </div>
+                </FinixDataTableCell>
+                <FinixDataTableCell className="align-top">
+                  <FinixScenarioStatusBadge
+                    status={scenarioSaveStatusToBadge(saveStatus)}
+                  />
                 </FinixDataTableCell>
                 <FinixDataTableCell className="align-top text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                   {tcCount}개
@@ -189,13 +206,17 @@ export function ScenarioListTable({
                           onRun(item);
                         }}
                         disabled={
-                          runningId === item.id || !canRunRegistryScenario(item)
+                          runningId === item.id ||
+                          saveStatus === "draft" ||
+                          !canRunRegistryScenario(item)
                         }
                         className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
                         title={
-                          canRunRegistryScenario(item)
-                            ? "시나리오 실행"
-                            : "DB 테스트 케이스가 포함된 시나리오만 실행 가능"
+                          saveStatus === "draft"
+                            ? "임시저장 시나리오는 완료 저장 후 실행할 수 있습니다"
+                            : canRunRegistryScenario(item)
+                              ? "시나리오 실행"
+                              : "DB 테스트 케이스가 포함된 시나리오만 실행 가능"
                         }
                       >
                         <Play className="w-3.5 h-3.5" />
@@ -208,13 +229,15 @@ export function ScenarioListTable({
                         }}
                         disabled={
                           exportingId === item.id ||
+                          saveStatus === "draft" ||
                           !canExportRegistryScenarioPostman(item)
                         }
                         className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
                         title={
                           canExportRegistryScenarioPostman(item)
                             ? "Postman 컬렉션 다운로드"
-                            : "DB 테스트 케이스가 포함된 시나리오만 export 가능"
+                            : (registryScenarioPostmanExportBlockReason(item) ??
+                              "Postman export 불가")
                         }
                       >
                         <Download className="w-3.5 h-3.5" />

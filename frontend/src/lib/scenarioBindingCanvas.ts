@@ -1,7 +1,6 @@
 /** Binding canvas view-model — maps step bindings to Start/Loop/End graph. */
 
 import {
-  emptyStepBinding,
   stripBindingPathForInput,
   upsertExtract,
   upsertInject,
@@ -20,7 +19,7 @@ import {
   type ScenarioRunStep,
 } from "@/lib/scenarioRunSequence";
 
-export type BindingCanvasNodeKind = "start" | "step" | "end" | "dataModel";
+export type BindingCanvasNodeKind = "start" | "step" | "end";
 
 export type BindingCanvasNode = {
   id: string;
@@ -29,10 +28,9 @@ export type BindingCanvasNode = {
   subtitle?: string;
   stepIndex?: number;
   stepKey?: string;
-  overrideCount?: number;
 };
 
-export type BindingCanvasEdgeKind = "var" | "override";
+export type BindingCanvasEdgeKind = "var";
 
 export type BindingCanvasEdge = {
   id: string;
@@ -49,7 +47,6 @@ export type BindingCanvasEdge = {
 
 export const BINDING_CANVAS_START_ID = "node:start";
 export const BINDING_CANVAS_END_ID = "node:end";
-export const BINDING_CANVAS_DATA_ID = "node:data";
 
 export function bindingCanvasStepNodeId(stepIndex: number): string {
   return `node:step:${stepIndex}`;
@@ -89,11 +86,7 @@ export function buildBindingCanvasGraph(
     },
   ];
 
-  let totalOverrides = 0;
   runSteps.forEach((step, stepIndex) => {
-    const cfg = bindings[step.stepKey] ?? emptyStepBinding();
-    const overrideCount = cfg.overrides.length;
-    totalOverrides += overrideCount;
     nodes.push({
       id: bindingCanvasStepNodeId(stepIndex),
       kind: "step",
@@ -106,19 +99,8 @@ export function buildBindingCanvasGraph(
         step.serviceCode,
       stepIndex,
       stepKey: step.stepKey,
-      overrideCount,
     });
   });
-
-  if (totalOverrides > 0) {
-    nodes.push({
-      id: BINDING_CANVAS_DATA_ID,
-      kind: "dataModel",
-      label: "Data Model",
-      subtitle: `고정값 ${totalOverrides}건`,
-      overrideCount: totalOverrides,
-    });
-  }
 
   nodes.push({
     id: BINDING_CANVAS_END_ID,
@@ -152,29 +134,6 @@ export function buildBindingCanvasGraph(
       requestPath: link.requestPath,
       linked: link.linked,
     };
-  });
-
-  runSteps.forEach((step, stepIndex) => {
-    const cfg = bindings[step.stepKey] ?? emptyStepBinding();
-    if (cfg.overrides.length === 0 || totalOverrides === 0) return;
-    edges.push({
-      id: bindingCanvasEdgeId({
-        kind: "override",
-        varName: "override",
-        fromStepIndex: -1,
-        toStepIndex: stepIndex,
-        requestPath: `overrides:${step.stepKey}`,
-      }),
-      kind: "override",
-      varName: "override",
-      fromNodeId: BINDING_CANVAS_DATA_ID,
-      toNodeId: bindingCanvasStepNodeId(stepIndex),
-      fromStepIndex: -1,
-      toStepIndex: stepIndex,
-      responsePath: "",
-      requestPath: "",
-      linked: true,
-    });
   });
 
   return { nodes, edges };

@@ -10,6 +10,7 @@ import {
   type ScenarioCaseTypeFilter,
 } from "@/lib/scenarioCaseTypeFilter";
 import { FinixLoading } from "../../ui/finix-loading";
+import { FinixStatusBadge } from "../../ui/finix-status-badge";
 import { cn } from "../../ui/utils";
 import type { ScenarioRuleTestcaseRef } from "../types";
 
@@ -33,18 +34,10 @@ const BTN_BULK =
   "inline-flex items-center justify-center min-h-9 px-2 rounded-sm border border-border bg-background text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap";
 
 function CaseTypeBadge({ caseType }: { caseType: ScenarioCaseType }) {
-  const isError = caseType === "E";
   return (
-    <span
-      className={cn(
-        "text-[10px] font-semibold uppercase shrink-0 px-1.5 py-0.5 rounded-sm border",
-        isError
-          ? "text-rose-700 dark:text-rose-300 border-rose-500/30 bg-rose-500/10"
-          : "text-emerald-700 dark:text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
-      )}
-    >
+    <FinixStatusBadge tone={caseType === "E" ? "danger" : "success"}>
       {caseType}
-    </span>
+    </FinixStatusBadge>
   );
 }
 

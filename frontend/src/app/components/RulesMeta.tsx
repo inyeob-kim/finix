@@ -49,6 +49,10 @@ import {
 } from "./ui/finix-form";
 import { FinixPrimaryButton } from "./ui/finix-button";
 import { FinixLoading } from "./ui/finix-loading";
+import {
+  FinixStatusBadge,
+  rulesRegistryStatusBadge,
+} from "./ui/finix-status-badge";
 import { RulesMetaHistoryDialog } from "./rules/RulesMetaHistoryDialog";
 import { RulesMetaHintButton } from "./rules/RulesMetaHintButton";
 import { RulesMetaTestCasesPanel } from "./rules/RulesMetaTestCasesPanel";
@@ -89,33 +93,8 @@ type SortKey =
   | "rules_desc";
 
 function StatusPill({ status }: { status: string }) {
-  const st = (status || "draft").toLowerCase();
-  if (st === "active") {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-emerald-100 text-emerald-900 border border-emerald-300">
-        운영
-      </span>
-    );
-  }
-  if (st === "approved") {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-muted text-muted-foreground border border-border">
-        승인됨
-      </span>
-    );
-  }
-  if (st === "superseded") {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-muted/80 text-muted-foreground border border-border">
-        대체됨
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-xs font-medium whitespace-nowrap bg-amber-50 text-amber-900 border border-amber-300">
-      초안
-    </span>
-  );
+  const { tone, label } = rulesRegistryStatusBadge(status);
+  return <FinixStatusBadge tone={tone}>{label}</FinixStatusBadge>;
 }
 
 const SECONDARY_BTN_CLASS =

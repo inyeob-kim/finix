@@ -10,6 +10,10 @@ import type { RuleRegistryItem } from "@/hooks/useRulesRegistry";
 import { FINIX_LARGE_MODAL_CONTENT } from "@/lib/finixModalLayout";
 import { FinixLoading } from "../ui/finix-loading";
 import {
+  FinixStatusBadge,
+  rulesRegistryStatusBadge,
+} from "../ui/finix-status-badge";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -37,40 +41,12 @@ type Props = {
 };
 
 function statusBadge(status: string, isActive: boolean) {
-  if (isActive) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-medium bg-emerald-100 text-emerald-900 border border-emerald-300">
-        <BadgeCheck className="w-3 h-3" />
-        운영
-      </span>
-    );
-  }
-  const st = (status || "draft").toLowerCase();
-  if (st === "superseded") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs text-muted-foreground border border-border bg-muted/60">
-        대체됨
-      </span>
-    );
-  }
-  if (st === "approved") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs text-muted-foreground border border-border bg-muted/60">
-        승인됨
-      </span>
-    );
-  }
-  if (st === "active") {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-slate-100 text-slate-700 border border-slate-300">
-        운영 (구버전)
-      </span>
-    );
-  }
+  const { tone, label } = rulesRegistryStatusBadge(status, { isActive });
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300">
-      초안
-    </span>
+    <FinixStatusBadge tone={tone}>
+      {isActive ? <BadgeCheck className="w-3 h-3" /> : null}
+      {label}
+    </FinixStatusBadge>
   );
 }
 

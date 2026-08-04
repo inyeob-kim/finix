@@ -13,6 +13,7 @@ from app.schemas.collection_var_generator_schema import (
     CollectionVarGeneratorPreviewRead,
     CollectionVarGeneratorPreviewRequest,
     CollectionVarGeneratorRead,
+    CollectionVarGeneratorUpdateRequest,
 )
 from app.services.collection_var_generator_service import CollectionVarGeneratorService
 
@@ -68,6 +69,19 @@ async def create_generator(
     service: CollectionVarGeneratorService = Depends(get_collection_var_generator_service),
 ) -> CollectionVarGeneratorRead:
     return await service.create(body)
+
+
+@router.patch(
+    "/{key}",
+    response_model=CollectionVarGeneratorRead,
+    summary="Update shared generator impl",
+)
+async def update_generator(
+    key: str,
+    body: CollectionVarGeneratorUpdateRequest,
+    service: CollectionVarGeneratorService = Depends(get_collection_var_generator_service),
+) -> CollectionVarGeneratorRead:
+    return await service.update(key, body)
 
 
 @router.delete(

@@ -51,8 +51,19 @@ _ALLOWED_IMPL_KINDS = frozenset(
         "korean_name",
         "korean_rrn",
         "today_yyyymmdd",
+        "pick_from_list",
     },
 )
+
+_PICK_LIST_MIN = 2
+_PICK_LIST_MAX = 200
+_PICK_LIST_ITEM_MAX = 128
+
+
+def _pick_from_list(values: list[str]) -> str:
+    if not values:
+        return ""
+    return random.choice(values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +180,11 @@ def resolve_catalog_spec(spec: CatalogGeneratorSpec) -> str:
         return resolve_date_offset(impl)
     if kind == "random_digits":
         return _random_digits(int(impl.get("length") or 10))
+    if kind == "pick_from_list":
+        raw = impl.get("values")
+        values = [str(v).strip() for v in raw] if isinstance(raw, list) else []
+        values = [v for v in values if v]
+        return _pick_from_list(values)
     if kind in ("uuid", "today_yyyymmdd", "korean_name", "korean_rrn"):
         return resolve_generator(kind, params=impl)
     return ""
@@ -219,6 +235,27 @@ def validate_custom_impl(impl_kind: str, impl: dict[str, Any]) -> dict[str, Any]
         except (TypeError, ValueError) as exc:
             raise ValueError("random_digits.length 가 숫자가 아닙니다.") from exc
         return {"length": max(1, min(32, length))}
+    if kind == "pick_from_list":
+        raw = impl.get("values")
+        if not isinstance(raw, list):
+            raise ValueError("pick_from_list.values 는 문자열 배열이어야 합니다.")
+        values: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            s = str(item).strip()
+            if not s or s in seen:
+                continue
+            if len(s) > _PICK_LIST_ITEM_MAX:
+                s = s[:_PICK_LIST_ITEM_MAX]
+            seen.add(s)
+            values.append(s)
+            if len(values) >= _PICK_LIST_MAX:
+                break
+        if len(values) < _PICK_LIST_MIN:
+            raise ValueError(
+                f"pick_from_list.values 는 {_PICK_LIST_MIN}개 이상 필요합니다.",
+            )
+        return {"values": values}
     return {}
 
 

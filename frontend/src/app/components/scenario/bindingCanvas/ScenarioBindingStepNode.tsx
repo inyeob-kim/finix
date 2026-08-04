@@ -10,7 +10,6 @@ type Props = {
   selected?: boolean;
   onSelect?: () => void;
   onOpenCollectionVars?: () => void;
-  onOpenOverrides?: () => void;
 };
 
 export function ScenarioBindingStepNode({
@@ -18,7 +17,6 @@ export function ScenarioBindingStepNode({
   selected,
   onSelect,
   onOpenCollectionVars,
-  onOpenOverrides,
 }: Props) {
   if (node.kind === "start") {
     return (
@@ -50,26 +48,6 @@ export function ScenarioBindingStepNode({
     );
   }
 
-  if (node.kind === "dataModel") {
-    return (
-      <button
-        type="button"
-        onClick={onOpenOverrides ?? onSelect}
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-md border border-dashed border-flow-data/50 bg-card px-2.5 py-1.5 text-left",
-          selected && "ring-2 ring-primary/40",
-        )}
-      >
-        <FinixFlowPill tone="data" className="px-2 py-0.5">
-          Data
-        </FinixFlowPill>
-        <span className="text-[10px] text-muted-foreground">
-          {node.subtitle ?? "고정값"}
-        </span>
-      </button>
-    );
-  }
-
   return (
     <div
       className={cn(
@@ -89,17 +67,6 @@ export function ScenarioBindingStepNode({
           className="w-full min-w-0 max-w-none"
         />
       </button>
-      {(node.overrideCount ?? 0) > 0 && onOpenOverrides ? (
-        <div className="mt-1 flex justify-end px-0.5">
-          <button
-            type="button"
-            onClick={onOpenOverrides}
-            className="text-[10px] text-amber-700 hover:underline"
-          >
-            고정값 {node.overrideCount}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

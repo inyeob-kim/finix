@@ -516,6 +516,7 @@ class TestCaseService:
         resolved: bool = True,
         native: bool = True,
         steps_json_override: str | None = None,
+        generator_catalog: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Export all scenario test cases as one Postman collection."""
         from app.domain.postman_bxm_system_header import (
@@ -532,12 +533,16 @@ class TestCaseService:
             build_postman_collection_variables,
             collect_runtime_var_names_from_bindings,
         )
+        from app.domain.postman_generator_scripts import (
+            build_start_var_generator_exec_lines,
+            merge_collection_prerequest_events,
+        )
         from app.services.execution_simulator import simulate_response
         from app.services.scenario_run_resolver import (
             bindings_by_logical_step,
             resolve_scenario_run,
         )
-        from app.utils.scenario_steps_document import parse_steps_document, parse_steps_list
+        from app.utils.scenario_steps_document import parse_steps_document
 
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
@@ -550,6 +555,7 @@ class TestCaseService:
         _raw_steps, postman_config = parse_steps_document(steps_json)
         request_headers = build_postman_export_request_headers()
         step_service_codes = step_service_codes_from_steps(steps_json)
+        catalog = generator_catalog
 
         use_native = native and resolved
         preview = None
@@ -570,10 +576,11 @@ class TestCaseService:
         collection_variables = build_postman_collection_variables(
             postman_config,
             runtime_var_names=collect_runtime_var_names_from_bindings(binding_map),
+            catalog=catalog,
         )
         items: list[dict[str, Any]] = []
-        for tc in testcases:
-            logical_step = tc.step_index if tc.step_index is not None else 0
+        for enum_idx, tc in enumerate(testcases):
+            logical_step = tc.step_index if tc.step_index is not None else enum_idx
             injects, extracts, overrides = binding_map.get(logical_step, ([], [], []))
             raw_body = loads_json(tc.request_body_json, {})
             template = raw_body if isinstance(raw_body, dict) else {}
@@ -621,9 +628,22 @@ class TestCaseService:
             )
             items.extend(col["item"])
 
+        gen_lines = build_start_var_generator_exec_lines(
+            postman_config,
+            catalog=catalog,
+        )
+        gen_event = (
+            {
+                "listen": "prerequest",
+                "script": {"type": "text/javascript", "exec": gen_lines},
+            }
+            if gen_lines
+            else None
+        )
         desc = (
             "Executable workflow: collection variables, {{var}} injects, "
-            "pm.collectionVariables.set on test scripts. Run requests in order."
+            "pm.collectionVariables.set on test scripts. Run requests in order. "
+            "Generator-backed start vars re-seed on the first request of each Collection Runner run."
             if use_native
             else "Generated snapshot (resolved request bodies)."
         )
@@ -637,7 +657,10 @@ class TestCaseService:
         }
         if collection_variables:
             payload["variable"] = collection_variables
-        payload["event"] = [bxm_prerequest_collection_event(postman_config)]
+        payload["event"] = merge_collection_prerequest_events(
+            gen_event,
+            bxm_prerequest_collection_event(postman_config),
+        )
         return payload
 
     @staticmethod

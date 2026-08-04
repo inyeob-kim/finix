@@ -3,12 +3,14 @@ import type {
   ScenarioRegistryFolder,
   ScenarioRegistryItem,
   ScenarioRegistryStateV2,
+  ScenarioSaveStatus,
   ServiceCatalogItem,
 } from "./types";
 import { defaultRegistryV2, nowStamp, safeJsonParse, newId } from "./utils";
 
 function ensureServiceSequence(x: unknown): ServiceCatalogItem[] {
-  const seq = (x as { serviceSequence?: ServiceCatalogItem[] } | null)?.serviceSequence;
+  const seq = (x as { serviceSequence?: ServiceCatalogItem[] } | null)
+    ?.serviceSequence;
   if (Array.isArray(seq) && seq.length > 0) return seq;
   const sc = (x as { serviceCode?: string } | null)?.serviceCode ?? "";
   const sn = (x as { serviceName?: string } | null)?.serviceName ?? "";
@@ -23,11 +25,35 @@ export type LoadedRegistryState = {
   hydrated: boolean;
 };
 
-function stripLegacyScenarioFields(
-  item: ScenarioRegistryItem & { status?: unknown },
+function normalizeSaveStatus(raw: unknown): ScenarioSaveStatus | undefined {
+  if (raw === "draft") return "draft";
+  if (raw === "ready") return "ready";
+  return undefined;
+}
+
+function normalizeWizardStep(raw: unknown): 1 | 2 | 3 | undefined {
+  if (raw === 1 || raw === 2 || raw === 3) return raw;
+  return undefined;
+}
+
+/** Drop unknown legacy fields; keep saveStatus / wizardStep when valid. */
+export function normalizeScenarioItem(
+  item: ScenarioRegistryItem & Record<string, unknown>,
 ): ScenarioRegistryItem {
-  const { status: _status, ...rest } = item;
-  return rest;
+  const {
+    status: _legacyStatus,
+    saveStatus: rawSaveStatus,
+    wizardStep: rawWizardStep,
+    ...rest
+  } = item;
+  void _legacyStatus;
+  const saveStatus = normalizeSaveStatus(rawSaveStatus);
+  const wizardStep = normalizeWizardStep(rawWizardStep);
+  return {
+    ...(rest as ScenarioRegistryItem),
+    ...(saveStatus ? { saveStatus } : {}),
+    ...(wizardStep ? { wizardStep } : {}),
+  };
 }
 
 export function loadRegistryState(updatedBy: string): LoadedRegistryState {
@@ -46,8 +72,8 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
               ...(x as unknown as object),
               serviceSequence: seq,
             } as ScenarioRegistryItem);
-      return stripLegacyScenarioFields(
-        base as ScenarioRegistryItem & { status?: unknown },
+      return normalizeScenarioItem(
+        base as ScenarioRegistryItem & Record<string, unknown>,
       );
     });
     return {
@@ -77,11 +103,11 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
       version: 2,
       folders: [migratedRoot],
       scenarios: v1.map((x) =>
-        stripLegacyScenarioFields({
+        normalizeScenarioItem({
           ...x,
           folderId: migratedRoot.id,
           serviceSequence: ensureServiceSequence(x),
-        } as ScenarioRegistryItem & { status?: unknown }),
+        } as ScenarioRegistryItem & Record<string, unknown>),
       ),
     };
     localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(migrated));
@@ -105,4 +131,3 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
 export function persistRegistryState(payload: ScenarioRegistryStateV2) {
   localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));
 }
-

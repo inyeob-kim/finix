@@ -1,5 +1,4 @@
 import {
-  BINDING_CANVAS_DATA_ID,
   BINDING_CANVAS_END_ID,
   BINDING_CANVAS_START_ID,
   buildBindingCanvasGraph,
@@ -20,7 +19,6 @@ type Props = {
   selectedStepIndex?: number | null;
   onSelectEdge: (edge: BindingCanvasEdge) => void;
   onOpenCollectionVars: () => void;
-  onOpenOverrides: (stepIndex?: number) => void;
   onSelectStep?: (stepIndex: number) => void;
 };
 
@@ -32,7 +30,6 @@ export function ScenarioBindingCanvas({
   selectedStepIndex,
   onSelectEdge,
   onOpenCollectionVars,
-  onOpenOverrides,
   onSelectStep,
 }: Props) {
   const { nodes, edges } = buildBindingCanvasGraph(
@@ -43,10 +40,8 @@ export function ScenarioBindingCanvas({
 
   const startNode = nodes.find((n) => n.id === BINDING_CANVAS_START_ID);
   const endNode = nodes.find((n) => n.id === BINDING_CANVAS_END_ID);
-  const dataNode = nodes.find((n) => n.id === BINDING_CANVAS_DATA_ID);
   const stepNodes = nodes.filter((n) => n.kind === "step");
   const varEdges = edges.filter((e) => e.kind === "var");
-  const overrideEdges = edges.filter((e) => e.kind === "override");
 
   return (
     <FinixDotCanvas className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
@@ -65,30 +60,6 @@ export function ScenarioBindingCanvas({
 
           <div className="mx-auto my-1 h-5 w-px bg-primary/40" />
 
-          {dataNode ? (
-            <>
-              <div className="mb-1 flex justify-center">
-                <ScenarioBindingStepNode
-                  node={dataNode}
-                  onOpenOverrides={onOpenOverrides}
-                />
-              </div>
-              {overrideEdges.length > 0 ? (
-                <div className="mb-2 flex flex-wrap justify-center gap-1">
-                  {overrideEdges.map((e) => (
-                    <span
-                      key={e.id}
-                      className="rounded border border-dashed border-flow-data/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                    >
-                      → TC{(e.toStepIndex ?? 0) + 1}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <div className="mx-auto my-1 h-5 w-px border-l border-dashed border-flow-data/50" />
-            </>
-          ) : null}
-
           <div className="flex flex-col gap-0 rounded-md border border-flow-loop/40 bg-card/70 p-3">
             {stepNodes.map((node, idx) => (
               <div key={node.id} className="flex flex-col">
@@ -98,7 +69,6 @@ export function ScenarioBindingCanvas({
                   onSelect={() => {
                     if (node.stepIndex != null) onSelectStep?.(node.stepIndex);
                   }}
-                  onOpenOverrides={() => onOpenOverrides(node.stepIndex)}
                 />
                 {idx < stepNodes.length - 1 ? (
                   <div className="mx-auto my-2 h-4 w-px bg-primary/40" />

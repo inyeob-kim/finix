@@ -33,6 +33,8 @@ export type ScenarioRegistryFolder = {
   updatedBy: string;
 };
 
+export type ScenarioSaveStatus = "draft" | "ready";
+
 export type ScenarioRegistryItem = {
   id: string;
   folderId: string;
@@ -50,6 +52,13 @@ export type ScenarioRegistryItem = {
   stepBindingsByCode?: StepBindingsByServiceCode;
   /** Set after first DB persist/export; reused to avoid duplicate scenarios. */
   backendScenarioId?: number;
+  /**
+   * Wizard publish state. Missing → treated as ready (legacy rows).
+   * draft = mid-wizard temp save; ready = finished.
+   */
+  saveStatus?: ScenarioSaveStatus;
+  /** Last wizard step when saved as draft (1–3). */
+  wizardStep?: 1 | 2 | 3;
   createdAt: string;
   updatedAt: string;
   updatedBy: string;

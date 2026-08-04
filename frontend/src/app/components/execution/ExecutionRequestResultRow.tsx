@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import type { ExecutionStepViewModel } from "@/lib/executionStepView";
 import { formatResponseSize } from "@/lib/executionStepView";
 import { ExecutionAssertionList } from "./ExecutionAssertionList";
+import { FinixStatusBadge } from "../ui/finix-status-badge";
 import { cn } from "../ui/utils";
 
 type Props = {
@@ -13,24 +14,15 @@ type Props = {
 
 function HttpStatusPill({ status }: { status: number | null }) {
   if (status == null) {
-    return (
-      <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-muted text-muted-foreground">
-        —
-      </span>
-    );
+    return <FinixStatusBadge tone="muted">—</FinixStatusBadge>;
   }
-  const isError = status >= 400;
   return (
-    <span
-      className={cn(
-        "px-2 py-0.5 rounded text-[11px] font-mono font-semibold",
-        isError
-          ? "bg-rose-500/15 text-rose-700 dark:text-rose-300"
-          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-      )}
+    <FinixStatusBadge
+      tone={status >= 400 ? "danger" : "success"}
+      className="font-mono"
     >
       {status}
-    </span>
+    </FinixStatusBadge>
   );
 }
 

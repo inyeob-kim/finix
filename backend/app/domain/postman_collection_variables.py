@@ -20,7 +20,8 @@ def build_postman_collection_variables(
 
     Header (BXM) values are baked into the collection pre-request script, not
     listed here — so collection vars may reuse the same names (e.g. txDt).
-    Generators are resolved once at export time (snapshot for Postman import).
+    Generators resolve initial values here; collection pre-request scripts
+    re-seed them on the first request of each Collection Runner run.
     """
     ordered: list[tuple[str, str]] = []
     seen: set[str] = set()

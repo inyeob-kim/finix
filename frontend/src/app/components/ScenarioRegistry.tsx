@@ -12,6 +12,7 @@ import {
 } from "@/lib/postmanExportDownload";
 import {
     canExportRegistryScenarioPostman,
+    registryScenarioPostmanExportBlockReason,
     exportRegistryCollectionPostmanZip,
     exportRegistryScenarioPostman,
 } from "@/lib/registryScenarioExport";
@@ -25,6 +26,10 @@ import {
     migrateBindingsToStepKeys,
     type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
+import {
+    clearAllScenarioBindings,
+    countBindingStats,
+} from "@/lib/scenarioBindingClear";
 import { resolveScenarioCaseType } from "@/lib/scenarioCaseTypeFilter";
 import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
 import {
@@ -46,6 +51,7 @@ import {
     Download,
     FolderKanban,
     FolderPlus,
+    Link2Off,
     PanelRightClose,
     PanelRightOpen,
     Play,
@@ -76,6 +82,7 @@ import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsD
 import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizardStep";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
+import type { ScenarioStepPostmanPanelHandle } from "./scenario/ScenarioStepPostmanPanel";
 import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
 import { ScenarioListTable } from "./scenarioRegistry/components/ScenarioListTable";
@@ -86,23 +93,26 @@ import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
 import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
 import {
   repairRegistryFolderLinks,
-  resolveScenarioFolderId,
 } from "./scenarioRegistry/registryFolderSync";
 import type {
     ScenarioRegistryFolder,
     ScenarioRegistryItem,
     ScenarioRegistryStateV2,
     ScenarioRuleTestcaseRef,
+    ScenarioSaveStatus,
     ServiceCatalogItem,
     ServiceDraft,
 } from "./scenarioRegistry/types";
 import {
     getFolderLabel,
     newId,
-    normalizeTags,
     nowStamp,
     safeJsonParse,
 } from "./scenarioRegistry/utils";
+import {
+  buildScenarioRegistryItem,
+  resolveScenarioSaveStatus,
+} from "./scenarioRegistry/wizardPersist";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
 import {
     Dialog,
@@ -112,6 +122,16 @@ import {
     DialogHeader,
     DialogTitle,
 } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { FinixPrimaryButton } from "./ui/finix-button";
 import {
     FinixField,
@@ -190,6 +210,7 @@ export function ScenarioRegistry() {
   } = useServiceCatalogPicker({ enabled: open });
 
   const scenarioServiceInputRef = useRef<HTMLInputElement>(null);
+  const bodyFlushRef = useRef<ScenarioStepPostmanPanelHandle | null>(null);
 
   const focusScenarioServiceSearch = useCallback(() => {
     window.setTimeout(() => {
@@ -232,6 +253,7 @@ export function ScenarioRegistry() {
     null,
   );
   const [aiSuggestOpen, setAiSuggestOpen] = useState(false);
+  const [clearBindingsOpen, setClearBindingsOpen] = useState(false);
   const [collectionVarsOpen, setCollectionVarsOpen] = useState(false);
   const [collectionExportOpen, setCollectionExportOpen] = useState(false);
   const [collectionExportPostmanDraft, setCollectionExportPostmanDraft] =
@@ -274,6 +296,13 @@ export function ScenarioRegistry() {
       ),
     [selectedRulePicks, serviceDrafts],
   );
+
+  const wizardBindingStats = useMemo(
+    () => countBindingStats(wizardRunSteps, stepBindingsByStepKey),
+    [wizardRunSteps, stepBindingsByStepKey],
+  );
+  const hasWizardBindingsToClear =
+    wizardBindingStats.extractCount + wizardBindingStats.injectCount > 0;
 
   const handlePostmanConfigChange = useCallback(
     (next: ScenarioPostmanConfig) => {
@@ -680,7 +709,11 @@ export function ScenarioRegistry() {
       ),
     );
     setPostmanConfig(ensurePostmanConfig(item.postmanConfig));
-    setScenarioWizardStep(1);
+    const resumeStep =
+      resolveScenarioSaveStatus(item) === "draft" && item.wizardStep
+        ? item.wizardStep
+        : 1;
+    setScenarioWizardStep(resumeStep);
     setError(null);
     setOpen(true);
   };
@@ -697,90 +730,70 @@ export function ScenarioRegistry() {
     );
   }, [open, selectedRulePicks]);
 
-  const save = () => {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      setError("제목은 필수입니다.");
+  const persistWizard = (mode: ScenarioSaveStatus) => {
+    const flushed = bodyFlushRef.current?.flush();
+    if (flushed && !flushed.ok) {
+      setError(
+        "요청 body JSON이 올바르지 않습니다. Input을 수정한 뒤 다시 저장하세요.",
+      );
+      setScenarioWizardStep(2);
       return;
     }
-    if (serviceDrafts.length === 0) {
-      setError("서비스를 1개 이상 추가하세요.");
-      return;
-    }
-    const nextTags = normalizeTags(tagsText);
-    const nextSequence: ServiceCatalogItem[] = serviceDrafts.map((s) => ({
-      code: s.code,
-      name: s.name,
-    }));
-    const nextRulePicks = [...selectedRulePicks];
-    const stamp = nowStamp();
+    const bindingsForSave = flushed?.bindings ?? stepBindingsByStepKey;
 
-    const resolvedFolderId = resolveScenarioFolderId(
+    const existing = editingId
+      ? (items.find((i) => i.id === editingId) ?? null)
+      : null;
+    const result = buildScenarioRegistryItem({
+      mode,
+      wizardStep: scenarioWizardStep,
+      editingId,
+      existing,
+      title,
+      description,
+      tagsText,
       folderId,
       selectedFolderId,
       folders,
-    );
-    if (!resolvedFolderId) {
-      setError("시나리오를 등록하려면 컬렉션을 먼저 만들고 선택하세요.");
+      serviceDrafts,
+      selectedRulePicks,
+      stepBindingsByStepKey: bindingsForSave,
+      postmanConfig,
+      updatedBy,
+      newId,
+    });
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
-
-    if (!editingId) {
-      const item: ScenarioRegistryItem = {
-        id: newId(),
-        folderId: resolvedFolderId,
-        title: trimmedTitle,
-        description: description.trim(),
-        tags: nextTags,
-        serviceSequence: nextSequence,
-        selectedRuleTestcases:
-          nextRulePicks.length > 0 ? nextRulePicks : undefined,
-        stepBindingsByStepKey:
-          Object.keys(stepBindingsByStepKey).length > 0
-            ? stepBindingsByStepKey
-            : undefined,
-        postmanConfig: ensurePostmanConfig(postmanConfig),
-        createdAt: stamp,
-        updatedAt: stamp,
-        updatedBy,
-      };
-      setItems((prev) => [item, ...prev]);
-      setSelectedScenarioId(item.id);
-      setPreviewCollapsed(false);
-      setOpen(false);
+    const item = result.item;
+    if (flushed?.bindings) {
+      setStepBindingsByStepKey(flushed.bindings);
+    }
+    setItems((prev) => {
+      const idx = prev.findIndex((row) => row.id === item.id);
+      if (idx < 0) return [item, ...prev];
+      return prev.map((row) => (row.id === item.id ? item : row));
+    });
+    setError(null);
+    // Keep wizard open on draft save; lock editingId so re-saves update the same row.
+    // Do not open the grid preview panel while drafting.
+    if (mode === "draft") {
+      setEditingId(item.id);
       return;
     }
-
-    setItems((prev) =>
-      prev.map((i) => {
-        if (i.id !== editingId) return i;
-        return {
-          ...i,
-          folderId: resolveScenarioFolderId(folderId, i.folderId, folders) ?? i.folderId,
-          title: trimmedTitle,
-          description: description.trim(),
-          tags: nextTags,
-          serviceSequence: nextSequence,
-          selectedRuleTestcases:
-            nextRulePicks.length > 0 ? nextRulePicks : undefined,
-          stepBindingsByStepKey:
-            Object.keys(stepBindingsByStepKey).length > 0
-              ? stepBindingsByStepKey
-              : undefined,
-          postmanConfig: ensurePostmanConfig(postmanConfig),
-          updatedAt: stamp,
-          updatedBy,
-        };
-      }),
-    );
+    setSelectedScenarioId(item.id);
+    setPreviewCollapsed(false);
     setOpen(false);
   };
 
+  const save = () => persistWizard("ready");
+  const saveDraft = () => persistWizard("draft");
+
   const openPostmanExportDialog = (item: ScenarioRegistryItem) => {
-    if (!canExportRegistryScenarioPostman(item)) {
-      setError(
-        "포스트맨 export를 위해 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
-      );
+    const block = registryScenarioPostmanExportBlockReason(item);
+    if (block) {
+      setError(block);
       return;
     }
     setPostmanExportError(null);
@@ -839,7 +852,7 @@ export function ScenarioRegistry() {
     }
     if (collectionExportStats.exportableCount === 0) {
       setError(
-        "다운로드할 시나리오가 없습니다. DB 테스트 케이스가 포함된 시나리오만 export할 수 있습니다.",
+        "다운로드할 시나리오가 없습니다. 완료 저장되고 모든 테스트 케이스가 DB에 있는 시나리오만 export할 수 있습니다.",
       );
       return;
     }
@@ -987,7 +1000,7 @@ export function ScenarioRegistry() {
     }
     if (collectionExportStats.exportableCount === 0) {
       setError(
-        "실행할 시나리오가 없습니다. DB 테스트 케이스가 포함된 시나리오만 실행할 수 있습니다.",
+        "실행할 시나리오가 없습니다. 완료 저장되고 모든 테스트 케이스가 DB에 있는 시나리오만 실행할 수 있습니다.",
       );
       return;
     }
@@ -1607,6 +1620,12 @@ export function ScenarioRegistry() {
                   : scenarioWizardStep === 2
                     ? "2/3 런타임 컨텍스트 흐름"
                     : "3/3 제목 · 컬렉션 · 설명"}
+                {editingId &&
+                resolveScenarioSaveStatus(
+                  items.find((i) => i.id === editingId) ?? { saveStatus: "ready" },
+                ) === "draft"
+                  ? " · 임시저장본"
+                  : ""}
               </span>
             </DialogTitle>
           </DialogHeader>
@@ -1694,6 +1713,7 @@ export function ScenarioRegistry() {
                   postmanConfig={postmanConfig}
                   onPostmanConfigChange={setPostmanConfig}
                   onOpenCollectionVars={() => setCollectionVarsOpen(true)}
+                  bodyFlushRef={bodyFlushRef}
                 />
               </div>
             ) : (
@@ -1752,6 +1772,11 @@ export function ScenarioRegistry() {
           </div>
 
           <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 gap-2 sm:gap-2">
+            {error ? (
+              <p className="w-full text-left text-[11px] text-destructive sm:mr-auto">
+                {error}
+              </p>
+            ) : null}
             {scenarioWizardStep === 1 ? (
               <>
                 <button
@@ -1759,7 +1784,14 @@ export function ScenarioRegistry() {
                   className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
                   onClick={() => setOpen(false)}
                 >
-                  취소
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  onClick={saveDraft}
+                >
+                  임시저장
                 </button>
                 <FinixPrimaryButton
                   type="button"
@@ -1798,6 +1830,16 @@ export function ScenarioRegistry() {
                       AI 연결 제안
                     </button>
                   ) : null}
+                  {hasWizardBindingsToClear ? (
+                    <button
+                      type="button"
+                      className="h-9 px-3 rounded-sm border border-dashed border-destructive/40 text-sm font-medium text-destructive/80 hover:bg-destructive/10 hover:text-destructive inline-flex items-center gap-1.5"
+                      onClick={() => setClearBindingsOpen(true)}
+                    >
+                      <Link2Off className="w-4 h-4" />
+                      모든 연결 해제
+                    </button>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
@@ -1816,7 +1858,14 @@ export function ScenarioRegistry() {
                   className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
                   onClick={() => setOpen(false)}
                 >
-                  취소
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  onClick={saveDraft}
+                >
+                  임시저장
                 </button>
                 <FinixPrimaryButton
                   type="button"
@@ -1849,13 +1898,20 @@ export function ScenarioRegistry() {
                   className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
                   onClick={() => setOpen(false)}
                 >
-                  취소
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  onClick={saveDraft}
+                >
+                  임시저장
                 </button>
                 <FinixPrimaryButton
                   onClick={save}
                   className="h-9 px-4 w-auto rounded-sm"
                 >
-                  저장
+                  완료
                 </FinixPrimaryButton>
               </>
             )}
@@ -1944,7 +2000,47 @@ export function ScenarioRegistry() {
         links={aiBindingSuggestions.lastLinks}
         onFetch={() => void aiBindingSuggestions.fetchSuggestions()}
         onApplyAll={() => void aiBindingSuggestions.applySuggestions("replace")}
+        onApplySelected={(links) =>
+          void aiBindingSuggestions.applySuggestions("append", links)
+        }
       />
+
+      <AlertDialog open={clearBindingsOpen} onOpenChange={setClearBindingsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>모든 연결 해제</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>시나리오 단계 간 연결을 모두 지웁니다.</p>
+                <ul className="list-disc space-y-0.5 pl-4 text-[11px]">
+                  <li>응답 변수(extract) {wizardBindingStats.extractCount}건</li>
+                  <li>요청 연결(inject) {wizardBindingStats.injectCount}건</li>
+                </ul>
+                {wizardBindingStats.overrideCount > 0 ? (
+                  <p className="text-[11px]">
+                    body 고정값(override) {wizardBindingStats.overrideCount}건은
+                    유지됩니다.
+                  </p>
+                ) : null}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setStepBindingsByStepKey((prev) =>
+                  clearAllScenarioBindings(wizardRunSteps, prev),
+                );
+                setClearBindingsOpen(false);
+              }}
+            >
+              해제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={collectionExportOpen}
@@ -1970,8 +2066,8 @@ export function ScenarioRegistry() {
                 </span>
                 {collectionExportStats.skippedCount > 0 ? (
                   <span className="block text-[11px] text-muted-foreground">
-                    DB 테스트 케이스가 없는 {collectionExportStats.skippedCount}
-                    개는 제외됩니다.
+                    임시저장이거나 DB 테스트 케이스가 불완전한{" "}
+                    {collectionExportStats.skippedCount}개는 제외됩니다.
                   </span>
                 ) : null}
                 <span className="block text-[11px] text-muted-foreground">
@@ -2202,8 +2298,8 @@ export function ScenarioRegistry() {
                 </span>
                 {collectionExportStats.skippedCount > 0 ? (
                   <span className="block text-[11px] text-muted-foreground">
-                    DB 테스트 케이스가 없는 {collectionExportStats.skippedCount}
-                    개는 제외됩니다.
+                    임시저장이거나 DB 테스트 케이스가 불완전한{" "}
+                    {collectionExportStats.skippedCount}개는 제외됩니다.
                   </span>
                 ) : null}
               </div>

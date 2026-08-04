@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AlertCircle, X } from "lucide-react";
 import type { ScenarioResolvePreviewDto } from "@/api/types";
 import {
@@ -24,11 +31,22 @@ import {
   type CollectionVarDeclarePayload,
 } from "./ScenarioStepPostmanVarBar";
 import type { PostmanStartVar } from "@/lib/scenarioPostmanVariables";
-import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixLoading } from "../ui/finix-loading";
 import { cn } from "../ui/utils";
 
+const AUTO_APPLY_MS = 250;
+
 type PanelTab = "input" | "output";
+
+export type ScenarioStepPostmanPanelHandle = {
+  /**
+   * Sync pending Input body into bindings (e.g. before 임시저장).
+   * Returns next bindings when a flush was needed.
+   */
+  flush: () =>
+    | { ok: true; bindings?: StepBindingsByStepKey }
+    | { ok: false };
+};
 
 type Props = {
   runSteps: ScenarioRunStep[];
@@ -44,25 +62,53 @@ type Props = {
   onRemoveCustomVar?: (key: string) => void;
 };
 
-export function ScenarioStepPostmanPanel({
-  runSteps,
-  stepIndex,
-  bindings,
-  onBindingsChange,
-  startVarKeys,
-  collectionVars = [],
-  preview,
-  previewLoading = false,
-  onClose,
-  onAddCustomVar,
-  onRemoveCustomVar,
-}: Props) {
+function tryParseBodyObject(
+  draft: string,
+): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+  try {
+    const parsed = JSON.parse(draft) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "최상위는 JSON 객체여야 합니다." };
+    }
+    return { ok: true, value: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false, error: "JSON 형식이 올바르지 않습니다." };
+  }
+}
+
+export const ScenarioStepPostmanPanel = forwardRef<
+  ScenarioStepPostmanPanelHandle,
+  Props
+>(function ScenarioStepPostmanPanel(
+  {
+    runSteps,
+    stepIndex,
+    bindings,
+    onBindingsChange,
+    startVarKeys,
+    collectionVars = [],
+    preview,
+    previewLoading = false,
+    onClose,
+    onAddCustomVar,
+    onRemoveCustomVar,
+  },
+  ref,
+) {
   const step = runSteps[stepIndex];
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [tab, setTab] = useState<PanelTab>("input");
   const [jsonDraft, setJsonDraft] = useState("");
   const [jsonDirty, setJsonDirty] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bindingsRef = useRef(bindings);
+  const stepRef = useRef(step);
+  const onBindingsChangeRef = useRef(onBindingsChange);
+  bindingsRef.current = bindings;
+  stepRef.current = step;
+  onBindingsChangeRef.current = onBindingsChange;
 
   const cfg = step
     ? (bindings[step.stepKey] ?? emptyStepBinding())
@@ -74,6 +120,8 @@ export function ScenarioStepPostmanPanel({
     typeof previewRow.template_request_body === "object"
       ? (previewRow.template_request_body as Record<string, unknown>)
       : {};
+  const templateBodyRef = useRef(templateBody);
+  templateBodyRef.current = templateBody;
 
   const editorBody = useMemo(
     () => bodyForPostmanEditor(templateBody, cfg.overrides, cfg.injects),
@@ -86,7 +134,70 @@ export function ScenarioStepPostmanPanel({
     [runSteps, bindings, startVarKeys, stepIndex],
   );
 
+  const commitDraft = (
+    draft: string,
+  ): StepBindingsByStepKey | null => {
+    const currentStep = stepRef.current;
+    if (!currentStep) return bindingsRef.current;
+
+    const parsed = tryParseBodyObject(draft);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return null;
+    }
+
+    const next = setStepPostmanBodyBindings(
+      bindingsRef.current,
+      currentStep.stepKey,
+      parsePostmanBody(templateBodyRef.current, parsed.value),
+    );
+    onBindingsChangeRef.current(next);
+    setJsonDirty(false);
+    setJsonError(null);
+    return next;
+  };
+
+  const clearApplyTimer = () => {
+    if (applyTimerRef.current) {
+      clearTimeout(applyTimerRef.current);
+      applyTimerRef.current = null;
+    }
+  };
+
+  const scheduleAutoApply = (draft: string) => {
+    clearApplyTimer();
+    applyTimerRef.current = setTimeout(() => {
+      applyTimerRef.current = null;
+      // Incomplete JSON while typing — keep draft, no hard error yet.
+      const parsed = tryParseBodyObject(draft);
+      if (!parsed.ok) {
+        setJsonError(parsed.error);
+        return;
+      }
+      commitDraft(draft);
+    }, AUTO_APPLY_MS);
+  };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      flush: () => {
+        clearApplyTimer();
+        if (!jsonDirty) return { ok: true };
+        const next = commitDraft(jsonDraft);
+        if (!next) return { ok: false };
+        return { ok: true, bindings: next };
+      },
+    }),
+    [jsonDirty, jsonDraft],
+  );
+
   useEffect(() => {
+    return () => clearApplyTimer();
+  }, []);
+
+  useEffect(() => {
+    clearApplyTimer();
     setTab("input");
     setJsonDirty(false);
     setJsonError(null);
@@ -101,27 +212,11 @@ export function ScenarioStepPostmanPanel({
 
   if (!step) return null;
 
-  const applyDraft = (draft: string): boolean => {
+  const updateDraft = (next: string) => {
+    setJsonDraft(next);
+    setJsonDirty(true);
     setJsonError(null);
-    try {
-      const parsed = JSON.parse(draft) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setJsonError("최상위는 JSON 객체여야 합니다.");
-        return false;
-      }
-      onBindingsChange(
-        setStepPostmanBodyBindings(
-          bindings,
-          step.stepKey,
-          parsePostmanBody(templateBody, parsed as Record<string, unknown>),
-        ),
-      );
-      setJsonDirty(false);
-      return true;
-    } catch {
-      setJsonError("JSON 형식이 올바르지 않습니다.");
-      return false;
-    }
+    scheduleAutoApply(next);
   };
 
   const insertVar = (name: string) => {
@@ -135,11 +230,7 @@ export function ScenarioStepPostmanPanel({
       end,
       token,
     );
-    setJsonDraft(next);
-    setJsonError(null);
-
-    const applied = applyDraft(next);
-    if (!applied) setJsonDirty(true);
+    updateDraft(next);
 
     requestAnimationFrame(() => {
       const box = textareaRef.current;
@@ -201,75 +292,53 @@ export function ScenarioStepPostmanPanel({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 flex flex-col overflow-hidden p-3">
         {tab === "input" ? (
           <>
-            <ScenarioStepPostmanVarBar
-              availableVars={availableVars}
-              collectionVars={collectionVars}
-              onInsertVar={insertVar}
-              onAddCustomVar={onAddCustomVar}
-              onRemoveCustomVar={onRemoveCustomVar}
-            />
-
-            {previewLoading && !previewRow ? (
-              <FinixLoading inline label="불러오는 중…" />
-            ) : (
-              <textarea
-                ref={textareaRef}
-                className={cn(
-                  "w-full min-h-[min(320px,50vh)] rounded-sm border bg-background px-3 py-2 text-[11px] font-mono leading-relaxed",
-                  jsonError ? "border-destructive" : "border-border",
-                )}
-                value={jsonDraft}
-                onChange={(e) => {
-                  setJsonDraft(e.target.value);
-                  setJsonDirty(true);
-                  setJsonError(null);
-                }}
-                spellCheck={false}
+            <div className="shrink-0 space-y-3">
+              <ScenarioStepPostmanVarBar
+                availableVars={availableVars}
+                collectionVars={collectionVars}
+                bodyText={jsonDraft}
+                onInsertVar={insertVar}
+                onAddCustomVar={onAddCustomVar}
+                onRemoveCustomVar={onRemoveCustomVar}
               />
-            )}
-            {jsonError ? (
-              <p className="text-[11px] text-destructive flex gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                {jsonError}
-              </p>
-            ) : null}
+              {jsonError ? (
+                <p className="text-[11px] text-destructive flex gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {jsonError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="min-h-0 flex-1 mt-3 flex flex-col">
+              {previewLoading && !previewRow ? (
+                <FinixLoading inline label="불러오는 중…" />
+              ) : (
+                <textarea
+                  ref={textareaRef}
+                  className={cn(
+                    "h-full min-h-0 w-full flex-1 resize-none rounded-sm border bg-background px-3 py-2 text-[11px] font-mono leading-relaxed",
+                    jsonError ? "border-destructive" : "border-border",
+                  )}
+                  value={jsonDraft}
+                  onChange={(e) => updateDraft(e.target.value)}
+                  spellCheck={false}
+                />
+              )}
+            </div>
           </>
         ) : (
-          <ScenarioStepPostmanTests
-            step={step}
-            bindings={bindings}
-            onBindingsChange={onBindingsChange}
-          />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ScenarioStepPostmanTests
+              step={step}
+              bindings={bindings}
+              onBindingsChange={onBindingsChange}
+            />
+          </div>
         )}
       </div>
-
-      {tab === "input" ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border p-3">
-          <button
-            type="button"
-            className="rounded-sm border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
-            disabled={!jsonDirty}
-            onClick={() => {
-              setJsonDraft(JSON.stringify(editorBody, null, 2));
-              setJsonDirty(false);
-              setJsonError(null);
-            }}
-          >
-            되돌리기
-          </button>
-          <FinixPrimaryButton
-            type="button"
-            className="ml-auto h-8 px-3 text-xs"
-            disabled={!jsonDirty}
-            onClick={() => applyDraft(jsonDraft)}
-          >
-            적용
-          </FinixPrimaryButton>
-        </div>
-      ) : null}
     </div>
   );
-}
+});

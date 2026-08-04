@@ -16,6 +16,7 @@ import { Fragment } from "react";
 import { Link } from "react-router";
 import { TestCaseIoPreview } from "../TestCaseIoPreview";
 import { FinixLoading } from "../ui/finix-loading";
+import { FinixStatusBadge } from "../ui/finix-status-badge";
 import {
   Table,
   TableBody,
@@ -24,7 +25,6 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { cn } from "../ui/utils";
 import { CaseTypeBadge } from "./yamlCaseListUi";
 
 const ROW_ICON_BTN =
@@ -155,18 +155,16 @@ function TestCaseRow({
           </span>
         </TableCell>
         <TableCell>
-          <span
-            className={cn(
-              "px-1.5 py-0.5 rounded text-xs font-mono",
-              test.expected_status == null
-                ? "text-muted-foreground"
-                : statusOk
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                  : "bg-destructive/10 text-destructive",
-            )}
-          >
-            {test.expected_status ?? "—"}
-          </span>
+          {test.expected_status == null ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : (
+            <FinixStatusBadge
+              tone={statusOk ? "success" : "danger"}
+              className="font-mono"
+            >
+              {test.expected_status}
+            </FinixStatusBadge>
+          )}
         </TableCell>
         <TableCell className="font-mono text-xs">
           {test.method ?? "—"}

@@ -29,14 +29,29 @@ class CollectionVarGeneratorDraftRequest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=2000)
 
 
-class CollectionVarGeneratorDraftRead(BaseModel):
+class CollectionVarGeneratorRecommendationRead(BaseModel):
     key: str
     label: str
+    source: Literal["builtin", "shared"] = "builtin"
+    reason: str = ""
+    sample_preview: str = ""
+
+
+class CollectionVarGeneratorDraftRead(BaseModel):
+    """AI draft result: existing matches and/or a new generator draft."""
+
+    key: str = ""
+    label: str = ""
     description: str = ""
-    impl_kind: str
+    impl_kind: str = ""
     impl: dict[str, Any] = Field(default_factory=dict)
     sample_preview: str = ""
     source: Literal["llm", "heuristic"] = "heuristic"
+    recommendations: list[CollectionVarGeneratorRecommendationRead] = Field(
+        default_factory=list,
+    )
+    has_draft: bool = False
+
 
 
 class CollectionVarGeneratorCreateRequest(BaseModel):
@@ -47,6 +62,14 @@ class CollectionVarGeneratorCreateRequest(BaseModel):
     impl_kind: str = Field(..., min_length=1, max_length=32)
     impl: dict[str, Any] = Field(default_factory=dict)
     created_by: str = Field(default="", max_length=64)
+
+
+class CollectionVarGeneratorUpdateRequest(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+    prompt: str | None = Field(default=None, max_length=2000)
+    impl_kind: str | None = Field(default=None, min_length=1, max_length=32)
+    impl: dict[str, Any] | None = None
 
 
 class CollectionVarGeneratorPreviewRequest(BaseModel):

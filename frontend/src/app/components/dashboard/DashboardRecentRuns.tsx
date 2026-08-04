@@ -1,27 +1,14 @@
 import { Link } from "react-router";
 import type { ExecutionHistoryRow } from "@/lib/executionHistoryView";
+import {
+  FinixStatusBadge,
+  executionStatusBadge,
+} from "../ui/finix-status-badge";
 import { cn } from "../ui/utils";
 
 function StatusBadge({ status }: { status: ExecutionHistoryRow["status"] }) {
-  if (status === "running") {
-    return (
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
-        실행 중
-      </span>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-destructive/10 text-destructive">
-        실패
-      </span>
-    );
-  }
-  return (
-    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
-      성공
-    </span>
-  );
+  const { tone, label } = executionStatusBadge(status);
+  return <FinixStatusBadge tone={tone}>{label}</FinixStatusBadge>;
 }
 
 type DashboardRecentRunsProps = {

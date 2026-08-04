@@ -5,14 +5,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.deps import (
-    get_cbs_service_catalog_repository,
+    get_collection_var_generator_service,
     get_scenario_bindings_ai_service,
     get_scenario_resolve_service,
     get_scenario_service,
-    get_service_catalog_service,
     get_testcase_service,
 )
-from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.schemas.scenario_bindings_suggest_schema import (
     ScenarioBindingsSuggestRead,
     ScenarioBindingsSuggestRequest,
@@ -35,7 +33,7 @@ from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
 from app.services.scenario_bindings_ai_service import ScenarioBindingsAiService
 from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.scenario_service import ScenarioService
-from app.services.service_catalog_service import ServiceCatalogService
+from app.services.collection_var_generator_service import CollectionVarGeneratorService
 from app.services.testcase_service import TestCaseService
 
 router = APIRouter(prefix="/scenarios")
@@ -222,31 +220,17 @@ async def export_scenario_postman_v1(
         description="When true, use {{var}} placeholders and pm.environment scripts for chaining.",
     ),
     testcase_service: TestCaseService = Depends(get_testcase_service),
-    scenario_service: ScenarioService = Depends(get_scenario_service),
-    catalog_service: ServiceCatalogService = Depends(get_service_catalog_service),
-    cbs_repo: CbsServiceCatalogRepository = Depends(get_cbs_service_catalog_repository),
+    generator_service: CollectionVarGeneratorService = Depends(
+        get_collection_var_generator_service,
+    ),
 ) -> JSONResponse:
-    """Return Postman Collection v2.1 (resolved bodies by default)."""
-    from app.services.scenario_auto_bindings_service import ScenarioAutoBindingsService
-
-    entity = await scenario_service.get_scenario(scenario_id)
-    codes = TestCaseService._ordered_service_codes_from_steps(entity.steps_json)
-    steps_json = entity.steps_json
-    if codes:
-        auto_svc = ScenarioAutoBindingsService(
-            catalog_service=catalog_service,
-            cbs_repo=cbs_repo,
-        )
-        steps_json = await auto_svc.ensure_steps_json_bindings(
-            steps_json,
-            codes,
-            min_existing_rows=1,
-        )
+    """Return Postman Collection v2.1 using persisted steps/bindings (no auto-bind)."""
+    catalog = await generator_service.build_catalog_map()
     collection = await testcase_service.build_postman_for_scenario(
         scenario_id,
         resolved=resolved,
         native=native,
-        steps_json_override=steps_json,
+        generator_catalog=catalog,
     )
     return JSONResponse(content=collection)
 

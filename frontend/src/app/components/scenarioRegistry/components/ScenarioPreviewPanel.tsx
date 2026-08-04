@@ -76,10 +76,7 @@ export function ScenarioPreviewPanel({
 
             <FinixDotCanvas className="p-4">
               <div className="mb-3 flex items-center gap-2">
-                <FinixFlowPill tone="loop">Loop</FinixFlowPill>
-                <span className="text-[11px] text-muted-foreground">
-                  테스트 케이스 플로우
-                </span>
+                <FinixFlowPill tone="loop">시나리오 흐름</FinixFlowPill>
               </div>
 
               {steps.length === 0 ? (

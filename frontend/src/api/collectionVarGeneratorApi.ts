@@ -13,6 +13,14 @@ export type CollectionVarGeneratorDto = {
   prompt?: string | null;
 };
 
+export type CollectionVarGeneratorRecommendationDto = {
+  key: string;
+  label: string;
+  source: "builtin" | "shared";
+  reason?: string;
+  sample_preview?: string;
+};
+
 export type CollectionVarGeneratorDraftDto = {
   key: string;
   label: string;
@@ -21,6 +29,8 @@ export type CollectionVarGeneratorDraftDto = {
   impl: Record<string, unknown>;
   sample_preview?: string;
   source: "llm" | "heuristic";
+  recommendations?: CollectionVarGeneratorRecommendationDto[];
+  has_draft?: boolean;
 };
 
 export async function listCollectionVarGenerators(): Promise<
@@ -69,4 +79,23 @@ export async function deleteCollectionVarGenerator(key: string): Promise<void> {
   await apiRequest<void>(`${PREFIX}/${encodeURIComponent(key)}`, {
     method: "DELETE",
   });
+}
+
+export async function updateCollectionVarGenerator(
+  key: string,
+  body: {
+    label?: string;
+    description?: string;
+    prompt?: string;
+    impl_kind?: string;
+    impl?: Record<string, unknown>;
+  },
+): Promise<CollectionVarGeneratorDto> {
+  return apiRequest<CollectionVarGeneratorDto>(
+    `${PREFIX}/${encodeURIComponent(key)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
 }
