@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DndProvider } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -441,7 +439,6 @@ export function YamlRulesFieldsForm({
       ) : null}
 
       <div ref={listScrollRef} className="flex-1 min-h-0 overflow-y-auto pr-1">
-      <DndProvider backend={HTML5Backend}>
         <div className="space-y-2">
           {orderedIndices.map((ruleIndex, displayIndex) => {
             const rule = rules[ruleIndex];
@@ -530,7 +527,6 @@ export function YamlRulesFieldsForm({
             );
           })}
         </div>
-      </DndProvider>
       </div>
       </div>
 

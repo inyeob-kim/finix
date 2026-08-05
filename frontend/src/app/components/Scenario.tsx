@@ -9,8 +9,7 @@ import {
   Sparkles,
   FlaskConical,
 } from "lucide-react";
-import { DndProvider, useDrag, useDrop } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
+import { useDrag, useDrop } from "react-dnd";
 import type { ScenarioStepDto } from "@/api/types";
 import { getScenario, patchScenario } from "@/api/scenarioApi";
 import { generateTestCases } from "@/api/testcaseApi";
@@ -258,71 +257,69 @@ export function Scenario() {
   }
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <PageShell
-        icon={<FlaskConical className="w-5 h-5" strokeWidth={2} />}
-        title="시나리오 편집"
-      >
-        <div className="w-full max-w-4xl mx-auto space-y-6">
-          <div className="rounded-sm border border-border bg-muted/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm">
-              <Sparkles className="w-3.5 h-3.5" />
-              생성 기준: {promptLabel || "—"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              드래그로 순서 변경 · 삭제/추가
-            </div>
+    <PageShell
+      icon={<FlaskConical className="w-5 h-5" strokeWidth={2} />}
+      title="시나리오 편집"
+    >
+      <div className="w-full max-w-4xl mx-auto space-y-6">
+        <div className="rounded-sm border border-border bg-muted/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm">
+            <Sparkles className="w-3.5 h-3.5" />
+            생성 기준: {promptLabel || "—"}
           </div>
-
-          {error && (
-            <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-4">
-            {steps.map((step, index) => (
-              <StepCard
-                key={step.id}
-                step={step}
-                index={index}
-                moveStep={moveStep}
-                deleteStep={deleteStep}
-              />
-            ))}
+          <div className="text-xs text-muted-foreground">
+            드래그로 순서 변경 · 삭제/추가
           </div>
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={handleAddStep}
-              disabled={busy}
-              className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm disabled:opacity-50"
-            >
-              <Plus className="w-4 h-4" />
-              단계 추가
-            </button>
-          </div>
-
-          <FinixPrimaryButton
-            onClick={() => void handleGenerateTests()}
-            disabled={busy || !steps.length}
-            className="w-full h-12"
-          >
-            {isGeneratingTests ? (
-              <>
-                <FinixLoading size="sm" inline />
-                <span>생성 중…</span>
-              </>
-            ) : (
-              <>
-                <FlaskConical className="w-5 h-5" />
-                <span>테스트 케이스 생성</span>
-              </>
-            )}
-          </FinixPrimaryButton>
         </div>
-      </PageShell>
-    </DndProvider>
+
+        {error && (
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {steps.map((step, index) => (
+            <StepCard
+              key={step.id}
+              step={step}
+              index={index}
+              moveStep={moveStep}
+              deleteStep={deleteStep}
+            />
+          ))}
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleAddStep}
+            disabled={busy}
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-sm hover:border-primary/50 transition-colors shadow-sm disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            단계 추가
+          </button>
+        </div>
+
+        <FinixPrimaryButton
+          onClick={() => void handleGenerateTests()}
+          disabled={busy || !steps.length}
+          className="w-full h-12"
+        >
+          {isGeneratingTests ? (
+            <>
+              <FinixLoading size="sm" inline />
+              <span>생성 중…</span>
+            </>
+          ) : (
+            <>
+              <FlaskConical className="w-5 h-5" />
+              <span>테스트 케이스 생성</span>
+            </>
+          )}
+        </FinixPrimaryButton>
+      </div>
+    </PageShell>
   );
 }

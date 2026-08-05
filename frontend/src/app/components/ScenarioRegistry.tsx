@@ -77,8 +77,6 @@ import {
     useState,
     type DragEvent,
 } from "react";
-import { DndProvider } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
 import { useLocation, useNavigate } from "react-router";
 import { listTestCasesByServiceCode } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
@@ -913,13 +911,11 @@ export function ScenarioRegistry() {
         return prev.map((row) => (row.id === synced.id ? synced : row));
       });
       // Keep wizard open on draft save; lock editingId so re-saves update the same row.
-      // Do not open the grid preview panel while drafting.
       if (mode === "draft") {
         setEditingId(synced.id);
         return;
       }
       setSelectedScenarioId(synced.id);
-      setPreviewCollapsed(false);
       setOpen(false);
     } catch (e) {
       setError(
@@ -1847,34 +1843,32 @@ export function ScenarioRegistry() {
                     loading={catalogLoading}
                     disabled={catalogOptions.length === 0}
                   />
-                  <DndProvider backend={HTML5Backend}>
-                    <div
-                      className="mt-2 flex flex-nowrap items-stretch gap-2 min-h-[4.75rem] overflow-x-auto overflow-y-hidden py-0.5"
-                      onPointerDown={() => {
-                        if (document.activeElement instanceof HTMLElement) {
-                          document.activeElement.blur();
-                        }
-                      }}
-                    >
-                      {serviceDrafts.length === 0 ? (
-                        <div className="flex-1 min-w-full rounded-sm border border-dashed border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground text-center">
-                          서비스를 검색해 추가하세요.
-                        </div>
-                      ) : (
-                        serviceDrafts.map((s, idx) => (
-                          <ServiceRow
-                            key={s.id}
-                            svc={s}
-                            index={idx}
-                            move={moveService}
-                            remove={removeService}
-                            isActive={s.code === activeServiceCode}
-                            onSelect={selectServiceInSequence}
-                          />
-                        ))
-                      )}
-                    </div>
-                  </DndProvider>
+                  <div
+                    className="mt-2 flex flex-nowrap items-stretch gap-2 min-h-[4.75rem] overflow-x-auto overflow-y-hidden py-0.5"
+                    onPointerDown={() => {
+                      if (document.activeElement instanceof HTMLElement) {
+                        document.activeElement.blur();
+                      }
+                    }}
+                  >
+                    {serviceDrafts.length === 0 ? (
+                      <div className="flex-1 min-w-full rounded-sm border border-dashed border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground text-center">
+                        서비스를 검색해 추가하세요.
+                      </div>
+                    ) : (
+                      serviceDrafts.map((s, idx) => (
+                        <ServiceRow
+                          key={s.id}
+                          svc={s}
+                          index={idx}
+                          move={moveService}
+                          remove={removeService}
+                          isActive={s.code === activeServiceCode}
+                          onSelect={selectServiceInSequence}
+                        />
+                      ))
+                    )}
+                  </div>
                 </FinixField>
 
                 <ScenarioTestcaseTransfer
