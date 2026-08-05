@@ -808,7 +808,7 @@ export function RulesMeta() {
                         <FinixDataTableHead className="w-[72px] text-right">
                           규칙
                         </FinixDataTableHead>
-                        <FinixDataTableHead className="w-[140px] whitespace-nowrap">
+                        <FinixDataTableHead className="w-[168px] whitespace-nowrap">
                           수정
                         </FinixDataTableHead>
                         <FinixDataTableHead className="w-[110px] whitespace-nowrap">
@@ -895,7 +895,7 @@ export function RulesMeta() {
                             <FinixDataTableCell className="text-right tabular-nums text-sm">
                               {item.rules}
                             </FinixDataTableCell>
-                            <FinixDataTableCell className="text-sm text-muted-foreground truncate">
+                            <FinixDataTableCell className="text-sm text-muted-foreground tabular-nums truncate">
                               {item.lastUpdatedAt}
                             </FinixDataTableCell>
                             <FinixDataTableCell
