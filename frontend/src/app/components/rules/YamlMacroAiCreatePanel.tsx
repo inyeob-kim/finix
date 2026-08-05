@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "@/api/client";
 import {
@@ -44,6 +44,13 @@ export function YamlMacroAiCreatePanel({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const previewReqId = useRef(0);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (disabled) return;
+    const id = window.setTimeout(() => promptRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [disabled]);
 
   const loadPreviewForDraft = async (draft: CollectionVarGeneratorDraftDto) => {
     const reqId = ++previewReqId.current;
@@ -185,7 +192,8 @@ export function YamlMacroAiCreatePanel({
   return (
     <div className="space-y-2 rounded-sm border border-dashed border-border p-2.5">
       <textarea
-        className="min-h-[64px] w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/30"
+        ref={promptRef}
+        className="min-h-[9rem] w-full resize-y rounded-sm border border-border bg-background px-2.5 py-2 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary/30"
         value={prompt}
         onChange={(e) => onPromptChange(e.target.value)}
         placeholder="예: 랜덤 영문 이름 / 오늘로부터 3개월 뒤 날짜"
