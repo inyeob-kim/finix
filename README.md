@@ -4,6 +4,8 @@
 **업무 규칙을 YAML로 정의 → 테스트 케이스 생성 → 시나리오로 조립 → 실행·이력**까지  
 한 흐름에서 다루는 내부 QA / 자동화 도구입니다.
 
+<img width="1891" height="890" alt="image" src="https://github.com/user-attachments/assets/e6f19bf6-8ced-4533-aa9d-e267c7519c64" />
+
 | | |
 |---|---|
 | 백엔드 | FastAPI + SQLAlchemy |
@@ -106,6 +108,7 @@ docker run -d --name finix-postgres \
   -v finix_pgdata:/var/lib/postgresql/data \
   postgres:16
 ```
+<img width="1253" height="706" alt="image" src="https://github.com/user-attachments/assets/9145713f-08fd-4637-96fc-d362fec611b5" />
 
 > Git Bash에서 PowerShell용 `` ` `` 줄바꿈은 쓰지 마세요. 위처럼 `\` 또는 **한 줄**로 실행합니다.
 
@@ -209,12 +212,16 @@ npm run dev
 
 Postman·소스에서 YAML을 채우는 방법은 아래 **「Postman / 소스에서 규칙 가져오기」**를 보세요.
 
+<img width="1845" height="898" alt="image" src="https://github.com/user-attachments/assets/8d05f28a-e0dd-4410-8650-515e787f62c9" />
+
 ### 2. 시나리오 레지스트리 (`/scenario-registry`)
 
 1. 폴더를 만들고 시나리오를 추가합니다.  
 2. 서비스 순서를 정한 뒤, 각 스텝에 쓸 **규칙 기반 테스트 케이스**를 고릅니다.  
 3. 스텝 간 **값 연결**, **컬렉션 변수**(고정값 또는 동적 생성기), 헤더를 설정합니다.  
 4. **실행**(Live)하거나 **Postman Export**로 내보냅니다.
+
+<img width="945" height="818" alt="image" src="https://github.com/user-attachments/assets/fc4c1bb8-9d99-4af4-b717-563c62b99667" />
 
 ### 3. 이력 (`/history`)
 
@@ -242,6 +249,8 @@ Postman·소스에서 YAML을 채우는 방법은 아래 **「Postman / 소스�
 1. **Postman에서 가져오기**를 누릅니다.  
 2. **Collection** JSON을 올립니다. (선택) **Environment** JSON도 같이 올리면 `{{var}}` 치환에 사용합니다.  
 3. 가져오기를 실행하면 백그라운드 잡으로 처리되고, 서비스별 드래프트가 생깁니다.
+
+<img width="941" height="820" alt="image" src="https://github.com/user-attachments/assets/933d643e-d893-43a1-9ada-fd0e025cfa34" />
 
 **서비스 매핑**
 
