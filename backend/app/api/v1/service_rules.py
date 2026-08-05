@@ -365,7 +365,7 @@ async def generate_draft_from_source(
 @router.post(
     "/{service_code}/{bundle_id}/activate",
     response_model=ServiceRuleBundleRead,
-    summary="Apply working draft to current (snapshot previous)",
+    summary="Apply working draft to current (record applied snapshot in history)",
 )
 async def activate_bundle(
     service_code: str,

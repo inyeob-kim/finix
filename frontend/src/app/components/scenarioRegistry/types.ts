@@ -68,6 +68,8 @@ export type ScenarioRegistryStateV2 = {
   version: 2;
   folders: ScenarioRegistryFolder[];
   scenarios: ScenarioRegistryItem[];
+  /** Last selected collection in the registry UI. */
+  selectedFolderId?: string | null;
 };
 
 export type ServiceDraft = {

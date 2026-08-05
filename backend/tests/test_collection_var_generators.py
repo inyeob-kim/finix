@@ -9,6 +9,7 @@ from app.domain.collection_var_generators import (
     CatalogGeneratorSpec,
     resolve_date_offset,
     resolve_start_var_value,
+    split_generator_ref,
     validate_custom_impl,
 )
 from app.schemas.collection_var_generator_schema import (
@@ -211,4 +212,22 @@ def test_update_shared_impl():
     assert out.impl["n"] == 6
     assert row.impl_kind == "date_offset"
     repo.save.assert_awaited()
+
+
+def test_split_generator_ref_and_shared_name_parts():
+    assert split_generator_ref("korean_name.family") == ("korean_name", "family")
+    assert split_generator_ref("korean_name") == ("korean_name", None)
+    cache: dict = {}
+    family = resolve_start_var_value(
+        value="", generator="korean_name.family", resolve_cache=cache
+    )
+    given = resolve_start_var_value(
+        value="", generator="korean_name.given", resolve_cache=cache
+    )
+    full = resolve_start_var_value(
+        value="", generator="korean_name", resolve_cache=cache
+    )
+    assert full == family + given
+    assert family
+    assert given
 

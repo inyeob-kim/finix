@@ -418,10 +418,16 @@ export function startVarContextFromConfig(
   config: ScenarioPostmanConfig,
 ): Record<string, string> {
   const out: Record<string, string> = {};
+  const cache: {
+    family?: string;
+    given?: string;
+    middle?: string;
+    full?: string;
+  } = {};
   for (const row of config.startVars) {
     const k = row.key.trim();
     if (!k) continue;
-    out[k] = resolveCollectionVarValue(row);
+    out[k] = resolveCollectionVarValue(row, cache);
   }
   return out;
 }

@@ -45,8 +45,27 @@ def test_prerequest_sets_collection_variables():
     assert "__finixMacroFirst" in joined
     assert 'pm.collectionVariables.set("gen_name"' in joined
     assert 'pm.collectionVariables.set("date_today"' in joined
+    assert "__finix_kn_full" in joined  # shared korean name bundle
     assert "김" in joined  # korean_name script source, not a baked runtime value
 
     vars_ = collection_variables_for_macro_specs(specs)
     assert {row["key"] for row in vars_} == {"gen_name", "date_today"}
     assert all(row["value"] == "" for row in vars_)
+
+
+def test_name_parts_share_one_postman_bundle():
+    assert postman_var_key_for_macro("{{$generator.name.family()}}") == "gen_name_family"
+    body, specs = rewrite_mapping_macros_for_postman(
+        {
+            "full": "{{$generator.name()}}",
+            "family": "{{$generator.name.family()}}",
+            "given": "{{$generator.name.given()}}",
+        }
+    )
+    assert body["full"] == "{{gen_name}}"
+    assert body["family"] == "{{gen_name_family}}"
+    assert body["given"] == "{{gen_name_given}}"
+    joined = "\n".join(build_finix_macro_prerequest_exec_lines(specs))
+    assert joined.count("__finix_kn_full") >= 1
+    assert 'pm.collectionVariables.set("gen_name_family"' in joined
+    assert 'pm.collectionVariables.set("gen_name_given"' in joined

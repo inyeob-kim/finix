@@ -53,6 +53,16 @@ describe("registryFolderSync", () => {
     expect(result.scenarios.every((s) => s.folderId === "f-a")).toBe(true);
   });
 
+  it("falls back to name-sorted first folder, not array order", () => {
+    const result = repairRegistryFolderLinks(
+      [folderB, folderA],
+      [scenario("missing")],
+      "missing",
+    );
+    expect(result.selectedFolderId).toBe("f-a");
+    expect(result.scenarios[0]?.folderId).toBe("f-a");
+  });
+
   it("resolves folder id only when collection exists", () => {
     expect(resolveScenarioFolderId("", null, [])).toBeNull();
     expect(resolveScenarioFolderId("", null, [folderA])).toBe("f-a");

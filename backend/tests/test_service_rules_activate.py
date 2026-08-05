@@ -101,7 +101,7 @@ class _FakeRepo:
         return [h for h in self.history if h.service_code == service_code]
 
 
-def test_apply_draft_snapshots_previous_and_clears_draft():
+def test_apply_draft_records_applied_snapshot_and_clears_draft():
     row = _current(
         yaml_text="old applied",
         checksum="old-cs",
@@ -116,7 +116,20 @@ def test_apply_draft_snapshots_previous_and_clears_draft():
     assert "PY027-E-001" in (result.yaml_text or "")
     assert len(repo.history) == 1
     assert repo.history[0].change_kind == "apply"
-    assert repo.history[0].checksum == "old-cs"
+    assert repo.history[0].checksum == "new-cs"
+    assert repo.history[0].note == "applied snapshot"
+
+
+def test_apply_first_time_also_records_history():
+    row = _current(draft_yaml=_VALID_YAML, draft_checksum="first-cs")
+    row.yaml_text = ""
+    row.checksum = ""
+    repo = _FakeRepo(row)
+    svc = ServiceRulesService(repo=repo)
+    result = asyncio.run(svc.apply_draft(service_code="PY027", applied_by="me"))
+    assert result.has_applied is True
+    assert len(repo.history) == 1
+    assert repo.history[0].checksum == "first-cs"
 
 
 def test_activate_compat_applies_draft():
@@ -128,6 +141,7 @@ def test_activate_compat_applies_draft():
     result = asyncio.run(svc.activate(1))
     assert result.has_applied is True
     assert result.has_draft is False
+    assert len(repo.history) == 1
 
 
 def test_restore_from_history_snapshots_current():

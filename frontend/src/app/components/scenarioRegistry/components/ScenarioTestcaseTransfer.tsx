@@ -165,48 +165,50 @@ function TestcasePickRow({
             : "w-full text-left rounded-sm border border-border bg-background px-2 py-2 text-xs hover:bg-muted/40"
         }
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-start gap-1 min-w-0 flex-1">
-            {variant === "selected" ? (
-              <span
-                className="mt-0.5 shrink-0 text-muted-foreground cursor-grab active:cursor-grabbing"
-                title="드래그로 순서 변경"
-                aria-hidden
-              >
-                <GripVertical className="w-3.5 h-3.5" />
-              </span>
-            ) : null}
-            <span className="font-mono text-[11px] text-primary shrink-0">
-              {row.ruleId?.trim()
-                ? row.ruleId
-                : row.backendTestcaseId != null
-                  ? `#${row.backendTestcaseId}`
-                  : row.serviceCode}
-              {showOccurrence ? (
-                <span className="text-muted-foreground"> · {occurrence}회</span>
-              ) : null}
+        <div className="flex items-center gap-1">
+          {variant === "selected" ? (
+            <span
+              className="shrink-0 self-center text-muted-foreground cursor-grab active:cursor-grabbing"
+              title="드래그로 순서 변경"
+              aria-hidden
+            >
+              <GripVertical className="w-3.5 h-3.5" />
             </span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {variant === "pool" && includeCount != null && includeCount > 0 ? (
-              <span
-                className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
-                title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
-              >
-                {includeCount}
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
+                {row.ruleId?.trim()
+                  ? row.ruleId
+                  : row.backendTestcaseId != null
+                    ? `#${row.backendTestcaseId}`
+                    : row.serviceCode}
+                {showOccurrence ? (
+                  <span className="text-muted-foreground"> · {occurrence}회</span>
+                ) : null}
               </span>
-            ) : null}
-            <CaseTypeBadge caseType={caseType} />
-            {variant === "selected" ? (
-              <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
-            ) : null}
+              <div className="flex items-center gap-1 shrink-0">
+                {variant === "pool" && includeCount != null && includeCount > 0 ? (
+                  <span
+                    className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
+                    title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
+                  >
+                    {includeCount}
+                  </span>
+                ) : null}
+                <CaseTypeBadge caseType={caseType} />
+                {variant === "selected" ? (
+                  <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
+                ) : null}
+              </div>
+            </div>
+            <div className="font-medium text-foreground mt-0.5 line-clamp-2">
+              {row.description?.trim() || row.title}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+              {row.serviceCode}
+            </div>
           </div>
-        </div>
-        <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-          {row.description?.trim() || row.title}
-        </div>
-        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-          {row.serviceCode}
         </div>
       </button>
     </li>

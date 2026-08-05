@@ -29,6 +29,7 @@ def initial_context_from_postman(
     ctx: dict[str, Any] = {}
     if config is None:
         return ctx
+    resolve_cache: dict[str, Any] = {}
     for row in collection_start_vars(config):
         key = row.key.strip()
         if not key:
@@ -37,6 +38,7 @@ def initial_context_from_postman(
             value=row.value,
             generator=row.generator,
             catalog=catalog,
+            resolve_cache=resolve_cache,
         )
     return ctx
 

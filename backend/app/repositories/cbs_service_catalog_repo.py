@@ -242,6 +242,19 @@ class CbsServiceCatalogRepository:
                 return row
         return None
 
+    async def get_raw_row_by_service_code(self, service_code: str) -> dict | None:
+        """
+        Return the raw ``cbs_srvc.json`` row for DTO skeleton expansion.
+
+        Includes In/Out field lists and DTO class names used by
+        ``ServiceCatalogService.get_dto_skeletons``.
+        """
+        await self._ensure_loaded()
+        code = (service_code or "").strip()
+        if not code:
+            return None
+        return self._raw_by_code.get(code)
+
     @staticmethod
     def _score_row(row: CbsServiceRecord, *, text: str, tokens: list[str]) -> int:
         """Score a row with strong priority on service_name matches."""

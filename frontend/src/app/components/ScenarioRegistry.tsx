@@ -18,9 +18,11 @@ import {
 } from "@/lib/registryScenarioExport";
 import {
     canRunRegistryScenario,
+    focusStepsFromRegistryItem,
     runRegistryCollectionScenarios,
     runRegistryScenario,
     type ScenarioRunMode,
+    type ScenarioRunProgressState,
 } from "@/lib/registryScenarioRun";
 import {
     migrateBindingsToStepKeys,
@@ -86,6 +88,7 @@ import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsD
 import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizardStep";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
+import { ScenarioRunFocusProgress } from "./scenario/ScenarioRunFocusProgress";
 import type { ScenarioStepPostmanPanelHandle } from "./scenario/ScenarioStepPostmanPanel";
 import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
@@ -94,7 +97,12 @@ import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPrev
 import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
 import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
+import { firstFolderIdInDisplayOrder } from "./scenarioRegistry/folderModel";
 import { loadRegistryState, persistRegistryState } from "./scenarioRegistry/storage";
+import {
+  loadRegistryUiSession,
+  saveRegistryUiSession,
+} from "./scenarioRegistry/registryUiSession";
 import {
   repairRegistryFolderLinks,
 } from "./scenarioRegistry/registryFolderSync";
@@ -284,6 +292,8 @@ export function ScenarioRegistry() {
   const [scenarioRunLoading, setScenarioRunLoading] = useState(false);
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
   const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
+  const [scenarioRunFocus, setScenarioRunFocus] =
+    useState<ScenarioRunProgressState | null>(null);
   const [collectionRunOpen, setCollectionRunOpen] = useState(false);
   const [collectionRunDraft, setCollectionRunDraft] =
     useState<ScenarioPostmanConfig>(emptyPostmanConfig);
@@ -356,14 +366,34 @@ export function ScenarioRegistry() {
 
   useEffect(() => {
     const loaded = loadRegistryState(updatedBy);
+    const uiSession = loadRegistryUiSession();
+    const preferredFolderId =
+      uiSession?.selectedFolderId ?? loaded.selectedFolderId;
     const repaired = repairRegistryFolderLinks(
       loaded.folders,
       loaded.scenarios,
-      loaded.selectedFolderId,
+      preferredFolderId,
     );
     setFolders(loaded.folders);
     setItems(repaired.scenarios);
     setSelectedFolderId(repaired.selectedFolderId);
+    if (uiSession) {
+      setQuery(uiSession.query);
+      setTagFilter(uiSession.tagFilter);
+      setPreviewCollapsed(uiSession.previewCollapsed);
+      const scenarioStillExists = repaired.scenarios.some(
+        (s) => s.id === uiSession.selectedScenarioId,
+      );
+      if (
+        scenarioStillExists &&
+        uiSession.selectedScenarioId &&
+        (!repaired.selectedFolderId ||
+          repaired.scenarios.find((s) => s.id === uiSession.selectedScenarioId)
+            ?.folderId === repaired.selectedFolderId)
+      ) {
+        setSelectedScenarioId(uiSession.selectedScenarioId);
+      }
+    }
     setHydrated(loaded.hydrated);
   }, [updatedBy]);
 
@@ -395,12 +425,31 @@ export function ScenarioRegistry() {
         version: 2,
         folders,
         scenarios: items,
+        selectedFolderId,
       };
       persistRegistryState(payload);
     } catch {
       // ignore
     }
-  }, [hydrated, folders, items]);
+  }, [hydrated, folders, items, selectedFolderId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveRegistryUiSession({
+      selectedFolderId,
+      selectedScenarioId,
+      query,
+      tagFilter,
+      previewCollapsed,
+    });
+  }, [
+    hydrated,
+    selectedFolderId,
+    selectedScenarioId,
+    query,
+    tagFilter,
+    previewCollapsed,
+  ]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -685,7 +734,7 @@ export function ScenarioRegistry() {
     setServicePickerCode("");
     setDescription("");
     setTagsText("");
-    setFolderId(selectedFolderId ?? folders[0]?.id ?? "");
+    setFolderId(selectedFolderId ?? firstFolderIdInDisplayOrder(folders) ?? "");
     setServiceDrafts([]);
     setActiveServiceCode(null);
     setScenarioWizardStep(1);
@@ -961,6 +1010,7 @@ export function ScenarioRegistry() {
       return;
     }
     setScenarioRunError(null);
+    setScenarioRunFocus(null);
     setScenarioRunHeaderOpen(false);
     setScenarioRunDraft(
       mergeWithExecutionDefaults(ensurePostmanConfig(item.postmanConfig)),
@@ -974,6 +1024,7 @@ export function ScenarioRegistry() {
     setScenarioRunHeaderOpen(false);
     setScenarioRunTarget(null);
     setScenarioRunError(null);
+    setScenarioRunFocus(null);
   };
 
   const confirmScenarioRun = async () => {
@@ -988,6 +1039,12 @@ export function ScenarioRegistry() {
     setRunningId(item.id);
     setScenarioRunError(null);
     setError(null);
+    setScenarioRunFocus({
+      steps: focusStepsFromRegistryItem(item),
+      currentIndex: 0,
+      status: "pending",
+      total: Math.max(item.selectedRuleTestcases?.length ?? 0, 1),
+    });
     try {
       const itemWithPostman = { ...item, postmanConfig: scenarioRunDraft };
       saveExecutionPostmanDefaults(scenarioRunDraft);
@@ -995,6 +1052,7 @@ export function ScenarioRegistry() {
         item: itemWithPostman,
         postmanConfig: scenarioRunDraft,
         mode: scenarioRunMode,
+        onProgress: setScenarioRunFocus,
       });
       setItems((prev) =>
         prev.map((row) =>
@@ -1008,6 +1066,7 @@ export function ScenarioRegistry() {
         ),
       );
       setScenarioRunTarget(null);
+      setScenarioRunFocus(null);
       navigate(`/execution-result/${executionId}`, {
         state: { from: location.pathname },
       });
@@ -1230,7 +1289,7 @@ export function ScenarioRegistry() {
 
     if (selectedFolderId === id) {
       const remaining = folders.filter((x) => x.id !== id);
-      setSelectedFolderId(remaining[0]?.id ?? null);
+      setSelectedFolderId(firstFolderIdInDisplayOrder(remaining));
     }
 
     if (
@@ -1259,6 +1318,7 @@ export function ScenarioRegistry() {
       version: 2,
       folders,
       scenarios: items,
+      selectedFolderId,
     };
     setIoText(JSON.stringify(payload, null, 2));
     setIoDialog("export");
@@ -1279,7 +1339,7 @@ export function ScenarioRegistry() {
     const repaired = repairRegistryFolderLinks(
       parsed.folders ?? [],
       parsed.scenarios ?? [],
-      parsed.folders?.[0]?.id ?? null,
+      parsed.selectedFolderId ?? parsed.folders?.[0]?.id ?? null,
     );
     setItems(repaired.scenarios);
     setSelectedFolderId(repaired.selectedFolderId);
@@ -2267,7 +2327,14 @@ export function ScenarioRegistry() {
             />
           ) : null}
 
-          {scenarioRunLoading ? (
+          {scenarioRunLoading && scenarioRunFocus ? (
+            <ScenarioRunFocusProgress
+              steps={scenarioRunFocus.steps}
+              currentIndex={scenarioRunFocus.currentIndex}
+              status={scenarioRunFocus.status}
+              total={scenarioRunFocus.total}
+            />
+          ) : scenarioRunLoading ? (
             <div className="py-6">
               <FinixLoading size="md" center label="시나리오 실행 중…" />
             </div>

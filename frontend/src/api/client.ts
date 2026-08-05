@@ -21,6 +21,11 @@ function resolveUrl(path: string): string {
   return `${base.replace(/\/$/, "")}${path}`;
 }
 
+/** Absolute or proxied URL for a backend API path. */
+export function apiUrl(path: string): string {
+  return resolveUrl(path);
+}
+
 async function parseErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {

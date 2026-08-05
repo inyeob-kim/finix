@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildFolderOptions, buildFolderSummary } from "./folderModel";
+import {
+  buildFolderOptions,
+  buildFolderSummary,
+  firstFolderIdInDisplayOrder,
+} from "./folderModel";
 import type { ScenarioRegistryFolder, ScenarioRegistryItem } from "./types";
 
 describe("scenarioRegistry/folderModel", () => {
@@ -13,6 +17,14 @@ describe("scenarioRegistry/folderModel", () => {
     const opts = buildFolderOptions(folders);
     expect(opts.map((o) => o.id)).toEqual(["a", "a1", "a2", "b"]);
     expect(opts.find((o) => o.id === "a1")?.depth).toBe(1);
+  });
+
+  it("firstFolderIdInDisplayOrder follows UI tree order, not array order", () => {
+    const folders: ScenarioRegistryFolder[] = [
+      { id: "z", name: "Zeta", parentId: null, createdAt: "t", updatedAt: "t", updatedBy: "u" },
+      { id: "a", name: "Alpha", parentId: null, createdAt: "t", updatedAt: "t", updatedBy: "u" },
+    ];
+    expect(firstFolderIdInDisplayOrder(folders)).toBe("a");
   });
 
   it("buildFolderSummary aggregates descendants", () => {
@@ -38,4 +50,3 @@ describe("scenarioRegistry/folderModel", () => {
     expect(summary.get("child")?.count).toBe(1);
   });
 });
-

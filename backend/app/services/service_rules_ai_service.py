@@ -20,6 +20,7 @@ from app.domain.yaml_rules_merge import (
     merge_candidate_payload_from_rule,
 )
 from app.integrations.llm_client import LlmClient
+from app.utils.finix_yaml_dump import dump_finix_yaml
 from app.prompts.service_rules_from_source_prompt import (
     build_repair_user_prompt,
     build_user_prompt_from_source,
@@ -258,15 +259,12 @@ class ServiceRulesAiService:
         generated_rules = extract_rules_list(generated_doc)
         if not generated_rules:
             # Nothing useful from source — keep base as draft content.
-            return yaml.safe_dump(
+            return dump_finix_yaml(
                 {
                     "service_code": service_code,
                     "service_name": service_name,
                     "rules": base_rules,
                 },
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
             )
 
         candidates = [
@@ -303,12 +301,7 @@ class ServiceRulesAiService:
             diff.added,
             diff.kept,
         )
-        merged_yaml = yaml.safe_dump(
-            payload.as_dict(),
-            allow_unicode=True,
-            sort_keys=False,
-            default_flow_style=False,
-        )
+        merged_yaml = dump_finix_yaml(payload.as_dict())
         canonical, _ = validate_and_prepare_yaml(
             merged_yaml,
             input_skeleton=skeleton,

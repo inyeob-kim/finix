@@ -35,6 +35,7 @@ def build_postman_collection_variables(
 
     cfg = config or PostmanCollectionConfig()
     add(BASE_URL_KEY, cfg.base_url.strip())
+    resolve_cache: dict = {}
     for row in collection_start_vars(cfg):
         add(
             row.key,
@@ -42,6 +43,7 @@ def build_postman_collection_variables(
                 value=row.value,
                 generator=row.generator,
                 catalog=catalog,
+                resolve_cache=resolve_cache,
             ),
         )
     for name in runtime_var_names:

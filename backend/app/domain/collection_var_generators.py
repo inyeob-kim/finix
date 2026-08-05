@@ -28,7 +28,7 @@ BUILTIN_META: tuple[tuple[str, str, str], ...] = (
     ("today_yyyymmdd", "오늘 날짜", "YYYYMMDD · 실행 시점 시스템 날짜"),
     ("uuid", "UUID", "실행마다 새 UUID"),
     ("random_digits", "난수 숫자", "10자리 숫자"),
-    ("korean_name", "한글 이름", "테스트용 성+이름"),
+    ("korean_name", "한글 이름", "테스트용 성+이름 · 성/이름/미들 선택 가능"),
     ("korean_rrn", "주민번호", "테스트용 합성 주민번호"),
 )
 
@@ -96,8 +96,43 @@ def _random_digits(length: int = 10) -> str:
     return "".join(str(random.randint(0, 9)) for _ in range(n))
 
 
+@dataclass(frozen=True, slots=True)
+class KoreanNameParts:
+    """One Korean name draw split into reusable parts (middle empty for ko)."""
+
+    family: str
+    given: str
+    middle: str
+    full: str
+
+
+def generate_korean_name_parts() -> KoreanNameParts:
+    family = random.choice(_KOREAN_SURNAMES)
+    given = random.choice(_KOREAN_GIVEN)
+    return KoreanNameParts(
+        family=family,
+        given=given,
+        middle="",
+        full=family + given,
+    )
+
+
+def korean_name_part(parts: KoreanNameParts, part: str | None) -> str:
+    """Map part id (full|family|given|middle) to a string value."""
+    key = (part or "full").strip().lower()
+    if key in ("", "full", "name"):
+        return parts.full
+    if key in ("family", "last", "surname"):
+        return parts.family
+    if key in ("given", "first"):
+        return parts.given
+    if key == "middle":
+        return parts.middle
+    return parts.full
+
+
 def _korean_name() -> str:
-    return random.choice(_KOREAN_SURNAMES) + random.choice(_KOREAN_GIVEN)
+    return generate_korean_name_parts().full
 
 
 def _rrn_check_digit(body12: str) -> str:
@@ -190,21 +225,61 @@ def resolve_catalog_spec(spec: CatalogGeneratorSpec) -> str:
     return ""
 
 
+def split_generator_ref(raw: str | None) -> tuple[str, str | None]:
+    """
+    Split ``korean_name.family`` → (``korean_name``, ``family``).
+
+    Returns ``(base, part)`` where part is None for full / non-name refs.
+    """
+    g = (raw or "").strip()
+    if not g:
+        return "", None
+    if "." not in g:
+        return g, None
+    base, _, part = g.partition(".")
+    base = base.strip()
+    part = part.strip().lower()
+    base_id = normalize_builtin_id(base) or base
+    if base_id in ("korean_name", "name") and part in {
+        "family",
+        "given",
+        "middle",
+        "full",
+    }:
+        return "korean_name", None if part == "full" else part
+    return g, None
+
+
 def resolve_start_var_value(
     *,
     value: str,
     generator: str | None,
     catalog: dict[str, CatalogGeneratorSpec] | None = None,
+    resolve_cache: dict[str, Any] | None = None,
 ) -> str:
-    """Resolve literal or generator (builtin / DB catalog)."""
-    g = (generator or "").strip()
-    if not g:
+    """Resolve literal or generator (builtin / DB catalog / name parts)."""
+    g_raw = (generator or "").strip()
+    if not g_raw:
         return value
-    builtin = normalize_builtin_id(g)
+    base, part = split_generator_ref(g_raw)
+    if base == "korean_name" or normalize_builtin_id(base) == "korean_name":
+        if resolve_cache is not None:
+            existing = resolve_cache.get("korean_name_parts")
+            if isinstance(existing, KoreanNameParts):
+                parts = existing
+            else:
+                parts = generate_korean_name_parts()
+                resolve_cache["korean_name_parts"] = parts
+        else:
+            parts = generate_korean_name_parts()
+        return korean_name_part(parts, part)
+    builtin = normalize_builtin_id(base)
     if builtin:
         return resolve_generator(builtin)
-    if catalog and g in catalog:
-        return resolve_catalog_spec(catalog[g])
+    if catalog and g_raw in catalog:
+        return resolve_catalog_spec(catalog[g_raw])
+    if catalog and base in catalog:
+        return resolve_catalog_spec(catalog[base])
     return value
 
 

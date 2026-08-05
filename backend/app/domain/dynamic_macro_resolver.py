@@ -6,6 +6,8 @@ Supported forms (stored as string values in rules[].input):
   {{$date.today()}}
   {{$date.addYears(n)}} / {{$date.addDays(n)}} / {{$date.addMonths(n)}}
   {{$generator.ssn()}} / {{$generator.name()}} / {{$generator.uuid()}}
+  {{$generator.name.family()}} / {{$generator.name.given()}} /
+  {{$generator.name.middle()}} / {{$generator.name.full()}}
   {{$generator.random_digits()}} / {{$generator.<catalog_key>()}}
   {{context.VAR_NAME}}
 
@@ -25,11 +27,17 @@ from typing import Any, Literal
 
 from app.domain.collection_var_generators import (
     CatalogGeneratorSpec,
+    KoreanNameParts,
+    generate_korean_name_parts,
+    korean_name_part,
     resolve_catalog_spec,
     resolve_date_offset,
     resolve_generator,
 )
 from app.domain.postman_default_headers import fcc_tx_date_today
+
+_NAME_PARTS = frozenset({"family", "given", "middle", "full"})
+_NAME_GENERATOR_FNS = frozenset({"name", "korean_name"})
 
 # Full token match (entire string is a macro).
 MACRO_FULL_RE = re.compile(
@@ -37,7 +45,8 @@ MACRO_FULL_RE = re.compile(
     r"(?:"
     r"pool\.(?P<pool_field>[A-Za-z_][\w.]*)"
     r"|\$date\.(?P<date_fn>today|addYears|addDays|addMonths)\((?P<date_arg>-?\d*)\)"
-    r"|\$generator\.(?P<gen_fn>[A-Za-z_][\w]*)\(\)"
+    r"|\$generator\.(?P<gen_fn>[A-Za-z_][\w]*)"
+    r"(?:\.(?P<gen_part>family|given|middle|full))?\(\)"
     r"|context\.(?P<ctx_var>[A-Za-z_][\w]*)"
     r")"
     r"\s*\}\}$"
@@ -49,7 +58,7 @@ MACRO_FIND_RE = re.compile(
     r"(?:"
     r"pool\.[A-Za-z_][\w.]*"
     r"|\$date\.(?:today|addYears|addDays|addMonths)\(-?\d*\)"
-    r"|\$generator\.[A-Za-z_][\w]*\(\)"
+    r"|\$generator\.[A-Za-z_][\w]*(?:\.(?:family|given|middle|full))?\(\)"
     r"|context\.[A-Za-z_][\w]*"
     r")"
     r"\s*\}\}"
@@ -70,6 +79,8 @@ _GENERATOR_FN_TO_BUILTIN: dict[str, str] = {
     "korean_name": "korean_name",
 }
 
+_NAME_PARTS_CACHE_KEY = "korean_name_parts"
+
 
 @dataclass(frozen=True, slots=True)
 class ParsedMacro:
@@ -78,6 +89,7 @@ class ParsedMacro:
     field: str | None = None
     fn: str | None = None
     arg: int | None = None
+    part: str | None = None  # name.family / name.given / …
 
 
 MissingPolicy = Literal["raise", "keep"]
@@ -113,7 +125,13 @@ def parse_macro(value: str) -> ParsedMacro | None:
             arg = int(arg_raw) if arg_raw not in ("",) else 0
         return ParsedMacro(kind="date", raw=raw, fn=fn, arg=arg)
     if m.group("gen_fn"):
-        return ParsedMacro(kind="generator", raw=raw, fn=m.group("gen_fn"))
+        fn = m.group("gen_fn")
+        part = m.group("gen_part")
+        if part and fn not in _NAME_GENERATOR_FNS:
+            return None
+        if part and part not in _NAME_PARTS:
+            return None
+        return ParsedMacro(kind="generator", raw=raw, fn=fn, part=part)
     if m.group("ctx_var"):
         return ParsedMacro(kind="context", raw=raw, field=m.group("ctx_var"))
     return None
@@ -129,7 +147,8 @@ def validate_macro_or_raise(value: str) -> ParsedMacro:
         raise ValueError(
             f"알 수 없는 매크로입니다: {value!r}. "
             "허용: {{pool.x}}, {{$date.today()}}, {{$date.addYears(n)}}, "
-            "{{$generator.ssn()|name()|uuid()|random_digits()|<catalog_key>()}}, "
+            "{{$generator.ssn()|name()|name.family()|name.given()|"
+            "name.middle()|uuid()|random_digits()|<catalog_key>()}}, "
             "{{context.VAR}}"
         )
     return parsed
@@ -181,12 +200,29 @@ def _resolve_date(parsed: ParsedMacro) -> str:
     return resolve_date_offset({"unit": unit, "n": n, "format": "YYYYMMDD"})
 
 
+def _korean_name_parts_from_cache(
+    cache: dict[str, Any] | None,
+) -> KoreanNameParts:
+    if cache is not None:
+        existing = cache.get(_NAME_PARTS_CACHE_KEY)
+        if isinstance(existing, KoreanNameParts):
+            return existing
+    parts = generate_korean_name_parts()
+    if cache is not None:
+        cache[_NAME_PARTS_CACHE_KEY] = parts
+    return parts
+
+
 def _resolve_generator(
     parsed: ParsedMacro,
     *,
     catalog: dict[str, CatalogGeneratorSpec] | None,
+    resolve_cache: dict[str, Any] | None,
 ) -> str:
     fn = (parsed.fn or "").strip()
+    if fn in _NAME_GENERATOR_FNS:
+        parts = _korean_name_parts_from_cache(resolve_cache)
+        return korean_name_part(parts, parsed.part)
     builtin = _GENERATOR_FN_TO_BUILTIN.get(fn)
     if builtin:
         return resolve_generator(builtin)
@@ -206,6 +242,7 @@ def evaluate_macro(
     pool_fields: dict[str, Any] | None = None,
     catalog: dict[str, CatalogGeneratorSpec] | None = None,
     on_missing: MissingPolicy = "raise",
+    resolve_cache: dict[str, Any] | None = None,
 ) -> Any:
     """
     Evaluate a full-string macro to a concrete runtime value.
@@ -213,6 +250,9 @@ def evaluate_macro(
     ``on_missing``:
     - ``raise`` — KeyError when pool/context/generator is missing
     - ``keep`` — return the original macro string when lookup fails
+
+    ``resolve_cache`` shares one Korean-name draw across name / name.family /
+    name.given / name.middle within the same resolve pass.
     """
     parsed = parse_macro(value)
     if parsed is None:
@@ -237,7 +277,11 @@ def evaluate_macro(
             return _resolve_date(parsed)
 
         if parsed.kind == "generator":
-            return _resolve_generator(parsed, catalog=catalog)
+            return _resolve_generator(
+                parsed,
+                catalog=catalog,
+                resolve_cache=resolve_cache,
+            )
     except KeyError:
         if on_missing == "keep":
             return value
@@ -255,6 +299,7 @@ def resolve_value(
     on_missing: MissingPolicy = "raise",
     warnings: list[str] | None = None,
     path: str = "",
+    resolve_cache: dict[str, Any] | None = None,
 ) -> Any:
     """Resolve a single input value when it is a full-string macro."""
     if not (isinstance(value, str) and is_macro_string(value)):
@@ -266,6 +311,7 @@ def resolve_value(
             pool_fields=pool_fields,
             catalog=catalog,
             on_missing="raise",
+            resolve_cache=resolve_cache,
         )
     except KeyError as exc:
         if on_missing == "keep":
@@ -286,6 +332,7 @@ def resolve_mapping(
     warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """Resolve Finix macros in a nested dict (recursive)."""
+    resolve_cache: dict[str, Any] = {}
 
     def walk(node: Any, node_path: str) -> Any:
         if isinstance(node, dict):
@@ -305,6 +352,7 @@ def resolve_mapping(
             on_missing=on_missing,
             warnings=warnings,
             path=node_path or "input",
+            resolve_cache=resolve_cache,
         )
 
     resolved = walk(data, "")

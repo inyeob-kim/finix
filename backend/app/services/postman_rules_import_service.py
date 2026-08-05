@@ -8,8 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import yaml
-
 from app.core.exceptions import InvalidInputError
 from app.domain.postman_collection_parse import (
     PostmanRequestCandidate,
@@ -29,6 +27,7 @@ from app.domain.service_uri_match import match_service_code
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.services.postman_rules_import_ai_service import PostmanRulesImportAiService
 from app.services.service_rules_service import ServiceRulesService
+from app.utils.finix_yaml_dump import dump_finix_yaml
 from app.utils.rule_input_omm_skeleton import (
     build_input_skeleton_for_generation,
     skeleton_from_catalog_raw_json,
@@ -221,12 +220,7 @@ class PostmanRulesImportService:
                     skeleton=w.skeleton,
                 )
 
-            yaml_text = yaml.safe_dump(
-                payload.as_dict(),
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            )
+            yaml_text = dump_finix_yaml(payload.as_dict())
             draft = await self._rules.upsert_draft(
                 service_code=w.code,
                 yaml_text=yaml_text,

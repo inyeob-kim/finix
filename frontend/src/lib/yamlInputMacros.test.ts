@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   datePresetToYamlMacro,
   generatorKeyToYamlMacro,
+  isKoreanNameGeneratorKey,
+  koreanNamePartToYamlMacro,
 } from "./yamlInputMacros";
 import { insertOrReplaceJsonStringValue } from "./jsonStringReplace";
 
@@ -15,6 +17,20 @@ describe("yamlInputMacros", () => {
       "{{$generator.random_digits()}}",
     );
     expect(generatorKeyToYamlMacro("my_shared")).toBe("{{$generator.my_shared()}}");
+  });
+
+  it("maps korean name parts", () => {
+    expect(isKoreanNameGeneratorKey("korean_name")).toBe(true);
+    expect(koreanNamePartToYamlMacro("full")).toBe("{{$generator.name()}}");
+    expect(koreanNamePartToYamlMacro("family")).toBe(
+      "{{$generator.name.family()}}",
+    );
+    expect(generatorKeyToYamlMacro("korean_name", "given")).toBe(
+      "{{$generator.name.given()}}",
+    );
+    expect(generatorKeyToYamlMacro("korean_name", "middle")).toBe(
+      "{{$generator.name.middle()}}",
+    );
   });
 
   it("builds date macros", () => {

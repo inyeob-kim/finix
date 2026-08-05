@@ -31,9 +31,14 @@ import {
 } from "@/lib/executionPostmanDefaults";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
-import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
 import type { ScenarioRunMode } from "@/lib/registryScenarioRun";
-import { runScenarioExecution } from "@/api/executionApi";
+import { consumeScenarioExecutionStream } from "@/lib/registryScenarioRun";
+import type {
+  ScenarioRunFocusStatus,
+  ScenarioRunFocusStep,
+} from "./scenario/ScenarioRunFocusProgress";
+import { ScenarioRunFocusProgress } from "./scenario/ScenarioRunFocusProgress";
+import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
 import { ApiError } from "@/api/client";
 import type {
   ScenarioResolvePreviewDto,
@@ -97,6 +102,12 @@ export function TestCase() {
     useState<ScenarioRunMode>("simulate");
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
   const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
+  const [scenarioRunFocus, setScenarioRunFocus] = useState<{
+    steps: ScenarioRunFocusStep[];
+    currentIndex: number;
+    status: ScenarioRunFocusStatus;
+    total: number;
+  } | null>(null);
 
   const postmanExportDefaultFilename = useMemo(
     () => defaultSinglePostmanDownloadName(scenarioTitle || "scenario"),
@@ -293,15 +304,30 @@ export function TestCase() {
     setRunning(true);
     setScenarioRunError(null);
     setError(null);
+    const seedSteps: ScenarioRunFocusStep[] = testCases.map((tc, idx) => ({
+      key: String(tc.id ?? idx),
+      label: tc.name?.trim() || `Step ${idx + 1}`,
+    }));
+    setScenarioRunFocus({
+      steps: seedSteps,
+      currentIndex: 0,
+      status: "pending",
+      total: Math.max(seedSteps.length, 1),
+    });
     try {
       saveExecutionPostmanDefaults(scenarioRunDraft);
-      const exec = await runScenarioExecution({
-        scenario_id: scenarioId,
-        base_url: baseUrl,
-        mode: scenarioRunMode,
-      });
+      const done = await consumeScenarioExecutionStream(
+        {
+          scenario_id: scenarioId,
+          base_url: baseUrl,
+          mode: scenarioRunMode,
+        },
+        seedSteps,
+        setScenarioRunFocus,
+      );
       setScenarioRunOpen(false);
-      navigate(`/execution-result/${exec.id}`, {
+      setScenarioRunFocus(null);
+      navigate(`/execution-result/${done.execution_id}`, {
         state: { from: `/test-cases/${scenarioId}` },
       });
     } catch (e) {
@@ -690,7 +716,10 @@ export function TestCase() {
             open={scenarioRunOpen}
             onOpenChange={(open) => {
               if (!running) {
-                if (!open) setScenarioRunHeaderOpen(false);
+                if (!open) {
+                  setScenarioRunHeaderOpen(false);
+                  setScenarioRunFocus(null);
+                }
                 setScenarioRunOpen(open);
               }
             }}
@@ -707,14 +736,27 @@ export function TestCase() {
                   </div>
                 </DialogDescription>
               </DialogHeader>
-              <ScenarioRunDialogForm
-                postmanConfig={scenarioRunDraft}
-                onPostmanConfigChange={setScenarioRunDraft}
-                mode={scenarioRunMode}
-                onModeChange={setScenarioRunMode}
-                onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
-              />
-              {scenarioRunError ? (
+              {!running ? (
+                <ScenarioRunDialogForm
+                  postmanConfig={scenarioRunDraft}
+                  onPostmanConfigChange={setScenarioRunDraft}
+                  mode={scenarioRunMode}
+                  onModeChange={setScenarioRunMode}
+                  onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
+                />
+              ) : null}
+              {running && scenarioRunFocus ? (
+                <ScenarioRunFocusProgress
+                  steps={scenarioRunFocus.steps}
+                  currentIndex={scenarioRunFocus.currentIndex}
+                  status={scenarioRunFocus.status}
+                  total={scenarioRunFocus.total}
+                />
+              ) : running ? (
+                <div className="py-6">
+                  <FinixLoading size="md" center label="시나리오 실행 중…" />
+                </div>
+              ) : scenarioRunError ? (
                 <p className="text-sm text-destructive">{scenarioRunError}</p>
               ) : null}
               <DialogFooter className="gap-2 sm:gap-2">
@@ -723,6 +765,7 @@ export function TestCase() {
                   className="px-4 py-2 text-sm rounded-sm border border-border hover:bg-muted"
                   onClick={() => {
                     setScenarioRunHeaderOpen(false);
+                    setScenarioRunFocus(null);
                     setScenarioRunOpen(false);
                   }}
                   disabled={running}

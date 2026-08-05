@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from app.utils.finix_yaml_dump import dump_finix_yaml
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
@@ -429,13 +430,7 @@ def validate_and_prepare_yaml(
         soft_drop_invalid_rules=soft_drop_invalid_rules,
     )
     payload = sort_rules_normal_then_error(payload)
-    canonical = yaml.dump(
-        payload,
-        allow_unicode=True,
-        default_flow_style=False,
-        sort_keys=False,
-    ).strip()
-    return f"{canonical}\n", payload
+    return dump_finix_yaml(payload), payload
 
 
 def _validate_and_parse_yaml(yaml_text: str) -> dict[str, Any]:
@@ -697,22 +692,6 @@ class ServiceRulesService:
         if not row.has_draft:
             raise InvalidInputError("적용할 작업본이 없습니다.")
 
-        # Snapshot previous applied content before overwrite.
-        if row.has_applied:
-            await self._repo.add_history(
-                ServiceRuleHistory(
-                    service_code=code,
-                    service_name_snapshot=row.service_name_snapshot,
-                    source_version=row.source_version,
-                    yaml_text=row.yaml_text,
-                    rules_json=row.rules_json,
-                    checksum=row.checksum,
-                    change_kind="apply",
-                    note="snapshot before apply",
-                    created_by=applied_by or row.updated_by,
-                )
-            )
-
         row.yaml_text = row.draft_yaml_text or ""
         row.rules_json = row.draft_rules_json
         row.checksum = row.draft_checksum or _sha256_text(row.yaml_text)
@@ -724,7 +703,23 @@ class ServiceRulesService:
         row.draft_source_version = None
         row.draft_updated_at = None
         row.draft_updated_by = None
-        return await self._repo.flush_current(row)
+        row = await self._repo.flush_current(row)
+
+        # Every apply appends an immutable snapshot of what is now live.
+        await self._repo.add_history(
+            ServiceRuleHistory(
+                service_code=code,
+                service_name_snapshot=row.service_name_snapshot,
+                source_version=row.source_version,
+                yaml_text=row.yaml_text,
+                rules_json=row.rules_json,
+                checksum=row.checksum,
+                change_kind="apply",
+                note="applied snapshot",
+                created_by=applied_by or row.updated_by,
+            )
+        )
+        return row
 
     async def activate(self, bundle_id: int) -> ServiceRuleCurrent:
         """Compatibility: apply draft for the current row id."""

@@ -1,4 +1,5 @@
 import { STORAGE_KEY_V1, STORAGE_KEY_V2 } from "./constants";
+import { firstFolderIdInDisplayOrder } from "./folderModel";
 import type {
   ScenarioRegistryFolder,
   ScenarioRegistryItem,
@@ -76,10 +77,17 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
         base as ScenarioRegistryItem & Record<string, unknown>,
       );
     });
+    const folderIds = new Set(folders.map((f) => f.id));
+    const savedFolderId =
+      typeof v2.selectedFolderId === "string" ? v2.selectedFolderId : null;
+    const selectedFolderId =
+      savedFolderId && folderIds.has(savedFolderId)
+        ? savedFolderId
+        : firstFolderIdInDisplayOrder(folders);
     return {
       folders,
       scenarios,
-      selectedFolderId: folders[0]?.id ?? null,
+      selectedFolderId,
       hydrated: true,
     };
   }
@@ -123,7 +131,7 @@ export function loadRegistryState(updatedBy: string): LoadedRegistryState {
   return {
     folders: seed.folders,
     scenarios: seed.scenarios,
-    selectedFolderId: seed.folders[0]?.id ?? null,
+    selectedFolderId: firstFolderIdInDisplayOrder(seed.folders),
     hydrated: true,
   };
 }

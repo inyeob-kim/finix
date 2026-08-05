@@ -29,6 +29,7 @@ class FinixMacroExportSpec:
     generator_id: str | None = None  # builtin / date_offset id for scripts
     date_fn: str | None = None
     date_arg: int | None = None
+    name_part: str | None = None  # full|family|given|middle for korean_name
 
 
 def postman_var_key_for_macro(raw: str) -> str | None:
@@ -38,6 +39,9 @@ def postman_var_key_for_macro(raw: str) -> str | None:
         return None
     if parsed.kind == "generator":
         fn = (parsed.fn or "x").strip()
+        part = (parsed.part or "").strip()
+        if part:
+            return f"gen_{fn}_{part}"
         return f"gen_{fn}"
     if parsed.kind == "date":
         fn = (parsed.fn or "today").strip()
@@ -63,6 +67,17 @@ def _spec_for_raw_macro(raw: str) -> FinixMacroExportSpec | None:
         return None
     if parsed.kind == "generator":
         fn = (parsed.fn or "").strip()
+        part = (parsed.part or "").strip() or None
+        if fn in ("name", "korean_name"):
+            # Shared Korean-name bundle; part selects which export var to fill.
+            builtin = "korean_name"
+            return FinixMacroExportSpec(
+                var_key=key,
+                raw_macro=token,
+                kind="generator",
+                generator_id=builtin,
+                name_part=part or "full",
+            )
         builtin = _GENERATOR_FN_TO_BUILTIN.get(fn, fn)
         return FinixMacroExportSpec(
             var_key=key,
@@ -151,6 +166,9 @@ def _date_offset_script(var_key: str, *, unit: str, n: int) -> list[str]:
 
 def script_lines_for_macro_spec(spec: FinixMacroExportSpec) -> list[str] | None:
     """JS lines that set ``spec.var_key`` (no first-request wrapper)."""
+    # Korean name parts are seeded as a shared bundle in build_*.
+    if spec.generator_id == "korean_name" and spec.name_part is not None:
+        return None
     if spec.kind == "generator" and spec.generator_id:
         return _script_for_generator(spec.var_key, spec.generator_id, catalog=None)
     if spec.kind == "date":
@@ -170,6 +188,52 @@ def script_lines_for_macro_spec(spec: FinixMacroExportSpec) -> list[str] | None:
     return None
 
 
+def _korean_name_bundle_script_lines(
+    specs: list[FinixMacroExportSpec],
+) -> list[str]:
+    """One draw → family/given/middle/full, then copy into requested vars."""
+    name_specs = [
+        s
+        for s in specs
+        if s.generator_id == "korean_name" and s.name_part is not None
+    ]
+    if not name_specs:
+        return []
+
+    part_to_tmp = {
+        "family": "__finix_kn_family",
+        "given": "__finix_kn_given",
+        "middle": "__finix_kn_middle",
+        "full": "__finix_kn_full",
+    }
+    lines: list[str] = [
+        "(function(){",
+        '  const S=["김","이","박","최","정","강","조","윤","장","임","한","오","서","신","권"];',
+        '  const G=["민준","서연","예준","서윤","도윤","지우","하준","서준","주원","지민"];',
+        "  const family = S[Math.floor(Math.random()*S.length)];",
+        "  const given = G[Math.floor(Math.random()*G.length)];",
+        '  pm.collectionVariables.set("__finix_kn_family", family);',
+        '  pm.collectionVariables.set("__finix_kn_given", given);',
+        '  pm.collectionVariables.set("__finix_kn_middle", "");',
+        '  pm.collectionVariables.set("__finix_kn_full", family + given);',
+        "})();",
+    ]
+    seen_keys: set[str] = set()
+    for spec in name_specs:
+        if spec.var_key in seen_keys:
+            continue
+        seen_keys.add(spec.var_key)
+        part = (spec.name_part or "full").strip().lower()
+        tmp = part_to_tmp.get(part, "__finix_kn_full")
+        safe_key = json.dumps(spec.var_key, ensure_ascii=False)
+        safe_tmp = json.dumps(tmp, ensure_ascii=False)
+        lines.append(
+            f"pm.collectionVariables.set({safe_key}, "
+            f"pm.collectionVariables.get({safe_tmp}) || '');"
+        )
+    return lines
+
+
 def build_finix_macro_prerequest_exec_lines(
     specs: list[FinixMacroExportSpec],
 ) -> list[str]:
@@ -180,6 +244,14 @@ def build_finix_macro_prerequest_exec_lines(
     """
     blocks: list[list[str]] = []
     seen: set[str] = set()
+
+    name_bundle = _korean_name_bundle_script_lines(specs)
+    if name_bundle:
+        blocks.append(name_bundle)
+        for spec in specs:
+            if spec.generator_id == "korean_name" and spec.name_part is not None:
+                seen.add(spec.var_key)
+
     for spec in specs:
         if spec.var_key in seen:
             continue

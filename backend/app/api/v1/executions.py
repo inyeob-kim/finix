@@ -1,10 +1,15 @@
 """HTTP routes for executions (v1)."""
 
+from __future__ import annotations
+
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 from app.core.deps import get_execution_service
+from app.core.exceptions import DomainError
 from app.schemas.execution_schema import (
     ExecutionCreateV1,
     ExecutionDetailReadV1,
@@ -15,6 +20,10 @@ from app.schemas.execution_schema import (
 from app.services.execution_service import ExecutionService
 
 router = APIRouter(prefix="/executions")
+
+
+def _sse_pack(event: dict) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @router.post("", response_model=ExecutionDetailReadV1, summary="Run scenario tests")
@@ -29,6 +38,47 @@ async def create_execution_v1(
         mode=payload.mode,
     )
     return execution_run_to_detail(run)
+
+
+@router.post("/stream", summary="Run scenario tests with SSE progress")
+async def create_execution_stream_v1(
+    payload: ExecutionCreateV1,
+    service: ExecutionService = Depends(get_execution_service),
+) -> StreamingResponse:
+    """Execute a scenario and stream per-step progress as Server-Sent Events."""
+
+    async def event_gen():
+        try:
+            async for event in service.iter_run_for_scenario(
+                scenario_id=payload.scenario_id,
+                base_url=payload.base_url,
+                mode=payload.mode,
+            ):
+                yield _sse_pack(event)
+        except DomainError as exc:
+            yield _sse_pack(
+                {
+                    "type": "error",
+                    "message": str(exc),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            yield _sse_pack(
+                {
+                    "type": "error",
+                    "message": str(exc) or "시나리오 실행에 실패했습니다.",
+                },
+            )
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("", response_model=ExecutionListResponseV1, summary="List executions")

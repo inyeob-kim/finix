@@ -1,3 +1,4 @@
+import { firstFolderIdInDisplayOrder } from "./folderModel";
 import type {
   ScenarioRegistryFolder,
   ScenarioRegistryItem,
@@ -19,7 +20,7 @@ export function repairRegistryFolderLinks(
   }
 
   const folderIds = new Set(folders.map((f) => f.id));
-  const fallbackFolderId = folders[0]?.id ?? null;
+  const fallbackFolderId = firstFolderIdInDisplayOrder(folders);
 
   const nextSelected =
     selectedFolderId && folderIds.has(selectedFolderId)
@@ -43,7 +44,8 @@ export function resolveScenarioFolderId(
   selectedFolderId: string | null,
   folders: ScenarioRegistryFolder[],
 ): string | null {
-  const candidate = folderId || selectedFolderId || folders[0]?.id || "";
+  const candidate =
+    folderId || selectedFolderId || firstFolderIdInDisplayOrder(folders) || "";
   if (!candidate) return null;
   return folders.some((folder) => folder.id === candidate) ? candidate : null;
 }

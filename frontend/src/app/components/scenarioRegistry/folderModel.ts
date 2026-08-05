@@ -29,6 +29,13 @@ export function buildFolderOptions(
   return out;
 }
 
+/** First collection in the same order as the UI tree (name-sorted). */
+export function firstFolderIdInDisplayOrder(
+  folders: ScenarioRegistryFolder[],
+): string | null {
+  return buildFolderOptions(folders)[0]?.id ?? null;
+}
+
 export function buildFolderSummary(
   folders: ScenarioRegistryFolder[],
   items: ScenarioRegistryItem[],

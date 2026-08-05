@@ -2,6 +2,8 @@ import type { ServiceCatalogItem } from "./types";
 
 export const STORAGE_KEY_V2 = "finix.scenario.registry.v2";
 export const STORAGE_KEY_V1 = "finix.scenario.registry.v1";
+/** Ephemeral UI selection (folder already in v2); survives navigation away. */
+export const REGISTRY_UI_SESSION_KEY = "finix.scenario.registry.uiSession.v1";
 
 export const SERVICE_CATALOG: ServiceCatalogItem[] = [
   { code: "PY016", name: "Request bank salary payment" },

@@ -41,8 +41,21 @@ def test_parse_extended_generators():
     assert parse_macro("{{$generator.korean_name()}}").fn == "korean_name"
 
 
+def test_parse_name_parts():
+    full = parse_macro("{{$generator.name()}}")
+    assert full is not None and full.fn == "name" and full.part is None
+    family = parse_macro("{{$generator.name.family()}}")
+    assert family is not None and family.fn == "name" and family.part == "family"
+    given = parse_macro("{{$generator.name.given()}}")
+    assert given is not None and given.part == "given"
+    middle = parse_macro("{{$generator.name.middle()}}")
+    assert middle is not None and middle.part == "middle"
+    assert parse_macro("{{$generator.uuid.family()}}") is None
+
+
 def test_is_macro_string():
     assert is_macro_string("{{pool.a}}")
+    assert is_macro_string("{{$generator.name.family()}}")
     assert not is_macro_string("plain")
     assert not is_macro_string(None)
     assert not is_macro_string("{{custId}}")
@@ -90,6 +103,22 @@ def test_resolve_mapping_resolves_date():
     assert isinstance(out["pymntDt"], str) and out["pymntDt"].isdigit()
 
 
+def test_resolve_mapping_shares_korean_name_parts():
+    out = resolve_mapping(
+        {
+            "full": "{{$generator.name()}}",
+            "family": "{{$generator.name.family()}}",
+            "given": "{{$generator.name.given()}}",
+            "middle": "{{$generator.name.middle()}}",
+            "again": "{{$generator.name.full()}}",
+        }
+    )
+    assert out["full"] == out["again"]
+    assert out["full"] == out["family"] + out["given"]
+    assert out["middle"] == ""
+    assert out["family"]
+    assert out["given"]
+
 
 def test_validate_unknown():
     with pytest.raises(ValueError):
@@ -109,3 +138,4 @@ def test_validate_input_macros_walk():
     assert any("nested.x" in e for e in errs)
     assert not any("custId" in e for e in errs)
     assert validate_input_macros({"pymntDt": "{{$date.today()}}"}) == []
+    assert validate_input_macros({"nm": "{{$generator.name.family()}}"}) == []

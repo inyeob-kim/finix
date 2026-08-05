@@ -170,7 +170,7 @@ class MetadataRepository:
     async def list_testcases_for_service_code(
         self, service_code: str, *, limit: int = 200
     ) -> list[TestCase]:
-        """Return persisted HTTP test cases tied to a service (name or rule history)."""
+        """Return pool HTTP test cases for a service (excludes scenario clones)."""
         code = (service_code or "").strip()
         if not code:
             return []
@@ -181,10 +181,11 @@ class MetadataRepository:
                 TestCase.rule_history_id == ServiceRuleHistory.id,
             )
             .where(
+                TestCase.scenario_id.is_(None),
                 or_(
                     _service_pool_name_filters(code),
                     ServiceRuleHistory.service_code == code,
-                )
+                ),
             )
             .order_by(TestCase.id.desc())
             .limit(limit)

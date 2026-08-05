@@ -2,20 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Trash2 } from "lucide-react";
 import {
   deleteCollectionVarGenerator,
-  listCollectionVarGenerators,
   previewCollectionVarGenerator,
   updateCollectionVarGenerator,
   type CollectionVarGeneratorDto,
 } from "@/api/collectionVarGeneratorApi";
 import { ApiError } from "@/api/client";
 import {
-  COLLECTION_VAR_GENERATORS,
+  collectionVarGeneratorLabel,
   collectionVarSourceLabel,
   resolveCollectionVarGenerator,
 } from "@/lib/collectionVarGenerators";
+import { splitGeneratorRef } from "@/lib/generatorRef";
 import { formatPostmanVar } from "@/lib/postmanBodyBindings";
 import type { PostmanStartVar } from "@/lib/scenarioPostmanVariables";
-import { YamlMacroAiCreatePanel } from "../rules/YamlMacroAiCreatePanel";
+import {
+  DynamicGeneratorSourcePanel,
+  type DynamicGeneratorSelection,
+} from "../dynamicValue/DynamicGeneratorSourcePanel";
 import {
   Dialog,
   DialogContent,
@@ -26,17 +29,11 @@ import {
 } from "../ui/dialog";
 import { FinixUnderlineInput } from "../ui/finix-form";
 import { FinixLoading } from "../ui/finix-loading";
-import { cn } from "../ui/utils";
 import {
   isValidCollectionVarKey,
   type CollectionVarDeclarePayload,
 } from "./CollectionVarAddField";
-import { CollectionVarGeneratorPicker } from "./CollectionVarGeneratorPicker";
 import { CollectionVarGeneratorSourcePanel } from "./CollectionVarGeneratorSourcePanel";
-import {
-  LITERAL_GENERATOR_MODE,
-  pushRecentGeneratorKey,
-} from "@/lib/collectionVarGeneratorPicker";
 
 function previewValueFromResponse(
   res: { value?: string } | null | undefined,
@@ -67,12 +64,10 @@ export function CollectionVarDeclareDialog({
   onRemove,
 }: Props) {
   const [key, setKey] = useState("");
-  const [mode, setMode] = useState<string>("literal");
   const [literalValue, setLiteralValue] = useState("");
-  const [catalog, setCatalog] = useState<CollectionVarGeneratorDto[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [aiMode, setAiMode] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [selection, setSelection] = useState<DynamicGeneratorSelection | null>(
+    null,
+  );
   const [previewValue, setPreviewValue] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -81,47 +76,35 @@ export function CollectionVarDeclareDialog({
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const [panelReset, setPanelReset] = useState(0);
   const previewReqId = useRef(0);
   const keyInputRef = useRef<HTMLInputElement>(null);
-
-  const reloadCatalog = async () => {
-    setCatalogLoading(true);
-    try {
-      setCatalog(await listCollectionVarGenerators());
-    } catch {
-      setCatalog(
-        COLLECTION_VAR_GENERATORS.map((g) => ({
-          key: g.id,
-          label: g.label,
-          description: g.hint,
-          hint: g.hint,
-          source: "builtin" as const,
-          impl_kind: g.id,
-        })),
-      );
-    } finally {
-      setCatalogLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (!open) return;
     setKey("");
-    setMode("literal");
     setLiteralValue("");
-    setAiMode(false);
-    setAiPrompt("");
+    setSelection(null);
     setPreviewValue(null);
     setPreviewError(null);
     setCatalogError(null);
     setSourceOpen(false);
     setSourceError(null);
     previewReqId.current += 1;
-    void reloadCatalog();
+    setPanelReset((n) => n + 1);
   }, [open]);
 
-  const generator = mode === "literal" ? null : mode;
-  const selectedMeta = catalog.find((g) => g.key === generator);
+  const mode = selection?.mode ?? "literal";
+  const aiMode = selection?.aiActive ?? false;
+  const catalog = selection?.catalog ?? [];
+  const generator = selection?.generator ?? null;
+  const selectedMeta =
+    generator == null
+      ? undefined
+      : catalog.find((g) => {
+          const base = splitGeneratorRef(generator).base;
+          return g.key === base || g.key === generator;
+        });
   const canSubmit =
     isValidCollectionVarKey(key) &&
     !aiMode &&
@@ -139,8 +122,15 @@ export function CollectionVarDeclareDialog({
         description: selectedMeta.description,
         prompt: selectedMeta.prompt ?? undefined,
       });
-      setCatalog((prev) =>
-        prev.map((g) => (g.key === saved.key ? { ...g, ...saved } : g)),
+      setSelection((prev) =>
+        prev
+          ? {
+              ...prev,
+              catalog: prev.catalog.map((g) =>
+                g.key === saved.key ? { ...g, ...saved } : g,
+              ),
+            }
+          : prev,
       );
       await loadPreviewForKey(saved.key, saved);
     } catch (e) {
@@ -157,12 +147,9 @@ export function CollectionVarDeclareDialog({
     setCatalogError(null);
     try {
       await deleteCollectionVarGenerator(generatorKey);
-      await reloadCatalog();
-      if (mode === generatorKey) {
-        setMode("literal");
-        setPreviewValue(null);
-        setSourceOpen(false);
-      }
+      setPanelReset((n) => n + 1);
+      setPreviewValue(null);
+      setSourceOpen(false);
     } catch (e) {
       setCatalogError(
         e instanceof ApiError ? e.message : "공유 생성기 삭제에 실패했습니다.",
@@ -182,19 +169,27 @@ export function CollectionVarDeclareDialog({
       setPreviewValue(local);
       setPreviewError(null);
     }
+    const { base, namePart } = splitGeneratorRef(generatorKey);
+    // Name parts: client-side preview is authoritative (API returns full name only).
+    if (base === "korean_name" && namePart !== "full") {
+      setPreviewBusy(false);
+      return;
+    }
     setPreviewBusy(true);
     setPreviewError(null);
     try {
       const meta =
-        metaHint ?? catalog.find((g) => g.key === generatorKey) ?? null;
+        metaHint ??
+        catalog.find((g) => g.key === base || g.key === generatorKey) ??
+        null;
       const res = await previewCollectionVarGenerator(
         meta?.impl_kind
           ? {
-              key: generatorKey,
+              key: base || generatorKey,
               impl_kind: meta.impl_kind,
               impl: meta.impl ?? {},
             }
-          : { key: generatorKey },
+          : { key: base || generatorKey },
       );
       if (reqId !== previewReqId.current) return;
       const value = previewValueFromResponse(res) || local;
@@ -220,33 +215,14 @@ export function CollectionVarDeclareDialog({
 
   useEffect(() => {
     if (!open || aiMode) return;
-    if (mode === "literal") {
+    if (!generator) {
       setPreviewValue(null);
       setPreviewError(null);
       return;
     }
-    void loadPreviewForKey(mode);
+    void loadPreviewForKey(generator);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, catalog, aiMode]);
-
-  const selectGeneratorMode = (next: string) => {
-    setMode(next);
-    setAiMode(false);
-    setAiPrompt("");
-    setSourceError(null);
-    setSourceOpen(false);
-    setPreviewValue(null);
-    setPreviewError(null);
-    if (next === LITERAL_GENERATOR_MODE) return;
-    pushRecentGeneratorKey(next);
-    const local = resolveCollectionVarGenerator(next);
-    if (local) {
-      setPreviewValue(local);
-      setPreviewError(null);
-    } else {
-      void loadPreviewForKey(next);
-    }
-  };
+  }, [open, generator, catalog, aiMode]);
 
   const submit = () => {
     if (!canSubmit || (!generator && !literalValue.trim())) return;
@@ -258,8 +234,8 @@ export function CollectionVarDeclareDialog({
     });
     setKey("");
     setLiteralValue("");
-    setMode("literal");
     setSourceOpen(false);
+    setPanelReset((n) => n + 1);
     requestAnimationFrame(() => keyInputRef.current?.focus());
   };
 
@@ -332,7 +308,9 @@ export function CollectionVarDeclareDialog({
                     <div className="flex items-start justify-between gap-2 rounded-sm border border-border bg-muted/20 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-foreground">
-                          {selectedMeta?.label || mode}
+                          {collectionVarGeneratorLabel(generator) ||
+                            selectedMeta?.label ||
+                            mode}
                         </p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground leading-relaxed">
                           {selectedMeta?.hint ||
@@ -406,16 +384,21 @@ export function CollectionVarDeclareDialog({
                         onChange={
                           selectedMeta.source === "shared"
                             ? (next) => {
-                                setCatalog((prev) =>
-                                  prev.map((g) =>
-                                    g.key === selectedMeta.key
-                                      ? {
-                                          ...g,
-                                          impl_kind: next.impl_kind,
-                                          impl: next.impl,
-                                        }
-                                      : g,
-                                  ),
+                                setSelection((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        catalog: prev.catalog.map((g) =>
+                                          g.key === selectedMeta.key
+                                            ? {
+                                                ...g,
+                                                impl_kind: next.impl_kind,
+                                                impl: next.impl,
+                                              }
+                                            : g,
+                                        ),
+                                      }
+                                    : prev,
                                 );
                                 setSourceError(null);
                                 void previewCollectionVarGenerator({
@@ -457,11 +440,7 @@ export function CollectionVarDeclareDialog({
                 ) : (
                   <ul className="divide-y divide-border/60 rounded-sm border border-border/60">
                     {collectionVars.map((row) => {
-                      const meta = catalog.find((g) => g.key === row.generator);
-                      const source =
-                        meta != null
-                          ? `동적 · ${meta.label}`
-                          : collectionVarSourceLabel(row);
+                      const source = collectionVarSourceLabel(row);
                       const sample =
                         row.generator != null
                           ? resolveCollectionVarGenerator(row.generator)
@@ -502,61 +481,24 @@ export function CollectionVarDeclareDialog({
             </div>
           </div>
 
-          {/* Right: always-visible value source */}
-          <aside className="flex h-full min-h-0 w-[min(24rem,42%)] shrink-0 flex-col border-l border-border bg-muted/10">
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
-              <p className="text-xs font-medium text-foreground">값 출처</p>
-              <button
-                type="button"
-                className={cn(
-                  "h-7 shrink-0 rounded-sm border px-2 text-[11px] font-medium transition-colors",
-                  aiMode
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-                onClick={() => {
-                  if (aiMode) {
-                    setAiMode(false);
-                    setAiPrompt("");
-                    return;
-                  }
-                  setAiMode(true);
+          {/* Right: shared generator source (same as YAML dynamic value) */}
+          <div className="flex h-full min-h-0 w-[min(24rem,42%)] shrink-0 flex-col">
+            <DynamicGeneratorSourcePanel
+              title="값 출처"
+              includeLiteral
+              autoFocusSearch={false}
+              resetToken={panelReset}
+              initialMode="literal"
+              className="min-h-0 flex-1"
+              onSelectionChange={(next) => {
+                setSelection(next);
+                setSourceError(null);
+                if (next.mode === "literal" || next.aiActive) {
                   setSourceOpen(false);
-                }}
-              >
-                {aiMode ? "목록으로" : "AI로 만들기"}
-              </button>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-              {aiMode ? (
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                  <YamlMacroAiCreatePanel
-                    prompt={aiPrompt}
-                    onPromptChange={setAiPrompt}
-                    onSaved={async (saved) => {
-                      await reloadCatalog();
-                      selectGeneratorMode(saved.key);
-                    }}
-                    onUseExisting={(recKey) => {
-                      selectGeneratorMode(recKey);
-                    }}
-                  />
-                </div>
-              ) : (
-                <CollectionVarGeneratorPicker
-                  catalog={catalog}
-                  value={mode}
-                  loading={catalogLoading}
-                  variant="inline"
-                  autoFocusSearch={false}
-                  className="min-h-0 flex-1"
-                  listClassName="min-h-0 flex-1"
-                  onValueChange={selectGeneratorMode}
-                />
-              )}
-            </div>
-          </aside>
+                }
+              }}
+            />
+          </div>
         </div>
 
         <DialogFooter className="shrink-0 gap-2 border-t border-border px-6 py-3">

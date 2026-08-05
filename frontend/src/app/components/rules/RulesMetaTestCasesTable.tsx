@@ -8,11 +8,9 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
-  ExternalLink,
   Play,
 } from "lucide-react";
 import { Fragment } from "react";
-import { Link } from "react-router";
 import { TestCaseIoPreview } from "../TestCaseIoPreview";
 import {
   FinixDataTable,
@@ -211,15 +209,6 @@ function TestCaseRow({
             >
               <Download className="w-3.5 h-3.5" />
             </button>
-            {test.scenario_id != null ? (
-              <Link
-                to={`/test-case/${test.scenario_id}`}
-                className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
-                title="시나리오 테스트케이스 화면"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </Link>
-            ) : null}
           </div>
         </FinixDataTableCell>
       </FinixDataTableRow>

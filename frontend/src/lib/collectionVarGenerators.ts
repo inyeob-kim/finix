@@ -1,5 +1,7 @@
 /** Built-in collection-variable generators (keep in sync with backend). */
 
+import { splitGeneratorRef } from "@/lib/generatorRef";
+
 export type CollectionVarGeneratorId =
   | "today_yyyymmdd"
   | "uuid"
@@ -33,7 +35,7 @@ export const COLLECTION_VAR_GENERATORS: readonly CollectionVarGeneratorOption[] 
     {
       id: "korean_name",
       label: "한글 이름",
-      hint: "테스트용 성+이름",
+      hint: "테스트용 성+이름 · 성/이름/미들 선택 가능",
     },
     {
       id: "korean_rrn",
@@ -146,17 +148,58 @@ export function normalizeCollectionVarGenerator(
 export function collectionVarGeneratorLabel(
   generator: string | null | undefined,
 ): string | null {
-  const id = normalizeCollectionVarGenerator(generator);
-  if (!id) return null;
-  return COLLECTION_VAR_GENERATORS.find((g) => g.id === id)?.label ?? id;
+  const { base, namePart } = splitGeneratorRef(generator);
+  const id = normalizeCollectionVarGenerator(base);
+  if (!id) {
+    const raw = (generator || "").trim();
+    return raw || null;
+  }
+  const baseLabel =
+    COLLECTION_VAR_GENERATORS.find((g) => g.id === id)?.label ?? id;
+  if (id === "korean_name" && namePart !== "full") {
+    const partLabel =
+      namePart === "family"
+        ? "성"
+        : namePart === "given"
+          ? "이름"
+          : namePart === "middle"
+            ? "미들"
+            : "";
+    return partLabel ? `${baseLabel} · ${partLabel}` : baseLabel;
+  }
+  return baseLabel;
 }
 
 /** Resolve once for preview / export snapshot. Live uses backend. */
 export function resolveCollectionVarGenerator(
   generator: string | null | undefined,
+  cache?: { family?: string; given?: string; middle?: string; full?: string },
 ): string {
-  const id = normalizeCollectionVarGenerator(generator);
+  const { base, namePart } = splitGeneratorRef(generator);
+  const id = normalizeCollectionVarGenerator(base);
   if (!id) return "";
+
+  if (id === "korean_name") {
+    let parts = cache;
+    if (!parts?.full) {
+      const family = pick(SURNAMES);
+      const given = pick(GIVEN);
+      parts = {
+        family,
+        given,
+        middle: "",
+        full: family + given,
+      };
+      if (cache) {
+        Object.assign(cache, parts);
+      }
+    }
+    if (namePart === "family") return parts.family ?? "";
+    if (namePart === "given") return parts.given ?? "";
+    if (namePart === "middle") return parts.middle ?? "";
+    return parts.full ?? "";
+  }
+
   switch (id) {
     case "today_yyyymmdd":
       return todayYyyymmdd();
@@ -164,8 +207,6 @@ export function resolveCollectionVarGenerator(
       return crypto.randomUUID();
     case "random_digits":
       return randomDigits(10);
-    case "korean_name":
-      return pick(SURNAMES) + pick(GIVEN);
     case "korean_rrn":
       return koreanRrn();
     default:
@@ -173,12 +214,18 @@ export function resolveCollectionVarGenerator(
   }
 }
 
-export function resolveCollectionVarValue(row: {
-  value: string;
-  generator?: string | null;
-}): string {
-  if (normalizeCollectionVarGenerator(row.generator)) {
-    return resolveCollectionVarGenerator(row.generator);
+export function resolveCollectionVarValue(
+  row: {
+    value: string;
+    generator?: string | null;
+  },
+  cache?: { family?: string; given?: string; middle?: string; full?: string },
+): string {
+  const g = (row.generator || "").trim();
+  if (!g) return row.value;
+  const { base } = splitGeneratorRef(g);
+  if (normalizeCollectionVarGenerator(base)) {
+    return resolveCollectionVarGenerator(g, cache);
   }
   return row.value;
 }

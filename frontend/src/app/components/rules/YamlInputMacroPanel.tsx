@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CircleHelp, X } from "lucide-react";
 import {
-  listCollectionVarGenerators,
-  type CollectionVarGeneratorDto,
-} from "@/api/collectionVarGeneratorApi";
-import { CollectionVarGeneratorPicker } from "../scenario/CollectionVarGeneratorPicker";
+  DynamicGeneratorSourcePanel,
+  type DynamicGeneratorSelection,
+} from "../dynamicValue/DynamicGeneratorSourcePanel";
 import { FinixUnderlineInput } from "../ui/finix-form";
 import { cn } from "../ui/utils";
 import {
@@ -12,7 +11,6 @@ import {
   generatorKeyToYamlMacro,
   type YamlMacroKind,
 } from "@/lib/yamlInputMacros";
-import { YamlMacroAiCreatePanel } from "./YamlMacroAiCreatePanel";
 
 type Props = {
   disabled?: boolean;
@@ -47,49 +45,41 @@ export function YamlInputMacroPanel({
   onClose,
 }: Props) {
   const [kind, setKind] = useState<YamlMacroKind>("generator");
-  const [catalog, setCatalog] = useState<CollectionVarGeneratorDto[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [generatorKey, setGeneratorKey] = useState("today_yyyymmdd");
+  const [selection, setSelection] = useState<DynamicGeneratorSelection | null>(
+    null,
+  );
   const [datePreset, setDatePreset] = useState<
     "today" | "addDays" | "addMonths" | "addYears"
   >("today");
   const [dateArg, setDateArg] = useState("1");
-  const [aiMode, setAiMode] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-
-  const reloadCatalog = async () => {
-    setCatalogLoading(true);
-    try {
-      setCatalog(await listCollectionVarGenerators());
-    } catch {
-      setCatalog([]);
-    } finally {
-      setCatalogLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void reloadCatalog();
-  }, []);
 
   const previewMacro =
     kind === "generator"
-      ? generatorKeyToYamlMacro(generatorKey)
+      ? generatorKeyToYamlMacro(
+          selection?.mode && selection.mode !== "literal"
+            ? selection.mode
+            : "today_yyyymmdd",
+          selection?.namePart ?? "full",
+        )
       : datePresetToYamlMacro(datePreset, Number.parseInt(dateArg, 10) || 1);
 
   const onConfirm = () => {
     if (kind === "generator") {
-      if (aiMode || !generatorKey.trim()) return;
-      onApplyMacro(generatorKeyToYamlMacro(generatorKey));
+      if (!selection || selection.aiActive) return;
+      if (!selection.mode || selection.mode === "literal") return;
+      onApplyMacro(
+        generatorKeyToYamlMacro(selection.mode, selection.namePart),
+      );
       return;
     }
     const n = Number.parseInt(dateArg, 10);
     onApplyMacro(datePresetToYamlMacro(datePreset, Number.isFinite(n) ? n : 1));
   };
 
-  const applyTitle = aiMode
-    ? "AI로 만든 뒤 목록에서 선택하거나 저장하세요"
-    : `${helperText}\n→ ${previewMacro}`;
+  const applyTitle =
+    kind === "generator" && selection?.aiActive
+      ? "AI로 만든 뒤 목록에서 선택하거나 저장하세요"
+      : `${helperText}\n→ ${previewMacro}`;
 
   return (
     <aside className="flex h-full min-h-0 w-full flex-col border-l border-border bg-muted/10">
@@ -126,10 +116,7 @@ export function YamlInputMacroPanel({
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => {
-                setKind(tab.id);
-                if (tab.id !== "generator") setAiMode(false);
-              }}
+              onClick={() => setKind(tab.id)}
             >
               {tab.label}
             </button>
@@ -137,61 +124,15 @@ export function YamlInputMacroPanel({
         </div>
 
         {kind === "generator" ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-            <div className="flex shrink-0 items-center justify-between gap-2">
-              <span className="text-[11px] text-muted-foreground">
-                생성기 선택
-              </span>
-              <button
-                type="button"
-                className={cn(
-                  "h-7 shrink-0 px-2 rounded-sm border text-[11px] font-medium transition-colors",
-                  aiMode
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-                onClick={() => {
-                  setAiMode((v) => !v);
-                  if (aiMode) setAiPrompt("");
-                }}
-              >
-                AI로 만들기
-              </button>
-            </div>
-
-            {aiMode ? (
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                <YamlMacroAiCreatePanel
-                  disabled={disabled}
-                  prompt={aiPrompt}
-                  onPromptChange={setAiPrompt}
-                  onSaved={async (saved) => {
-                    await reloadCatalog();
-                    setGeneratorKey(saved.key);
-                    setAiPrompt("");
-                    setAiMode(false);
-                  }}
-                  onUseExisting={(key) => {
-                    setGeneratorKey(key);
-                    setAiPrompt("");
-                    setAiMode(false);
-                  }}
-                />
-              </div>
-            ) : (
-              <CollectionVarGeneratorPicker
-                catalog={catalog}
-                value={generatorKey}
-                onValueChange={setGeneratorKey}
-                loading={catalogLoading}
-                disabled={disabled}
-                variant="inline"
-                includeLiteral={false}
-                className="min-h-0 flex-1"
-                listClassName="min-h-0 flex-1"
-              />
-            )}
-          </div>
+          <DynamicGeneratorSourcePanel
+            disabled={disabled}
+            title="생성기 선택"
+            includeLiteral={false}
+            autoFocusSearch
+            className="min-h-0 flex-1 border-0 bg-transparent"
+            initialMode="today_yyyymmdd"
+            onSelectionChange={setSelection}
+          />
         ) : null}
 
         {kind === "date" ? (
@@ -232,7 +173,10 @@ export function YamlInputMacroPanel({
         <button
           type="button"
           className="h-9 w-full rounded-sm bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-          disabled={disabled || aiMode}
+          disabled={
+            disabled ||
+            (kind === "generator" && (!!selection?.aiActive || !selection?.mode))
+          }
           title={applyTitle}
           onClick={onConfirm}
         >

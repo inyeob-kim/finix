@@ -107,6 +107,10 @@ export function dumpYamlRulesDocument(doc: YamlRulesDocument): string {
     lineWidth: 100,
     noRefs: true,
     sortKeys: false,
+    // Keep CBS codes like '08' / '01' as strings after round-trip (js-yaml
+    // otherwise loads bare `08` as number 8).
+    forceQuotes: true,
+    quotingType: "'",
   });
 }
 
@@ -115,6 +119,8 @@ export function dumpYamlRule(rule: YamlRuleRecord): string {
     lineWidth: 100,
     noRefs: true,
     sortKeys: false,
+    forceQuotes: true,
+    quotingType: "'",
   });
 }
 

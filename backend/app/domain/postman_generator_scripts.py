@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.domain.collection_var_generators import CatalogGeneratorSpec
+from app.domain.collection_var_generators import (
+    CatalogGeneratorSpec,
+    split_generator_ref,
+)
 from app.domain.postman_bxm_system_header import collection_start_vars
 from app.domain.postman_collection_config import PostmanCollectionConfig
 
@@ -21,9 +24,14 @@ def _script_for_generator(
     catalog: dict[str, CatalogGeneratorSpec] | None,
 ) -> list[str] | None:
     """Return JS lines that set ``key`` from a FINIX generator, or None if literal."""
-    g = (generator or "").strip()
-    if not g:
+    g_raw = (generator or "").strip()
+    if not g_raw:
         return None
+    base, _part = split_generator_ref(g_raw)
+    # Korean name (+ parts) seeded once in build_start_var_generator_exec_lines.
+    if base == "korean_name" or g_raw == "korean_name":
+        return None
+    g = base or g_raw
     safe_key = _js_string(key)
 
     if g == "today_yyyymmdd":
@@ -59,14 +67,6 @@ def _script_for_generator(
             "  return s;",
             "})());",
         ]
-    if g == "korean_name":
-        return [
-            f"pm.collectionVariables.set({safe_key}, (function(){{",
-            '  const S=["김","이","박","최","정","강","조","윤","장","임"];',
-            '  const G=["민준","서연","예준","서윤","도윤","지우","하준","서준"];',
-            "  return S[Math.floor(Math.random()*S.length)] + G[Math.floor(Math.random()*G.length)];",
-            "})());",
-        ]
     if g == "korean_rrn":
         return [
             f"pm.collectionVariables.set({safe_key}, (function(){{",
@@ -83,8 +83,8 @@ def _script_for_generator(
         ]
 
     # Shared catalog / date_offset / pick_from_list keyed by generator id
-    if catalog and g in catalog:
-        spec = catalog[g]
+    if catalog and g_raw in catalog:
+        spec = catalog[g_raw]
         kind = (spec.impl_kind or "").strip().lower()
         impl = spec.impl or {}
         if kind == "pick_from_list":
@@ -133,7 +133,9 @@ def _script_for_generator(
                 "  return s;",
                 "})());",
             ]
-        if kind in ("uuid", "today_yyyymmdd", "korean_name", "korean_rrn"):
+        if kind == "korean_name":
+            return None
+        if kind in ("uuid", "today_yyyymmdd", "korean_rrn"):
             return _script_for_generator(key, kind, catalog=None)
 
     # Builtin id used as catalog key alias
@@ -141,11 +143,54 @@ def _script_for_generator(
         "today_yyyymmdd",
         "uuid",
         "random_digits",
-        "korean_name",
         "korean_rrn",
     ):
         return _script_for_generator(key, g, catalog=None)
     return None
+
+
+def _korean_name_start_var_bundle_lines(
+    rows: list[Any],
+) -> list[str]:
+    """One Korean-name draw shared by full/family/given/middle start vars."""
+    name_rows: list[tuple[str, str]] = []
+    for row in rows:
+        key = getattr(row, "key", "").strip()
+        gen = (getattr(row, "generator", None) or "").strip()
+        if not key or not gen:
+            continue
+        base, part = split_generator_ref(gen)
+        if base != "korean_name":
+            continue
+        name_rows.append((key, part or "full"))
+    if not name_rows:
+        return []
+
+    part_to_tmp = {
+        "family": "__finix_kn_family",
+        "given": "__finix_kn_given",
+        "middle": "__finix_kn_middle",
+        "full": "__finix_kn_full",
+    }
+    lines: list[str] = [
+        "(function(){",
+        '  const S=["김","이","박","최","정","강","조","윤","장","임","한","오","서","신","권"];',
+        '  const G=["민준","서연","예준","서윤","도윤","지우","하준","서준","주원","지민"];',
+        "  const family = S[Math.floor(Math.random()*S.length)];",
+        "  const given = G[Math.floor(Math.random()*G.length)];",
+        '  pm.collectionVariables.set("__finix_kn_family", family);',
+        '  pm.collectionVariables.set("__finix_kn_given", given);',
+        '  pm.collectionVariables.set("__finix_kn_middle", "");',
+        '  pm.collectionVariables.set("__finix_kn_full", family + given);',
+        "})();",
+    ]
+    for key, part in name_rows:
+        tmp = part_to_tmp.get(part, "__finix_kn_full")
+        lines.append(
+            f"pm.collectionVariables.set({_js_string(key)}, "
+            f"pm.collectionVariables.get({_js_string(tmp)}) || '');"
+        )
+    return lines
 
 
 def build_start_var_generator_exec_lines(
@@ -161,10 +206,18 @@ def build_start_var_generator_exec_lines(
     """
     rows = collection_start_vars(config)
     blocks: list[list[str]] = []
+
+    name_bundle = _korean_name_start_var_bundle_lines(rows)
+    if name_bundle:
+        blocks.append(name_bundle)
+
     for row in rows:
         key = row.key.strip()
         gen = (row.generator or "").strip()
         if not key or not gen:
+            continue
+        base, _ = split_generator_ref(gen)
+        if base == "korean_name":
             continue
         lines = _script_for_generator(key, gen, catalog=catalog)
         if lines:

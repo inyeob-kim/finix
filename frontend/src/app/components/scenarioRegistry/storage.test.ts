@@ -43,6 +43,63 @@ describe("scenarioRegistry/storage", () => {
     expect(loaded.selectedFolderId).toBe("f1");
   });
 
+  it("restores persisted selectedFolderId when still valid", () => {
+    const v2: ScenarioRegistryStateV2 = {
+      version: 2,
+      folders: [
+        {
+          id: "f-z",
+          name: "Zeta",
+          parentId: null,
+          createdAt: "t",
+          updatedAt: "t",
+          updatedBy: "u",
+        },
+        {
+          id: "f-a",
+          name: "Alpha",
+          parentId: null,
+          createdAt: "t",
+          updatedAt: "t",
+          updatedBy: "u",
+        },
+      ],
+      scenarios: [],
+      selectedFolderId: "f-z",
+    };
+    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(v2));
+    const loaded = loadRegistryState("u");
+    expect(loaded.selectedFolderId).toBe("f-z");
+  });
+
+  it("falls back to first folder in display order when selection missing", () => {
+    const v2: ScenarioRegistryStateV2 = {
+      version: 2,
+      folders: [
+        {
+          id: "f-z",
+          name: "Zeta",
+          parentId: null,
+          createdAt: "t",
+          updatedAt: "t",
+          updatedBy: "u",
+        },
+        {
+          id: "f-a",
+          name: "Alpha",
+          parentId: null,
+          createdAt: "t",
+          updatedAt: "t",
+          updatedBy: "u",
+        },
+      ],
+      scenarios: [],
+    };
+    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(v2));
+    const loaded = loadRegistryState("u");
+    expect(loaded.selectedFolderId).toBe("f-a");
+  });
+
   it("loads v2 with empty folders without re-seeding", () => {
     const v2: ScenarioRegistryStateV2 = {
       version: 2,

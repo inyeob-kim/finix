@@ -487,7 +487,7 @@ class TestCaseService:
     async def list_by_service_code(
         self, service_code: str, *, limit: int = 200
     ) -> list[TestCase]:
-        """List materialized test cases for one CBS service code (SRVC_CD)."""
+        """List pool test cases for one CBS service (excludes scenario-attached clones)."""
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
