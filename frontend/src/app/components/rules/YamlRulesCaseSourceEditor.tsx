@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   dumpYamlRule,
   parseYamlRule,
@@ -12,11 +12,18 @@ import {
 } from "@/lib/yamlDiagnostic";
 import { YamlEditorDiagnosticBar } from "./YamlEditorDiagnosticBar";
 import { YamlRulesCaseSidebar } from "./YamlRulesCaseSidebar";
-import { YamlRulesCodeEditor } from "./YamlRulesCodeEditor";
+import {
+  YamlRulesCodeEditor,
+  type YamlRulesCodeEditorHandle,
+} from "./YamlRulesCodeEditor";
 
 type Selection =
   | { kind: "document" }
   | { kind: "rule"; index: number };
+
+export type YamlRulesCaseSourceEditorHandle = {
+  insertMacro: (macro: string) => void;
+};
 
 type YamlRulesCaseSourceEditorProps = {
   yamlText: string;
@@ -26,13 +33,19 @@ type YamlRulesCaseSourceEditorProps = {
   onClearExternalDiagnostic?: () => void;
 };
 
-export function YamlRulesCaseSourceEditor({
-  yamlText,
-  onYamlChange,
-  disabled = false,
-  externalDiagnostic = null,
-  onClearExternalDiagnostic,
-}: YamlRulesCaseSourceEditorProps) {
+export const YamlRulesCaseSourceEditor = forwardRef<
+  YamlRulesCaseSourceEditorHandle,
+  YamlRulesCaseSourceEditorProps
+>(function YamlRulesCaseSourceEditor(
+  {
+    yamlText,
+    onYamlChange,
+    disabled = false,
+    externalDiagnostic = null,
+    onClearExternalDiagnostic,
+  },
+  ref,
+) {
   const parsed = useMemo(() => parseYamlRulesDocument(yamlText), [yamlText]);
   const rules = useMemo((): YamlRuleRecord[] => {
     if (!parsed.ok || !Array.isArray(parsed.doc.rules)) return [];
@@ -50,7 +63,14 @@ export function YamlRulesCaseSourceEditor({
   const [jumpLine, setJumpLine] = useState<number | null>(null);
   const skipCaseSyncRef = useRef(false);
   const prevRulesLenRef = useRef(rules.length);
+  const editorRef = useRef<YamlRulesCodeEditorHandle>(null);
   const selectedRuleIndex = selection.kind === "rule" ? selection.index : -1;
+
+  useImperativeHandle(ref, () => ({
+    insertMacro(macro: string) {
+      editorRef.current?.insertMacro(macro);
+    },
+  }));
 
   const selectDocument = () => {
     skipCaseSyncRef.current = false;
@@ -169,6 +189,7 @@ export function YamlRulesCaseSourceEditor({
           onJumpToLine={diag.line ? jumpToLine : undefined}
         />
         <YamlRulesCodeEditor
+          ref={editorRef}
           value={yamlText}
           onChange={handleDocumentChange}
           disabled={disabled}
@@ -207,6 +228,7 @@ export function YamlRulesCaseSourceEditor({
           />
         ) : null}
         <YamlRulesCodeEditor
+          ref={editorRef}
           value={editingDocument ? yamlText : caseDraft}
           onChange={
             editingDocument ? handleDocumentChange : handleCaseDraftChange
@@ -220,4 +242,4 @@ export function YamlRulesCaseSourceEditor({
       </div>
     </div>
   );
-}
+});

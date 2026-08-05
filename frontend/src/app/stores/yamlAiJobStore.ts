@@ -38,7 +38,9 @@ export type YamlAiJob = {
   /** Set when import failed because drafts exist; allows banner retry. */
   needsOverwrite?: boolean;
   postmanCollection?: unknown;
+  postmanEnvironment?: unknown | null;
   postmanFileName?: string | null;
+  postmanEnvironmentFileName?: string | null;
   startedAt: number;
   stages: YamlAiJobStage[];
   stageIndex: number;
@@ -60,7 +62,9 @@ export type YamlAiJobStartPayload = {
 
 export type PostmanImportJobStartPayload = {
   collection: unknown;
+  environment?: unknown | null;
   fileName?: string | null;
+  environmentFileName?: string | null;
   overwrite_draft?: boolean;
   created_by?: string | null;
 };
@@ -261,6 +265,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     try {
       const result = await importServiceRulesFromPostman({
         collection: payload.collection,
+        environment: payload.environment ?? null,
         overwrite_draft: payload.overwrite_draft ?? false,
         created_by: payload.created_by ?? null,
       });
@@ -363,7 +368,9 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       useDataPool: false,
       useSwagger: false,
       postmanCollection: payload.collection,
+      postmanEnvironment: payload.environment ?? null,
       postmanFileName: payload.fileName ?? null,
+      postmanEnvironmentFileName: payload.environmentFileName ?? null,
       needsOverwrite: false,
     };
     set((s) => ({ jobs: [job, ...s.jobs] }));
@@ -392,7 +399,9 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     scheduleStageTick(id, 900);
     void get().runPostmanImport(id, {
       collection: job.postmanCollection,
+      environment: job.postmanEnvironment ?? null,
       fileName: job.postmanFileName,
+      environmentFileName: job.postmanEnvironmentFileName,
       overwrite_draft: true,
     });
   },

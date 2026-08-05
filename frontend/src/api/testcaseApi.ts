@@ -1,5 +1,5 @@
 import { apiRequest, fetchBlob } from "./client";
-import type { TestCaseReadDto } from "./types";
+import type { ExecutionDetailDto, TestCaseReadDto } from "./types";
 
 export async function generateTestCases(
   scenarioId: number,
@@ -23,12 +23,14 @@ export async function listTestCases(
   );
 }
 
-/** Materialize HTTP test cases from active YAML rules for one service (no scenario). */
+/** Materialize HTTP test cases from YAML rules for one service (no scenario). */
 export async function materializeTestCasesForService(
   serviceCode: string,
   payload?: {
     instruction?: string | null;
     replace_existing?: boolean;
+    bundle_id?: number | null;
+    yaml_text?: string | null;
   },
 ): Promise<TestCaseReadDto[]> {
   return apiRequest<TestCaseReadDto[]>(
@@ -37,7 +39,9 @@ export async function materializeTestCasesForService(
       method: "POST",
       body: JSON.stringify({
         instruction: payload?.instruction ?? null,
-        replace_existing: payload?.replace_existing ?? false,
+        replace_existing: payload?.replace_existing ?? true,
+        bundle_id: payload?.bundle_id ?? null,
+        yaml_text: payload?.yaml_text ?? null,
       }),
     },
   );
@@ -76,6 +80,67 @@ export async function attachTestCasesToScenario(
   );
 }
 
+export async function runTestCaseExecution(
+  testcaseId: number,
+  body?: {
+    base_url?: string;
+    mode?: "simulate" | "live";
+    postman?: {
+      base_url?: string;
+      header_vars?: Array<{ key: string; value?: string }>;
+      start_vars?: Array<{
+        key: string;
+        value?: string;
+        generator?: string;
+      }>;
+      default_headers?: Array<{ key: string; value?: string }>;
+    };
+  },
+): Promise<ExecutionDetailDto> {
+  return apiRequest<ExecutionDetailDto>(
+    `/api/v1/test-cases/${testcaseId}/executions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        base_url: body?.base_url ?? "",
+        mode: body?.mode ?? "simulate",
+        postman: body?.postman ?? null,
+      }),
+    },
+  );
+}
+
+/** Run all materialized pool test cases for one service as a single multi-step execution. */
+export async function runServiceTestCasesExecution(
+  serviceCode: string,
+  body?: {
+    base_url?: string;
+    mode?: "simulate" | "live";
+    postman?: {
+      base_url?: string;
+      header_vars?: Array<{ key: string; value?: string }>;
+      start_vars?: Array<{
+        key: string;
+        value?: string;
+        generator?: string;
+      }>;
+      default_headers?: Array<{ key: string; value?: string }>;
+    };
+  },
+): Promise<ExecutionDetailDto> {
+  return apiRequest<ExecutionDetailDto>(
+    `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/executions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        base_url: body?.base_url ?? "",
+        mode: body?.mode ?? "simulate",
+        postman: body?.postman ?? null,
+      }),
+    },
+  );
+}
+
 export async function downloadPostmanCollection(
   testcaseId: number,
   options?: { mode?: "template" | "resolved"; scenarioId?: number },
@@ -90,6 +155,21 @@ export async function downloadPostmanCollection(
   const a = document.createElement("a");
   a.href = url;
   a.download = `postman-testcase-${testcaseId}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Download Postman collection for all pool test cases under a service. */
+export async function downloadServicePostmanCollection(
+  serviceCode: string,
+): Promise<void> {
+  const code = serviceCode.trim();
+  const path = `/api/v1/services/${encodeURIComponent(code)}/test-cases/export/postman`;
+  const blob = await fetchBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `postman-service-${code || "pool"}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }

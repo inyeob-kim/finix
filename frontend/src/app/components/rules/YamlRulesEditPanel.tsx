@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlignLeft, CheckCircle2, Copy, Download, Plus } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { validateServiceRulesYaml } from "@/api/serviceRulesApi";
@@ -11,7 +11,11 @@ import { toYamlDiagnostic, type YamlDiagnostic } from "@/lib/yamlDiagnostic";
 import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixLoading } from "../ui/finix-loading";
 import { cn } from "../ui/utils";
-import { YamlRulesCaseSourceEditor } from "./YamlRulesCaseSourceEditor";
+import { YamlInputMacroHelper } from "./YamlInputMacroHelper";
+import {
+  YamlRulesCaseSourceEditor,
+  type YamlRulesCaseSourceEditorHandle,
+} from "./YamlRulesCaseSourceEditor";
 import { YamlRulesFieldsForm } from "./YamlRulesFieldsForm";
 
 type YamlEditSubTab = "source" | "fields";
@@ -49,6 +53,7 @@ export function YamlRulesEditPanel({
   const [fieldsRuleEditing, setFieldsRuleEditing] = useState(false);
   const [sourceDiagnostic, setSourceDiagnostic] =
     useState<YamlDiagnostic | null>(null);
+  const sourceEditorRef = useRef<YamlRulesCaseSourceEditorHandle>(null);
 
   const focusEdit = subTab === "fields" && fieldsRuleEditing;
 
@@ -172,6 +177,14 @@ export function YamlRulesEditPanel({
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {subTab === "source" ? (
                 <>
+                  <YamlInputMacroHelper
+                    disabled={disabled}
+                    onApplyMacro={(macro) =>
+                      sourceEditorRef.current?.insertMacro(macro)
+                    }
+                    applyLabel="커서에 넣기"
+                    helperText='커서가 있는 값(따옴표 포함)을 "{{$…}}" 형식으로 바꿉니다. YAML에 즉시 반영됩니다.'
+                  />
                   <button
                     type="button"
                     onClick={handleFormat}
@@ -261,6 +274,7 @@ export function YamlRulesEditPanel({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {subTab === "source" ? (
           <YamlRulesCaseSourceEditor
+            ref={sourceEditorRef}
             yamlText={yamlText}
             onYamlChange={(text) => {
               setSourceDiagnostic(null);

@@ -183,9 +183,12 @@ def get_service_catalog_service(
 
 def get_service_rules_service(
     repo: ServiceRulesRepository = Depends(get_service_rules_repository),
+    cbs_catalog_repo: CbsServiceCatalogRepository = Depends(
+        get_cbs_service_catalog_repository
+    ),
 ) -> ServiceRulesService:
     """Build ServiceRulesService with injected repositories."""
-    return ServiceRulesService(repo=repo)
+    return ServiceRulesService(repo=repo, cbs_catalog=cbs_catalog_repo)
 
 
 async def get_pool_sample_repository(

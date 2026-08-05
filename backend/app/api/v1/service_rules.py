@@ -145,6 +145,8 @@ async def list_rules_registry(
             has_approved=r.has_approved,
             has_draft=r.has_draft,
             history_count=r.history_count,
+            business_domain=r.business_domain,
+            component_code=r.component_code,
         )
         for r in rows
     ]
@@ -167,6 +169,7 @@ async def import_from_postman(
 ) -> PostmanRulesImportResponse:
     result = await service.import_collection(
         payload.collection,
+        environment=payload.environment,
         created_by=payload.created_by,
         overwrite_draft=payload.overwrite_draft,
     )
@@ -177,6 +180,7 @@ async def import_from_postman(
         unmatched=[
             PostmanUnmatchedRequestRead(**u.as_dict()) for u in result.unmatched
         ],
+        notes=list(result.notes),
     )
 
 

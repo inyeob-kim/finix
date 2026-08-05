@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTheme } from "next-themes";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github";
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
+import { insertOrReplaceYamlMacroValue } from "@/lib/yamlMacroInsert";
 import { cn } from "../ui/utils";
 import {
   yamlEditorTheme,
@@ -34,6 +42,12 @@ const errorLineField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+export type YamlRulesCodeEditorHandle = {
+  /** Insert/replace a YAML macro token at the current cursor (immediate). */
+  insertMacro: (macro: string) => void;
+  focus: () => void;
+};
+
 type YamlRulesCodeEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -47,18 +61,49 @@ type YamlRulesCodeEditorProps = {
   errorLineSignal?: number;
 };
 
-export function YamlRulesCodeEditor({
-  value,
-  onChange,
-  disabled = false,
-  className,
-  fillHeight = false,
-  errorLine = null,
-  errorLineSignal = 0,
-}: YamlRulesCodeEditorProps) {
+export const YamlRulesCodeEditor = forwardRef<
+  YamlRulesCodeEditorHandle,
+  YamlRulesCodeEditorProps
+>(function YamlRulesCodeEditor(
+  {
+    value,
+    onChange,
+    disabled = false,
+    className,
+    fillHeight = false,
+    errorLine = null,
+    errorLineSignal = 0,
+  },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [editorHeight, setEditorHeight] = useState(360);
+
+  useImperativeHandle(ref, () => ({
+    insertMacro(macro: string) {
+      const view = viewRef.current;
+      if (!view || disabled) return;
+      const { from: selFrom, to: selTo } = view.state.selection.main;
+      const text = view.state.doc.toString();
+      const { from, to, insert, cursor, next } = insertOrReplaceYamlMacroValue(
+        text,
+        selFrom,
+        selTo,
+        macro,
+      );
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: cursor },
+        scrollIntoView: true,
+      });
+      onChange(next);
+      view.focus();
+    },
+    focus() {
+      viewRef.current?.focus();
+    },
+  }));
 
   const extensions = useMemo(
     () => [
@@ -154,4 +199,4 @@ export function YamlRulesCodeEditor({
       />
     </div>
   );
-}
+});

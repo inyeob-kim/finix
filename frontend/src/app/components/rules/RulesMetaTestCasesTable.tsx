@@ -7,9 +7,9 @@ import {
 import {
   ChevronDown,
   ChevronRight,
-  Copy,
   Download,
   ExternalLink,
+  Play,
 } from "lucide-react";
 import { Fragment } from "react";
 import { Link } from "react-router";
@@ -30,7 +30,7 @@ import { FinixLoading } from "../ui/finix-loading";
 import { FinixStatusBadge } from "../ui/finix-status-badge";
 import { CaseTypeBadge } from "./yamlCaseListUi";
 
-const COL_COUNT = 9;
+const COL_COUNT = 8;
 
 type RulesMetaTestCasesTableProps = {
   rows: TestCaseReadDto[];
@@ -38,6 +38,8 @@ type RulesMetaTestCasesTableProps = {
   emptyMessage: string;
   expandedId: number | null;
   onToggleExpand: (id: number) => void;
+  runningId?: number | null;
+  onRun: (test: TestCaseReadDto) => void;
 };
 
 export function RulesMetaTestCasesTable({
@@ -46,6 +48,8 @@ export function RulesMetaTestCasesTable({
   emptyMessage,
   expandedId,
   onToggleExpand,
+  runningId = null,
+  onRun,
 }: RulesMetaTestCasesTableProps) {
   return (
     <div className={FINIX_DATA_TABLE_STACK_CLASS}>
@@ -56,7 +60,6 @@ export function RulesMetaTestCasesTable({
               <FinixDataTableRow className="hover:bg-transparent">
                 <FinixDataTableHead className="w-10" aria-label="상세" />
                 <FinixDataTableHead className="w-12">유형</FinixDataTableHead>
-                <FinixDataTableHead className="w-[72px]">ID</FinixDataTableHead>
                 <FinixDataTableHead className="w-[120px]">
                   case_id
                 </FinixDataTableHead>
@@ -105,7 +108,9 @@ export function RulesMetaTestCasesTable({
                     key={r.id}
                     test={r}
                     open={expandedId === r.id}
+                    running={runningId === r.id}
                     onToggle={() => onToggleExpand(r.id)}
+                    onRun={() => onRun(r)}
                   />
                 ))
               )}
@@ -120,11 +125,15 @@ export function RulesMetaTestCasesTable({
 function TestCaseRow({
   test,
   open,
+  running,
   onToggle,
+  onRun,
 }: {
   test: TestCaseReadDto;
   open: boolean;
+  running: boolean;
   onToggle: () => void;
+  onRun: () => void;
 }) {
   const meta = parseMaterializedTestCaseName(test.name);
   const pathKind = inferPathKindFromTestCase(test);
@@ -147,9 +156,6 @@ function TestCaseRow({
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
-        </FinixDataTableCell>
-        <FinixDataTableCell className="font-mono text-sm tabular-nums">
-          {test.id}
         </FinixDataTableCell>
         <FinixDataTableCell className="font-mono text-xs truncate max-w-[120px]">
           {meta.caseId ?? "—"}
@@ -185,11 +191,16 @@ function TestCaseRow({
             <button
               type="button"
               className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
-              title="이름 복사"
-              aria-label="이름 복사"
-              onClick={() => void navigator.clipboard.writeText(test.name)}
+              title="실행"
+              aria-label="테스트케이스 실행"
+              disabled={running}
+              onClick={onRun}
             >
-              <Copy className="w-3.5 h-3.5" />
+              {running ? (
+                <FinixLoading size="sm" inline />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
             </button>
             <button
               type="button"

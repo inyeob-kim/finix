@@ -41,6 +41,10 @@ import {
   startVarKeysFromConfig,
 } from "@/lib/scenarioPostmanVariables";
 import {
+  mergeWithExecutionDefaults,
+  saveExecutionPostmanDefaults,
+} from "@/lib/executionPostmanDefaults";
+import {
     buildRunStepsFromPicks,
     serviceNameMapFromDrafts,
 } from "@/lib/scenarioRunSequence";
@@ -279,12 +283,14 @@ export function ScenarioRegistry() {
   const [scenarioRunMode, setScenarioRunMode] = useState<ScenarioRunMode>("live");
   const [scenarioRunLoading, setScenarioRunLoading] = useState(false);
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
+  const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
   const [collectionRunOpen, setCollectionRunOpen] = useState(false);
   const [collectionRunDraft, setCollectionRunDraft] =
     useState<ScenarioPostmanConfig>(emptyPostmanConfig);
   const [collectionRunMode, setCollectionRunMode] = useState<ScenarioRunMode>("live");
   const [collectionRunLoading, setCollectionRunLoading] = useState(false);
   const [collectionRunError, setCollectionRunError] = useState<string | null>(null);
+  const [collectionRunHeaderOpen, setCollectionRunHeaderOpen] = useState(false);
   const [collectionRunProgress, setCollectionRunProgress] = useState<{
     done: number;
     total: number;
@@ -955,13 +961,17 @@ export function ScenarioRegistry() {
       return;
     }
     setScenarioRunError(null);
-    setScenarioRunDraft(ensurePostmanConfig(item.postmanConfig));
+    setScenarioRunHeaderOpen(false);
+    setScenarioRunDraft(
+      mergeWithExecutionDefaults(ensurePostmanConfig(item.postmanConfig)),
+    );
     setScenarioRunMode("live");
     setScenarioRunTarget(item);
   };
 
   const closeScenarioRunDialog = () => {
     if (scenarioRunLoading) return;
+    setScenarioRunHeaderOpen(false);
     setScenarioRunTarget(null);
     setScenarioRunError(null);
   };
@@ -980,6 +990,7 @@ export function ScenarioRegistry() {
     setError(null);
     try {
       const itemWithPostman = { ...item, postmanConfig: scenarioRunDraft };
+      saveExecutionPostmanDefaults(scenarioRunDraft);
       const { scenarioId, executionId } = await runRegistryScenario({
         item: itemWithPostman,
         postmanConfig: scenarioRunDraft,
@@ -1024,16 +1035,20 @@ export function ScenarioRegistry() {
     }
     setCollectionRunError(null);
     setCollectionRunProgress(null);
-    setCollectionRunDraft({
-      ...emptyPostmanConfig(),
-      baseUrl: pickInitialExportBaseUrl(collectionExportStats.exportable),
-    });
+    setCollectionRunHeaderOpen(false);
+    setCollectionRunDraft(
+      mergeWithExecutionDefaults({
+        ...emptyPostmanConfig(),
+        baseUrl: pickInitialExportBaseUrl(collectionExportStats.exportable),
+      }),
+    );
     setCollectionRunMode("live");
     setCollectionRunOpen(true);
   };
 
   const closeCollectionRunDialog = () => {
     if (collectionRunLoading) return;
+    setCollectionRunHeaderOpen(false);
     setCollectionRunOpen(false);
     setCollectionRunError(null);
     setCollectionRunProgress(null);
@@ -1054,6 +1069,7 @@ export function ScenarioRegistry() {
     });
     setError(null);
     try {
+      saveExecutionPostmanDefaults(collectionRunDraft);
       const result = await runRegistryCollectionScenarios(
         scenariosInSelectedFolder,
         {
@@ -2246,6 +2262,7 @@ export function ScenarioRegistry() {
               onPostmanConfigChange={setScenarioRunDraft}
               mode={scenarioRunMode}
               onModeChange={setScenarioRunMode}
+              onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
               baseUrlHint="baseUrl·헤더는 저장 후 이번 실행에 반영됩니다."
             />
           ) : null}
@@ -2326,6 +2343,7 @@ export function ScenarioRegistry() {
               onPostmanConfigChange={setCollectionRunDraft}
               mode={collectionRunMode}
               onModeChange={setCollectionRunMode}
+              onOpenHeaderSettings={() => setCollectionRunHeaderOpen(true)}
               baseUrlHint="baseUrl은 컬렉션 내 모든 시나리오 실행에 적용됩니다."
             />
           ) : null}
@@ -2375,6 +2393,30 @@ export function ScenarioRegistry() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ScenarioCollectionVarsDialog
+        open={scenarioRunTarget !== null && scenarioRunHeaderOpen}
+        onOpenChange={(open) => {
+          setScenarioRunHeaderOpen(open);
+          if (!open) saveExecutionPostmanDefaults(scenarioRunDraft);
+        }}
+        config={scenarioRunDraft}
+        onChange={setScenarioRunDraft}
+        contentClassName="z-[130]"
+        description="단건·시나리오 실행에 공통으로 쓰는 채널 헤더입니다. 닫으면 브라우저에 저장됩니다."
+      />
+
+      <ScenarioCollectionVarsDialog
+        open={collectionRunOpen && collectionRunHeaderOpen}
+        onOpenChange={(open) => {
+          setCollectionRunHeaderOpen(open);
+          if (!open) saveExecutionPostmanDefaults(collectionRunDraft);
+        }}
+        config={collectionRunDraft}
+        onChange={setCollectionRunDraft}
+        contentClassName="z-[130]"
+        description="단건·시나리오 실행에 공통으로 쓰는 채널 헤더입니다. 닫으면 브라우저에 저장됩니다."
+      />
 
       <Dialog
         open={ioDialog !== null}

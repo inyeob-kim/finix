@@ -18,6 +18,8 @@ export interface ServiceRuleRegistryItemDto {
   has_approved: boolean;
   has_draft?: boolean;
   history_count?: number;
+  business_domain?: string;
+  component_code?: string;
 }
 
 export interface ServiceRuleRegistryListDto {
@@ -252,11 +254,13 @@ export interface PostmanServiceImportResultDto {
 export interface PostmanRulesImportResultDto {
   services: PostmanServiceImportResultDto[];
   unmatched: PostmanUnmatchedRequestDto[];
+  notes?: string[];
 }
 
 /** Upsert YAML drafts from Postman Collection or single Request JSON. */
 export async function importServiceRulesFromPostman(payload: {
   collection: unknown;
+  environment?: unknown | null;
   overwrite_draft?: boolean;
   created_by?: string | null;
 }): Promise<PostmanRulesImportResultDto> {
@@ -266,6 +270,7 @@ export async function importServiceRulesFromPostman(payload: {
       method: "POST",
       body: JSON.stringify({
         collection: payload.collection,
+        environment: payload.environment ?? null,
         overwrite_draft: payload.overwrite_draft ?? false,
         created_by: payload.created_by ?? null,
       }),

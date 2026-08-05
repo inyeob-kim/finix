@@ -30,6 +30,24 @@ class ExecutionCreateV1(BaseModel):
     )
 
 
+class TestCaseExecutionCreateV1(BaseModel):
+    """Start execution for a single pool/standalone test case."""
+
+    base_url: str = Field(
+        default="",
+        max_length=2048,
+        description="Target SUT base URL; required for live mode.",
+    )
+    mode: ExecutionMode = Field(
+        default="simulate",
+        description="simulate uses deterministic stub; live performs real HTTP.",
+    )
+    postman: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional Postman collection config (base_url, header_vars, …).",
+    )
+
+
 class ExecutionStepReadV1(BaseModel):
     """One step inside an execution detail response."""
 

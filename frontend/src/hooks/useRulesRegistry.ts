@@ -5,6 +5,10 @@ import {
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
 import type { ServiceRuleBundleReadDto } from "@/api/types";
+import {
+  inferBusinessDomain,
+  UNCLASSIFIED_DOMAIN,
+} from "@/lib/cbsServiceTaxonomy";
 
 export type RuleRegistryItem = {
   serviceCode: string;
@@ -22,6 +26,8 @@ export type RuleRegistryItem = {
   draftBundleVersion: number | null;
   hasApproved: boolean;
   hasDraft: boolean;
+  businessDomain: string;
+  componentCode: string;
 };
 
 export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem {
@@ -30,6 +36,10 @@ export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem 
         .toLocaleString("sv-SE", { hour12: false })
         .replace("T", " ")
     : "—";
+  const businessDomain =
+    (r.business_domain || "").trim() ||
+    inferBusinessDomain(r.service_code) ||
+    UNCLASSIFIED_DOMAIN;
   return {
     serviceCode: r.service_code,
     serviceName: r.service_name,
@@ -46,6 +56,8 @@ export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem 
     draftBundleVersion: r.draft_bundle_version ?? null,
     hasApproved: r.has_approved ?? false,
     hasDraft: r.has_draft ?? false,
+    businessDomain,
+    componentCode: (r.component_code || "").trim(),
   };
 }
 
@@ -77,6 +89,11 @@ export function mergeSelectedWithBundle(
       ? (isActive ? 1 : base.activeBundleVersion)
       : base.activeBundleVersion,
     draftBundleVersion: hasDraft ? 1 : null,
+    businessDomain:
+      base.businessDomain ||
+      inferBusinessDomain(bundle.service_code) ||
+      UNCLASSIFIED_DOMAIN,
+    componentCode: base.componentCode || "",
   };
 }
 

@@ -149,13 +149,16 @@ class CbsServiceCatalogRepository:
                 self._raw_by_code[code] = row
         return raw_rows_to_cbs_records(raw_rows)
 
-    async def get_raw_row_by_service_code(self, service_code: str) -> dict | None:
-        """Return full CBS JSON row (includes input_fields / output_fields)."""
+    async def taxonomy_by_service_code(self) -> dict[str, tuple[str, str]]:
+        """Return ``{service_code: (business_domain, component_code)}`` from catalog JSON."""
+        from app.domain.cbs_service_taxonomy import build_taxonomy_map
+
         await self._ensure_loaded()
-        code = (service_code or "").strip()
-        if not code:
-            return None
-        return self._raw_by_code.get(code)
+        mapped = build_taxonomy_map(self._raw_by_code)
+        return {
+            code: (tax.business_domain, tax.component_code)
+            for code, tax in mapped.items()
+        }
 
     def _ensure_dto_atr_loaded_sync(self) -> None:
         if self._dto_atr_loaded:

@@ -25,7 +25,12 @@ import {
   postmanConfigFromApi,
 } from "@/lib/scenarioPostmanVariables";
 import type { ScenarioPostmanConfig } from "@/lib/scenarioPostmanVariables";
+import {
+  mergeWithExecutionDefaults,
+  saveExecutionPostmanDefaults,
+} from "@/lib/executionPostmanDefaults";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
+import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
 import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
 import type { ScenarioRunMode } from "@/lib/registryScenarioRun";
 import { runScenarioExecution } from "@/api/executionApi";
@@ -91,6 +96,7 @@ export function TestCase() {
   const [scenarioRunMode, setScenarioRunMode] =
     useState<ScenarioRunMode>("simulate");
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
+  const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
 
   const postmanExportDefaultFilename = useMemo(
     () => defaultSinglePostmanDownloadName(scenarioTitle || "scenario"),
@@ -259,12 +265,15 @@ export function TestCase() {
   const openScenarioRunDialog = async () => {
     if (!Number.isFinite(scenarioId)) return;
     setScenarioRunError(null);
+    setScenarioRunHeaderOpen(false);
     setScenarioRunMode("simulate");
     try {
       const scenario = await getScenario(scenarioId);
       setScenarioTitle(scenario.title ?? "");
       setScenarioRunDraft(
-        ensurePostmanConfig(postmanConfigFromApi(scenario.postman)),
+        mergeWithExecutionDefaults(
+          ensurePostmanConfig(postmanConfigFromApi(scenario.postman)),
+        ),
       );
       setScenarioRunOpen(true);
     } catch (e) {
@@ -285,6 +294,7 @@ export function TestCase() {
     setScenarioRunError(null);
     setError(null);
     try {
+      saveExecutionPostmanDefaults(scenarioRunDraft);
       const exec = await runScenarioExecution({
         scenario_id: scenarioId,
         base_url: baseUrl,
@@ -679,7 +689,10 @@ export function TestCase() {
           <Dialog
             open={scenarioRunOpen}
             onOpenChange={(open) => {
-              if (!running) setScenarioRunOpen(open);
+              if (!running) {
+                if (!open) setScenarioRunHeaderOpen(false);
+                setScenarioRunOpen(open);
+              }
             }}
           >
             <DialogContent className="w-full max-w-md rounded-sm">
@@ -699,6 +712,7 @@ export function TestCase() {
                 onPostmanConfigChange={setScenarioRunDraft}
                 mode={scenarioRunMode}
                 onModeChange={setScenarioRunMode}
+                onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
               />
               {scenarioRunError ? (
                 <p className="text-sm text-destructive">{scenarioRunError}</p>
@@ -707,7 +721,10 @@ export function TestCase() {
                 <button
                   type="button"
                   className="px-4 py-2 text-sm rounded-sm border border-border hover:bg-muted"
-                  onClick={() => setScenarioRunOpen(false)}
+                  onClick={() => {
+                    setScenarioRunHeaderOpen(false);
+                    setScenarioRunOpen(false);
+                  }}
                   disabled={running}
                 >
                   취소
@@ -723,6 +740,18 @@ export function TestCase() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          <ScenarioCollectionVarsDialog
+            open={scenarioRunOpen && scenarioRunHeaderOpen}
+            onOpenChange={(open) => {
+              setScenarioRunHeaderOpen(open);
+              if (!open) saveExecutionPostmanDefaults(scenarioRunDraft);
+            }}
+            config={scenarioRunDraft}
+            onChange={setScenarioRunDraft}
+            contentClassName="z-[130]"
+            description="단건·시나리오 실행에 공통으로 쓰는 채널 헤더입니다. 닫으면 브라우저에 저장됩니다."
+          />
 
           <Dialog
             open={postmanExportOpen}

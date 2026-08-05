@@ -70,15 +70,15 @@ export function resolveJsonStringReplaceRange(
 }
 
 /**
- * Replace the JSON string under the cursor/selection with a quoted token
- * (e.g. ``"{{custId}}"``). Falls back to insert at cursor if not in a string.
+ * Replace the JSON/YAML double-quoted string under the cursor/selection with a
+ * quoted token (e.g. ``"{{$date.today()}}"``). Falls back to insert at cursor.
  */
 export function insertOrReplaceJsonStringValue(
   text: string,
   selectionStart: number,
   selectionEnd: number,
   quotedToken: string,
-): { next: string; cursor: number } {
+): { next: string; cursor: number; from: number; to: number; insert: string } {
   const range = resolveJsonStringReplaceRange(
     text,
     selectionStart,
@@ -87,10 +87,22 @@ export function insertOrReplaceJsonStringValue(
   if (range) {
     const next =
       text.slice(0, range.start) + quotedToken + text.slice(range.end);
-    return { next, cursor: range.start + quotedToken.length };
+    return {
+      next,
+      cursor: range.start + quotedToken.length,
+      from: range.start,
+      to: range.end,
+      insert: quotedToken,
+    };
   }
   const start = Math.min(selectionStart, selectionEnd);
   const end = Math.max(selectionStart, selectionEnd);
   const next = text.slice(0, start) + quotedToken + text.slice(end);
-  return { next, cursor: start + quotedToken.length };
+  return {
+    next,
+    cursor: start + quotedToken.length,
+    from: start,
+    to: end,
+    insert: quotedToken,
+  };
 }

@@ -15,6 +15,10 @@ from app.domain.postman_collection_parse import (
     PostmanRequestCandidate,
     parse_collection_requests,
 )
+from app.domain.postman_environment import (
+    format_substitute_notes,
+    prepare_collection_for_import,
+)
 from app.domain.postman_rules_merge import (
     apply_create_plan,
     apply_merge_plan,
@@ -67,11 +71,13 @@ class ServiceImportResult:
 class ImportResult:
     services: list[ServiceImportResult]
     unmatched: list[UnmatchedRequest]
+    notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "services": [s.as_dict() for s in self.services],
             "unmatched": [u.as_dict() for u in self.unmatched],
+            "notes": list(self.notes),
         }
 
 
@@ -103,10 +109,17 @@ class PostmanRulesImportService:
         self,
         collection: Any,
         *,
+        environment: Any | None = None,
         created_by: str | None = None,
         overwrite_draft: bool = False,
     ) -> ImportResult:
-        candidates = parse_collection_requests(collection)
+        try:
+            prepared = prepare_collection_for_import(collection, environment)
+        except ValueError as exc:
+            raise InvalidInputError(str(exc)) from exc
+
+        import_notes = format_substitute_notes(prepared)
+        candidates = parse_collection_requests(prepared.document)
         if not candidates:
             raise InvalidInputError(
                 "Postman Collection/Request에서 HTTP 요청을 찾지 못했습니다."
@@ -132,7 +145,9 @@ class PostmanRulesImportService:
             groups.setdefault(code, []).append(c)
 
         if not groups:
-            return ImportResult(services=[], unmatched=unmatched)
+            return ImportResult(
+                services=[], unmatched=unmatched, notes=import_notes
+            )
 
         # Sequential DB reads / draft guard (AsyncSession is not concurrency-safe).
         work: list[_ServiceWork] = []
@@ -177,7 +192,9 @@ class PostmanRulesImportService:
                 f"다시 요청하세요: {', '.join(sorted(blocked))}"
             )
         if not work:
-            return ImportResult(services=[], unmatched=unmatched)
+            return ImportResult(
+                services=[], unmatched=unmatched, notes=import_notes
+            )
 
         # Parallel LLM only (no DB).
         planned = await asyncio.gather(
@@ -234,7 +251,9 @@ class PostmanRulesImportService:
                 len(payload.rules),
             )
 
-        return ImportResult(services=results, unmatched=unmatched)
+        return ImportResult(
+            services=results, unmatched=unmatched, notes=import_notes
+        )
 
     def _skeleton_for(self, row: Any) -> dict[str, Any]:
         raw = getattr(row, "raw_json", None) if row is not None else None

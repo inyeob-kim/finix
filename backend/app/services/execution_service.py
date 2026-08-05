@@ -94,14 +94,6 @@ class ExecutionService:
         mode: str = "simulate",
     ) -> ExecutionRun:
         """Execute all test cases for a scenario and persist structured results."""
-        from app.domain.postman_bxm_system_header import (
-            step_service_codes_from_steps,
-        )
-        from app.services.http_scenario_runner import (
-            initial_context_from_postman,
-            join_base_url_and_endpoint,
-            make_live_response_callback,
-        )
         from app.utils.scenario_steps_document import parse_steps_document
 
         await self._registry.ensure_default_runner_stub()
@@ -119,7 +111,130 @@ class ExecutionService:
         if mode == "live" and not effective_base:
             raise InvalidInputError("Live 실행에는 base_url이 필요합니다.")
 
-        step_service_codes = step_service_codes_from_steps(scenario.steps_json)
+        return await self._create_run_for_testcases(
+            scenario_id=scenario_id,
+            testcases=testcases,
+            steps_json=scenario.steps_json,
+            base_url=effective_base,
+            mode=mode,
+            postman_config=postman_config,
+        )
+
+    async def create_run_for_testcase(
+        self,
+        *,
+        testcase_id: int,
+        base_url: str = "",
+        mode: str = "simulate",
+        postman_config: object | None = None,
+    ) -> ExecutionRun:
+        """Execute one pool/standalone test case (no scenario required)."""
+        from app.domain.postman_collection_config import PostmanCollectionConfig
+        from app.utils.scenario_steps_document import parse_postman_config
+
+        await self._registry.ensure_default_runner_stub()
+        testcase = await self._metadata.get_testcase_by_id(testcase_id)
+        if testcase is None:
+            raise EntityNotFoundError("TestCase", testcase_id)
+
+        parsed: PostmanCollectionConfig | None = None
+        if isinstance(postman_config, PostmanCollectionConfig):
+            parsed = postman_config
+        elif isinstance(postman_config, dict):
+            try:
+                parsed = PostmanCollectionConfig.model_validate(postman_config)
+            except Exception:  # noqa: BLE001
+                parsed = parse_postman_config({"postman": postman_config})
+
+        effective_base = (base_url or "").strip() or (
+            parsed.base_url.strip() if parsed is not None else ""
+        )
+        if mode == "live" and not effective_base:
+            raise InvalidInputError("Live 실행에는 base_url이 필요합니다.")
+
+        return await self._create_run_for_testcases(
+            scenario_id=None,
+            testcases=[testcase],
+            steps_json=None,
+            base_url=effective_base,
+            mode=mode,
+            postman_config=parsed,
+        )
+
+    async def create_run_for_service_testcases(
+        self,
+        *,
+        service_code: str,
+        base_url: str = "",
+        mode: str = "simulate",
+        postman_config: object | None = None,
+        limit: int = 500,
+    ) -> ExecutionRun:
+        """Execute all materialized pool test cases for one CBS service code."""
+        from app.domain.postman_collection_config import PostmanCollectionConfig
+        from app.utils.scenario_steps_document import parse_postman_config
+
+        code = (service_code or "").strip()
+        if not code:
+            raise InvalidInputError("service_code가 필요합니다.")
+
+        await self._registry.ensure_default_runner_stub()
+        testcases = await self._metadata.list_testcases_for_service_code(
+            code,
+            limit=limit,
+        )
+        if not testcases:
+            raise InvalidInputError(
+                "이 서비스에 적재된 테스트케이스가 없습니다.",
+            )
+        # Ascending id ≈ case order; list API returns newest-first.
+        testcases = sorted(testcases, key=lambda row: row.id)
+
+        parsed: PostmanCollectionConfig | None = None
+        if isinstance(postman_config, PostmanCollectionConfig):
+            parsed = postman_config
+        elif isinstance(postman_config, dict):
+            try:
+                parsed = PostmanCollectionConfig.model_validate(postman_config)
+            except Exception:  # noqa: BLE001
+                parsed = parse_postman_config({"postman": postman_config})
+
+        effective_base = (base_url or "").strip() or (
+            parsed.base_url.strip() if parsed is not None else ""
+        )
+        if mode == "live" and not effective_base:
+            raise InvalidInputError("Live 실행에는 base_url이 필요합니다.")
+
+        return await self._create_run_for_testcases(
+            scenario_id=None,
+            testcases=testcases,
+            steps_json=None,
+            base_url=effective_base,
+            mode=mode,
+            postman_config=parsed,
+        )
+
+    async def _create_run_for_testcases(
+        self,
+        *,
+        scenario_id: int | None,
+        testcases: list,
+        steps_json: str | None,
+        base_url: str,
+        mode: str,
+        postman_config: object | None,
+    ) -> ExecutionRun:
+        """Shared multi-step execution for scenario or single testcase runs."""
+        from app.domain.postman_bxm_system_header import (
+            step_service_codes_from_steps,
+        )
+        from app.services.http_scenario_runner import (
+            initial_context_from_postman,
+            join_base_url_and_endpoint,
+            make_live_response_callback,
+        )
+
+        step_service_codes = step_service_codes_from_steps(steps_json)
         catalog = (
             await self._generators.build_catalog_map()
             if self._generators is not None
@@ -132,7 +247,7 @@ class ExecutionService:
 
         run = await self._execution.create_run(
             scenario_id=scenario_id,
-            base_url=effective_base,
+            base_url=base_url,
             status="running",
             summary_json=None,
         )
@@ -140,16 +255,16 @@ class ExecutionService:
 
         if mode == "live":
             response_fn = make_live_response_callback(
-                base_url=effective_base,
+                base_url=base_url,
                 postman_config=postman_config,
-                step_service_codes=step_service_codes,
+                step_service_codes=step_service_codes or None,
             )
         else:
             response_fn = lambda tc, body: simulate_response(tc, request_body=body)
 
         preview = resolve_scenario_run(
             testcases,
-            steps_json=scenario.steps_json,
+            steps_json=steps_json,
             initial_context=initial_context,
             simulate_response=response_fn,
             generator_catalog=catalog,
@@ -212,7 +327,7 @@ class ExecutionService:
 
             method = (row.method or tc.http_method or "POST").strip().upper()
             request_url = row.request_url or join_base_url_and_endpoint(
-                effective_base,
+                base_url,
                 tc.endpoint,
             )
             expected_payload = {

@@ -13,9 +13,14 @@ import yaml
 from app.utils.rule_input_omm_skeleton import merge_rule_inputs_with_skeleton
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
+from app.domain.cbs_service_taxonomy import (
+    UNCLASSIFIED_DOMAIN,
+    infer_business_domain,
+)
 from app.domain.dynamic_macro_resolver import validate_input_macros
 from app.models.service_rule_current import ServiceRuleCurrent
 from app.models.service_rule_history import ServiceRuleHistory
+from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 
 logger = logging.getLogger(__name__)
@@ -456,6 +461,8 @@ class ServiceRuleRegistryRow:
     has_approved: bool = False
     has_draft: bool = False
     history_count: int = 0
+    business_domain: str = "UNCLASSIFIED"
+    component_code: str = ""
 
 
 def _rule_count_from_json(rules_json: str | None) -> int:
@@ -497,8 +504,14 @@ def _editor_view(row: ServiceRuleCurrent) -> dict[str, Any]:
 class ServiceRulesService:
     """Workflow for current YAML + draft + history."""
 
-    def __init__(self, *, repo: ServiceRulesRepository) -> None:
+    def __init__(
+        self,
+        *,
+        repo: ServiceRulesRepository,
+        cbs_catalog: CbsServiceCatalogRepository | None = None,
+    ) -> None:
         self._repo = repo
+        self._cbs_catalog = cbs_catalog
 
     async def list_registry(
         self,
@@ -508,6 +521,13 @@ class ServiceRulesService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ServiceRuleRegistryRow], int]:
+        taxonomy: dict[str, tuple[str, str]] = {}
+        if self._cbs_catalog is not None:
+            try:
+                taxonomy = await self._cbs_catalog.taxonomy_by_service_code()
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to load CBS taxonomy for rules registry", exc_info=True)
+
         rows_raw = await self._repo.list_all_current(limit=5000, offset=0)
         rows: list[ServiceRuleRegistryRow] = []
         for row in rows_raw:
@@ -520,6 +540,9 @@ class ServiceRulesService:
                 "active" if row.has_applied else "draft"
             )
             name = (row.service_name_snapshot or "").strip() or row.service_code
+            domain, component = taxonomy.get(row.service_code, ("", ""))
+            if not domain:
+                domain = infer_business_domain(row.service_code)
             rows.append(
                 ServiceRuleRegistryRow(
                     service_code=row.service_code,
@@ -538,6 +561,8 @@ class ServiceRulesService:
                     has_approved=False,
                     has_draft=row.has_draft,
                     history_count=history_count,
+                    business_domain=domain or UNCLASSIFIED_DOMAIN,
+                    component_code=component or "",
                 )
             )
 

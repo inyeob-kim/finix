@@ -7,3 +7,21 @@ export const FINIX_LARGE_MODAL_CONTENT =
 
 export const FINIX_LARGE_MODAL_MAX_WIDTH =
   "sm:max-w-[min(60rem,calc(100vw-2rem))]";
+
+const FINIX_TC_RUN_MODAL_SHELL =
+  "z-[120] !flex flex-col gap-0 !p-0 overflow-hidden rounded-sm";
+
+/**
+ * Test-case run config / loading — compact dialog for baseUrl + mode.
+ */
+export const FINIX_TC_RUN_CONFIG_MODAL_SIZE =
+  "w-[min(28rem,calc(100vw-2rem))] h-auto max-h-[min(34rem,85vh)] max-w-[calc(100vw-2rem)] sm:max-w-none";
+
+export const FINIX_TC_RUN_CONFIG_MODAL_CONTENT =
+  `${FINIX_TC_RUN_MODAL_SHELL} ${FINIX_TC_RUN_CONFIG_MODAL_SIZE}`;
+
+/**
+ * Test-case run result — same footprint as YAML / other large modals.
+ */
+export const FINIX_TC_RUN_RESULT_MODAL_CONTENT =
+  `${FINIX_TC_RUN_MODAL_SHELL} ${FINIX_LARGE_MODAL_SIZE}`;

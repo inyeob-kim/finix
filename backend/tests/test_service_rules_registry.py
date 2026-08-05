@@ -92,6 +92,8 @@ def test_list_registry_prefers_draft_status():
     assert rows[0].status == "draft"
     assert rows[0].history_count == 2
     assert rows[0].active_bundle_version == 1
+    assert rows[0].business_domain == "PAYMENT"
+    assert rows[0].component_code == ""
 
 
 def test_list_registry_active_when_no_draft():
@@ -101,6 +103,18 @@ def test_list_registry_active_when_no_draft():
     assert rows[0].status == "active"
     assert rows[0].has_draft is False
     assert rows[0].is_active is True
+
+
+def test_list_registry_uses_catalog_taxonomy():
+    class _Catalog:
+        async def taxonomy_by_service_code(self):
+            return {"PY027": ("PAYMENT", "PYS")}
+
+    repo = _FakeRepo([_current(applied=True, draft=False)])
+    svc = ServiceRulesService(repo=repo, cbs_catalog=_Catalog())
+    rows, _ = asyncio.run(svc.list_registry(limit=50, offset=0))
+    assert rows[0].business_domain == "PAYMENT"
+    assert rows[0].component_code == "PYS"
 
 
 def test_upsert_draft_on_applied_row():

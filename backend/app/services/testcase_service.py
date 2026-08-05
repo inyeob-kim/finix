@@ -120,19 +120,66 @@ class TestCaseService:
             f"{code}: 테스트케이스를 생성할 수 있는 적용된 YAML 규칙이 없습니다."
         )
 
-    async def _load_rule_bundle(self, code: str) -> tuple[Any | None, int | None]:
-        """Return (bundle_like, rule_history_id) from DB applied current or file."""
+    async def _load_rule_bundle(
+        self,
+        code: str,
+        *,
+        bundle_id: int | None = None,
+        yaml_text: str | None = None,
+    ) -> tuple[Any | None, int | None]:
+        """Return (bundle_like, rule_history_id) from yaml_text, DB row, active, or file."""
+        if yaml_text is not None and str(yaml_text).strip():
+            from app.services.service_rules_service import validate_and_prepare_yaml
+
+            try:
+                _canonical, parsed = validate_and_prepare_yaml(str(yaml_text))
+            except InvalidInputError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise InvalidInputError(f"YAML 파싱 실패: {exc}") from exc
+            rules = parsed.get("rules") or []
+            if not isinstance(rules, list):
+                rules = []
+            tmp = type(
+                "TmpBundle",
+                (),
+                {
+                    "service_code": code,
+                    "service_name": code,
+                    "source_version": None,
+                    "rules": [r for r in rules if isinstance(r, dict)],
+                },
+            )()
+            return (tmp, None)
+
         if self._service_rules_repo is None:
             bundle = load_service_rules(code)
             return (bundle, None)
-        db_bundle = await self._service_rules_repo.get_active_bundle(code)
+
+        db_bundle = None
+        if bundle_id is not None:
+            db_bundle = await self._service_rules_repo.get_current_by_id(bundle_id)
+            if db_bundle is not None and db_bundle.service_code != code:
+                raise InvalidInputError(
+                    "bundle_id가 service_code와 일치하지 않습니다.",
+                )
+        if db_bundle is None:
+            db_bundle = await self._service_rules_repo.get_active_bundle(code)
+
         if db_bundle is not None:
             history = await self._service_rules_repo.find_history_by_checksum(
                 service_code=code, checksum=db_bundle.checksum or ""
             )
             history_id = history.id if history is not None else None
+            # Prefer working draft so editor macros are included before activate.
+            rules_raw = (
+                db_bundle.draft_rules_json
+                if db_bundle.has_draft
+                and (db_bundle.draft_rules_json or "").strip()
+                else db_bundle.rules_json
+            )
             try:
-                parsed = json.loads(db_bundle.rules_json or "{}")
+                parsed = json.loads(rules_raw or "{}")
             except Exception:  # noqa: BLE001
                 parsed = {}
             rules = parsed.get("rules") or []
@@ -158,12 +205,18 @@ class TestCaseService:
         scenario_id: int | None,
         instruction: str | None,
         step_index_start: int,
+        bundle_id: int | None = None,
+        yaml_text: str | None = None,
     ) -> tuple[list[TestCase], int]:
         """Create one row per rule for ``service_code``. Returns (created, next_index)."""
         code = (service_code or "").strip()
         if not code:
             return [], step_index_start
-        bundle, rule_history_id = await self._load_rule_bundle(code)
+        bundle, rule_history_id = await self._load_rule_bundle(
+            code,
+            bundle_id=bundle_id,
+            yaml_text=yaml_text,
+        )
         if bundle is None or not getattr(bundle, "rules", None):
             return [], step_index_start
         svc_meta = await self._cbs_catalog.get_by_service_code(code)
@@ -223,12 +276,15 @@ class TestCaseService:
         service_code: str,
         *,
         instruction: str | None = None,
-        replace_existing: bool = False,
+        replace_existing: bool = True,
+        bundle_id: int | None = None,
+        yaml_text: str | None = None,
     ) -> list[TestCase]:
         """
-        Create HTTP test cases for one service (no scenario), from active/file rules.
+        Create HTTP test cases for one service (no scenario), from YAML rules.
 
-        Used as a TC pool before attaching to a scenario.
+        Prefer ``yaml_text`` (editor contents), else ``bundle_id`` working draft /
+        applied document, else active DB bundle / file YAML.
         """
         await self._registry.ensure_default_runner_stub()
         code = (service_code or "").strip()
@@ -241,6 +297,8 @@ class TestCaseService:
             scenario_id=None,
             instruction=instruction,
             step_index_start=0,
+            bundle_id=bundle_id,
+            yaml_text=yaml_text,
         )
         if not created:
             raise InvalidInputError(await self._materialize_failure_message(code))
@@ -474,16 +532,17 @@ class TestCaseService:
         event_scripts: list[dict[str, Any]] | None = None,
         request_headers: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Build a Postman Collection v2.1 JSON document for one test case."""
+        """Build a Postman Collection v2.1 JSON document for one test case.
+
+        Does not resolve Finix macros to concrete values — callers that need
+        Postman ``{{var}}`` + pre-request seeding should rewrite first via
+        ``rewrite_mapping_macros_for_postman``.
+        """
         from app.domain.postman_bxm_system_header import build_postman_export_request_headers
 
         body_raw = request_body if request_body is not None else loads_json(
             testcase.request_body_json, {},
         )
-        if request_body is None and isinstance(body_raw, dict):
-            from app.domain.dynamic_macro_resolver import resolve_mapping
-
-            body_raw = resolve_mapping(body_raw, on_missing="keep")
         headers = (
             request_headers
             if request_headers is not None
@@ -511,6 +570,207 @@ class TestCaseService:
             },
             "item": [item],
         }
+
+    def build_postman_for_pool_testcases(
+        self,
+        testcases: list[TestCase],
+        *,
+        collection_title: str,
+        service_code_hint: str | None = None,
+        postman_config: Any | None = None,
+        request_bodies: dict[int, dict[str, Any]] | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Export pool/standalone test cases with the same BXM header script,
+        collection variables, and response tests as scenario Postman export.
+        """
+        from app.domain.postman_bxm_system_header import (
+            bxm_item_srvc_cd_prerequest,
+            bxm_prerequest_collection_event,
+            build_postman_export_request_headers,
+            extract_service_code_from_testcase_name,
+            service_code_for_testcase,
+        )
+        from app.domain.postman_chaining import merge_postman_events
+        from app.domain.postman_collection_config import PostmanCollectionConfig
+        from app.domain.postman_collection_variables import (
+            build_postman_collection_variables,
+        )
+        from app.domain.postman_generator_scripts import (
+            build_start_var_generator_exec_lines,
+            merge_collection_prerequest_events,
+        )
+        from app.domain.postman_macro_export import (
+            FinixMacroExportSpec,
+            build_finix_macro_prerequest_exec_lines,
+            collection_variables_for_macro_specs,
+            rewrite_mapping_macros_for_postman,
+        )
+
+        if not testcases:
+            raise InvalidInputError("내보낼 테스트케이스가 없습니다.")
+
+        cfg = postman_config
+        if cfg is not None and not isinstance(cfg, PostmanCollectionConfig):
+            if isinstance(cfg, dict):
+                cfg = PostmanCollectionConfig.model_validate(cfg)
+            else:
+                cfg = PostmanCollectionConfig()
+        if cfg is None:
+            cfg = PostmanCollectionConfig()
+
+        request_headers = build_postman_export_request_headers()
+        hint = (service_code_hint or "").strip() or None
+        items: list[dict[str, Any]] = []
+        macro_specs: list[FinixMacroExportSpec] = []
+
+        for tc in testcases:
+            override = (request_bodies or {}).get(tc.id)
+            if override is not None:
+                body_src = override if isinstance(override, dict) else {}
+            else:
+                loaded = loads_json(tc.request_body_json, {})
+                body_src = loaded if isinstance(loaded, dict) else {}
+            body, specs = rewrite_mapping_macros_for_postman(body_src)
+            macro_specs.extend(specs)
+
+            exp_body = loads_json(tc.expected_body_json, {})
+            if not isinstance(exp_body, dict):
+                exp_body = {}
+
+            events = merge_postman_events(
+                extracts=[],
+                injects=[],
+                expected_status=tc.expected_status,
+                expected_body=exp_body,
+                testcase_name=tc.name or "",
+            )
+            svc_code = (
+                service_code_for_testcase(tc)
+                or extract_service_code_from_testcase_name(tc.name or "")
+                or hint
+            )
+            svc_pre = bxm_item_srvc_cd_prerequest(svc_code) if svc_code else None
+            if svc_pre:
+                events = [svc_pre, *events]
+
+            col = self.build_postman_collection(
+                tc,
+                request_body=body if isinstance(body, dict) else {},
+                event_scripts=events,
+                request_headers=request_headers,
+            )
+            items.extend(col["item"])
+
+        collection_variables = build_postman_collection_variables(
+            cfg,
+            runtime_var_names=[],
+        )
+        existing_keys = {row["key"] for row in collection_variables}
+        for row in collection_variables_for_macro_specs(macro_specs):
+            if row["key"] not in existing_keys:
+                collection_variables.append(row)
+                existing_keys.add(row["key"])
+
+        gen_lines = build_start_var_generator_exec_lines(cfg, catalog=None)
+        gen_event = (
+            {
+                "listen": "prerequest",
+                "script": {"type": "text/javascript", "exec": gen_lines},
+            }
+            if gen_lines
+            else None
+        )
+        macro_lines = build_finix_macro_prerequest_exec_lines(macro_specs)
+        macro_event = (
+            {
+                "listen": "prerequest",
+                "script": {"type": "text/javascript", "exec": macro_lines},
+            }
+            if macro_lines
+            else None
+        )
+        payload: dict[str, Any] = {
+            "info": {
+                "name": collection_title,
+                "schema": (
+                    "https://schema.getpostman.com/json/collection/v2.1.0/"
+                    "collection.json"
+                ),
+                "description": description
+                or (
+                    "Generated pool snapshot with BXM header script and "
+                    "response tests (not source of truth)."
+                ),
+            },
+            "item": items,
+        }
+        if collection_variables:
+            payload["variable"] = collection_variables
+        payload["event"] = merge_collection_prerequest_events(
+            gen_event,
+            macro_event,
+            bxm_prerequest_collection_event(cfg),
+        )
+        return payload
+
+    async def build_postman_for_testcase_export(
+        self,
+        testcase_id: int,
+        *,
+        mode: str = "template",
+        scenario_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Full Postman export for one pool/scenario test case."""
+        from app.domain.postman_bxm_system_header import (
+            extract_service_code_from_testcase_name,
+        )
+
+        entity = await self.get_testcase(testcase_id)
+        request_bodies: dict[int, dict[str, Any]] | None = None
+        if mode == "resolved" and scenario_id is not None:
+            body = await self.get_resolved_request_body(
+                testcase_id,
+                scenario_id=scenario_id,
+            )
+            if isinstance(body, dict):
+                request_bodies = {entity.id: body}
+
+        return self.build_postman_for_pool_testcases(
+            [entity],
+            collection_title=f"FinTest — {entity.name}",
+            service_code_hint=extract_service_code_from_testcase_name(
+                entity.name or "",
+            ),
+            request_bodies=request_bodies,
+        )
+
+    async def build_postman_for_service_export(
+        self,
+        service_code: str,
+        *,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        """Full Postman export for every pool test case under a service."""
+        code = (service_code or "").strip()
+        if not code:
+            raise InvalidInputError("service_code가 필요합니다.")
+        rows = await self.list_by_service_code(code, limit=limit)
+        if not rows:
+            raise InvalidInputError(
+                "이 서비스에 적재된 테스트케이스가 없습니다.",
+            )
+        rows = sorted(rows, key=lambda row: row.id)
+        return self.build_postman_for_pool_testcases(
+            rows,
+            collection_title=f"FinTest Service — {code}",
+            service_code_hint=code,
+            description=(
+                f"Service pool export for {code}: BXM header script, "
+                f"baseUrl variable, and per-request response tests."
+            ),
+        )
 
     async def build_postman_for_scenario(
         self,
@@ -542,6 +802,12 @@ class TestCaseService:
         from app.domain.postman_generator_scripts import (
             build_start_var_generator_exec_lines,
             merge_collection_prerequest_events,
+        )
+        from app.domain.postman_macro_export import (
+            FinixMacroExportSpec,
+            build_finix_macro_prerequest_exec_lines,
+            collection_variables_for_macro_specs,
+            rewrite_mapping_macros_for_postman,
         )
         from app.services.execution_simulator import simulate_response
         from app.services.scenario_run_resolver import (
@@ -587,6 +853,7 @@ class TestCaseService:
             catalog=catalog,
         )
         items: list[dict[str, Any]] = []
+        macro_specs: list[FinixMacroExportSpec] = []
         for enum_idx, tc in enumerate(testcases):
             logical_step = tc.step_index if tc.step_index is not None else enum_idx
             injects, extracts, overrides = binding_map.get(logical_step, ([], [], []))
@@ -608,6 +875,12 @@ class TestCaseService:
                 )
             else:
                 body = template
+
+            if isinstance(body, dict):
+                body, specs = rewrite_mapping_macros_for_postman(body)
+                macro_specs.extend(specs)
+            else:
+                body = {}
 
             exp_body = loads_json(tc.expected_body_json, {})
             if not isinstance(exp_body, dict):
@@ -636,6 +909,12 @@ class TestCaseService:
             )
             items.extend(col["item"])
 
+        existing_keys = {row["key"] for row in collection_variables}
+        for row in collection_variables_for_macro_specs(macro_specs):
+            if row["key"] not in existing_keys:
+                collection_variables.append(row)
+                existing_keys.add(row["key"])
+
         gen_lines = build_start_var_generator_exec_lines(
             postman_config,
             catalog=catalog,
@@ -646,6 +925,15 @@ class TestCaseService:
                 "script": {"type": "text/javascript", "exec": gen_lines},
             }
             if gen_lines
+            else None
+        )
+        macro_lines = build_finix_macro_prerequest_exec_lines(macro_specs)
+        macro_event = (
+            {
+                "listen": "prerequest",
+                "script": {"type": "text/javascript", "exec": macro_lines},
+            }
+            if macro_lines
             else None
         )
         desc = build_postman_collection_description(
@@ -669,6 +957,7 @@ class TestCaseService:
             payload["variable"] = collection_variables
         payload["event"] = merge_collection_prerequest_events(
             gen_event,
+            macro_event,
             bxm_prerequest_collection_event(postman_config),
         )
         return payload

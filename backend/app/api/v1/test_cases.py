@@ -3,8 +3,14 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from app.core.deps import get_testcase_service
+from app.core.deps import get_execution_service, get_testcase_service
+from app.schemas.execution_schema import (
+    ExecutionDetailReadV1,
+    TestCaseExecutionCreateV1,
+    execution_run_to_detail,
+)
 from app.schemas.testcase_schema import TestCasePatchV1, TestCaseRead, testcase_entity_to_read
+from app.services.execution_service import ExecutionService
 from app.services.testcase_service import TestCaseService
 
 router = APIRouter(prefix="/test-cases")
@@ -55,6 +61,26 @@ async def patch_test_case_v1(
     return testcase_entity_to_read(entity)
 
 
+@router.post(
+    "/{testcase_id}/executions",
+    response_model=ExecutionDetailReadV1,
+    summary="Run a single test case",
+)
+async def run_test_case_v1(
+    testcase_id: int,
+    payload: TestCaseExecutionCreateV1 = TestCaseExecutionCreateV1(),
+    execution_service: ExecutionService = Depends(get_execution_service),
+) -> ExecutionDetailReadV1:
+    """Execute one pool/standalone test case and return structured results."""
+    run = await execution_service.create_run_for_testcase(
+        testcase_id=testcase_id,
+        base_url=payload.base_url,
+        mode=payload.mode,
+        postman_config=payload.postman,
+    )
+    return execution_run_to_detail(run)
+
+
 @router.get(
     "/{testcase_id}/export/postman",
     summary="Export Postman collection JSON",
@@ -65,16 +91,10 @@ async def export_postman_v1(
     scenario_id: int | None = Query(default=None, ge=1),
     service: TestCaseService = Depends(get_testcase_service),
 ) -> JSONResponse:
-    """Return a Postman Collection v2.1 JSON document."""
-    entity = await service.get_testcase(testcase_id)
-    body = None
-    if mode == "resolved" and scenario_id is not None:
-        body = await service.get_resolved_request_body(
-            testcase_id,
-            scenario_id=scenario_id,
-        )
-    collection = service.build_postman_collection(
-        entity,
-        request_body=body,
+    """Return a Postman Collection v2.1 JSON document with BXM scripts/tests."""
+    collection = await service.build_postman_for_testcase_export(
+        testcase_id,
+        mode=mode,
+        scenario_id=scenario_id,
     )
     return JSONResponse(content=collection)

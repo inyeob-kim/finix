@@ -17,9 +17,14 @@ import { YamlMacroAiCreatePanel } from "./YamlMacroAiCreatePanel";
 
 type Props = {
   disabled?: boolean;
-  value: string;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onInsert: (nextJson: string) => void;
+  /** JSON textarea mode (입력/기대값). */
+  value?: string;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  onInsert?: (nextJson: string) => void;
+  /** YAML source mode: apply macro immediately via editor callback. */
+  onApplyMacro?: (macro: string) => void;
+  applyLabel?: string;
+  helperText?: string;
 };
 
 const KIND_TABS: Array<{ id: YamlMacroKind; label: string }> = [
@@ -40,9 +45,12 @@ const DATE_CHIPS: Array<{
 
 export function YamlInputMacroHelper({
   disabled = false,
-  value,
+  value = "",
   textareaRef,
   onInsert,
+  onApplyMacro,
+  applyLabel = "필드 값에 넣기",
+  helperText = "커서가 있는 JSON 문자열 값을 매크로로 바꿉니다. 실행 시 실제 값으로 해석됩니다.",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<YamlMacroKind>("generator");
@@ -86,7 +94,12 @@ export function YamlInputMacroHelper({
   }, [open]);
 
   const applyMacro = (macro: string) => {
-    const el = textareaRef.current;
+    if (onApplyMacro) {
+      onApplyMacro(macro);
+      setOpen(false);
+      return;
+    }
+    const el = textareaRef?.current;
     const start = el?.selectionStart ?? value.length;
     const end = el?.selectionEnd ?? start;
     const scrollTop = el?.scrollTop ?? 0;
@@ -97,10 +110,10 @@ export function YamlInputMacroHelper({
       end,
       quoted,
     );
-    onInsert(next);
+    onInsert?.(next);
     setOpen(false);
     requestAnimationFrame(() => {
-      const ta = textareaRef.current;
+      const ta = textareaRef?.current;
       if (!ta) return;
       ta.focus();
       ta.scrollTop = scrollTop;
@@ -274,12 +287,11 @@ export function YamlInputMacroHelper({
               }
               onClick={onConfirm}
             >
-              필드 값에 넣기
+              {applyLabel}
             </button>
           </div>
           <p className="text-[10px] text-muted-foreground leading-snug">
-            커서가 있는 JSON 문자열 값을 매크로로 바꿉니다. 실행 시 실제 값으로
-            해석됩니다.
+            {helperText}
           </p>
         </div>
       ) : null}

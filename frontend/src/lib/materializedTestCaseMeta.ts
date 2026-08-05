@@ -73,3 +73,18 @@ export function testCaseMatchesQuery(
     .toLowerCase();
   return haystack.includes(q);
 }
+
+/** Order by case_id (numeric-aware), then id. */
+export function compareTestCasesByCaseId(
+  a: TestCaseReadDto,
+  b: TestCaseReadDto,
+): number {
+  const caseA = parseMaterializedTestCaseName(a.name).caseId ?? a.name;
+  const caseB = parseMaterializedTestCaseName(b.name).caseId ?? b.name;
+  const byCase = caseA.localeCompare(caseB, "en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (byCase !== 0) return byCase;
+  return a.id - b.id;
+}

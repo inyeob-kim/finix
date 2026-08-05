@@ -17,6 +17,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   config: ScenarioPostmanConfig;
   onChange: (next: ScenarioPostmanConfig) => void;
+  /** Stack above nested run dialogs (e.g. z-[130]). */
+  contentClassName?: string;
+  description?: string;
 };
 
 export function ScenarioCollectionVarsDialog({
@@ -24,6 +27,8 @@ export function ScenarioCollectionVarsDialog({
   onOpenChange,
   config,
   onChange,
+  contentClassName,
+  description = "채널 헤더 변수와 추가 HTTP 헤더를 설정합니다.",
 }: Props) {
   const [cleanupNote, setCleanupNote] = useState<string | null>(null);
   const normalizedOnOpenRef = useRef(false);
@@ -54,13 +59,12 @@ export function ScenarioCollectionVarsDialog({
         className={cn(
           "w-full max-w-lg rounded-sm flex flex-col gap-0 p-0 overflow-hidden",
           "h-[min(560px,88vh)] max-h-[88vh]",
+          contentClassName,
         )}
       >
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
           <DialogTitle className="pr-8">헤더 설정</DialogTitle>
-          <DialogDescription>
-            채널 헤더 변수와 추가 HTTP 헤더를 설정합니다.
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         {cleanupNote ? (

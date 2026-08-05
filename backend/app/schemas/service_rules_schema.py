@@ -27,6 +27,8 @@ class ServiceRuleRegistryItemRead(BaseModel):
     has_approved: bool = False
     has_draft: bool = False
     history_count: int = Field(default=0, ge=0)
+    business_domain: str = "UNCLASSIFIED"
+    component_code: str = ""
 
 
 class ServiceRuleRegistryListResponse(BaseModel):
@@ -118,6 +120,10 @@ class PostmanRulesImportRequest(BaseModel):
     collection: Any = Field(
         description="Postman Collection object, single request export, or item list.",
     )
+    environment: Any | None = Field(
+        default=None,
+        description="Optional Postman Environment export; values override collection variables.",
+    )
     overwrite_draft: bool = Field(
         default=False,
         description="When true, replace existing working drafts for matched services.",
@@ -143,4 +149,8 @@ class PostmanServiceImportResultRead(BaseModel):
 class PostmanRulesImportResponse(BaseModel):
     services: list[PostmanServiceImportResultRead]
     unmatched: list[PostmanUnmatchedRequestRead]
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Import-level notes (e.g. variable substitution summary).",
+    )
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   ChevronDown,
   ChevronUp,
@@ -55,6 +55,7 @@ import {
   rulesRegistryStatusBadge,
 } from "./ui/finix-status-badge";
 import { PostmanRulesImportDialog } from "./rules/PostmanRulesImportDialog";
+import { RulesDomainNav } from "./rules/RulesDomainNav";
 import { RulesMetaHistoryDialog } from "./rules/RulesMetaHistoryDialog";
 import { RulesMetaHintButton } from "./rules/RulesMetaHintButton";
 import { RulesMetaTestCasesPanel } from "./rules/RulesMetaTestCasesPanel";
@@ -77,10 +78,23 @@ import {
   useRulesRegistry,
 } from "@/hooks/useRulesRegistry";
 import {
+  buildDomainNavNodes,
+  domainLabel,
+  inferBusinessDomain,
+  matchesDomainSelection,
+  type RulesDomainSelection,
+  UNCLASSIFIED_DOMAIN,
+} from "@/lib/cbsServiceTaxonomy";
+import {
   registryStatusHint,
   registryVersionHint,
 } from "@/lib/formatRegistryVersions";
 import { getSaveDraftDisabledReason } from "@/lib/saveDraftDisabledReason";
+import {
+  clearRulesMetaResume,
+  peekRulesMetaResume,
+  type RulesMetaResumeState,
+} from "@/lib/rulesMetaResume";
 import { useAuthStore } from "../auth/authStore";
 import { FINIX_LARGE_MODAL_CONTENT } from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
@@ -127,6 +141,9 @@ function bundleToRegistryItem(bundle: ServiceRuleBundleReadDto): RuleRegistryIte
     draftBundleVersion: hasDraft ? 1 : null,
     hasApproved: false,
     hasDraft,
+    businessDomain:
+      inferBusinessDomain(bundle.service_code) || UNCLASSIFIED_DOMAIN,
+    componentCode: "",
   };
 }
 
@@ -135,8 +152,29 @@ function statusFilterFromSearch(raw: string | null): "" | "active" | "draft" {
   return "";
 }
 
+function resumeFromSearchParams(
+  params: URLSearchParams,
+): Omit<RulesMetaResumeState, "savedAt"> | null {
+  const serviceCode = (params.get("openService") || "").trim();
+  const bundleRaw = params.get("openBundle");
+  const tabRaw = params.get("openTab");
+  if (!serviceCode || !bundleRaw) return null;
+  const bundleId = Number(bundleRaw);
+  if (!Number.isFinite(bundleId)) return null;
+  const activeTab = tabRaw === "yaml" ? "yaml" : "testcases";
+  return {
+    serviceCode,
+    bundleId,
+    activeTab,
+  };
+}
+
+/** Prevents double-open under React Strict Mode remounts. */
+let rulesMetaResumeConsumeKey: string | null = null;
+
 export function RulesMeta() {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<RuleRegistryItem | null>(null);
@@ -148,7 +186,10 @@ export function RulesMeta() {
     statusFilterFromSearch(searchParams.get("status")),
   );
   const [versionFilter, setVersionFilter] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updated_desc");
+  const [sortKey, setSortKey] = useState<SortKey>("code_asc");
+  const [domainSelection, setDomainSelection] = useState<RulesDomainSelection>({
+    type: "all",
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [editLoading, setEditLoading] = useState(false);
@@ -229,8 +270,19 @@ export function RulesMeta() {
     return [...s].sort();
   }, [registry]);
 
+  const domainNavNodes = useMemo(
+    () => buildDomainNavNodes(registry),
+    [registry],
+  );
+
+  const domainScopeLabel = useMemo(() => {
+    if (domainSelection.type === "all") return "전체";
+    return domainLabel(domainSelection.domain);
+  }, [domainSelection]);
+
   const filteredSorted = useMemo(() => {
     let list = registry.filter((x) => {
+      if (!matchesDomainSelection(x, domainSelection)) return false;
       if (versionFilter && x.sourceVersion !== versionFilter) return false;
       return true;
     });
@@ -250,7 +302,12 @@ export function RulesMeta() {
       }
     });
     return list;
-  }, [registry, versionFilter, sortKey]);
+  }, [registry, versionFilter, sortKey, domainSelection]);
+
+  const handleDomainSelect = (next: RulesDomainSelection) => {
+    setDomainSelection(next);
+    setPage(1);
+  };
 
   const totalPages = Math.max(1, Math.ceil(filteredSorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -306,10 +363,14 @@ export function RulesMeta() {
   const resolveRegistryRow = (item: RuleRegistryItem) =>
     registry.find((r) => r.serviceCode === item.serviceCode) ?? item;
 
-  const openEdit = async (item: RuleRegistryItem, bundleId?: number) => {
+  const openEdit = async (
+    item: RuleRegistryItem,
+    bundleId?: number,
+    tab: "yaml" | "testcases" = "yaml",
+  ) => {
     const row = resolveRegistryRow(item);
     setSelected(row);
-    setActiveTab("yaml");
+    setActiveTab(tab);
     setYamlText("");
     setLastSavedAt(null);
     setEditError(null);
@@ -317,6 +378,38 @@ export function RulesMeta() {
     setYamlCopyDone(false);
     await loadBundleYaml(row.serviceCode, bundleId ?? row.bundleId);
   };
+
+  useEffect(() => {
+    if (registryLoading) return;
+    const fromQuery = resumeFromSearchParams(searchParams);
+    const stored = fromQuery ? null : peekRulesMetaResume();
+    const resume = fromQuery ?? stored;
+    if (!resume) return;
+
+    const consumeKey = fromQuery
+      ? `q:${resume.serviceCode}:${resume.bundleId}:${resume.activeTab}`
+      : `s:${stored!.savedAt}:${resume.serviceCode}:${resume.bundleId}`;
+    if (rulesMetaResumeConsumeKey === consumeKey) return;
+
+    const item = registry.find((r) => r.serviceCode === resume.serviceCode);
+    if (!item) {
+      if (fromQuery) {
+        rulesMetaResumeConsumeKey = consumeKey;
+        clearRulesMetaResume();
+        navigate("/rules", { replace: true });
+      }
+      return;
+    }
+
+    rulesMetaResumeConsumeKey = consumeKey;
+    clearRulesMetaResume();
+    if (fromQuery) {
+      navigate("/rules", { replace: true });
+    }
+    void openEdit(item, resume.bundleId, resume.activeTab);
+    // Resume once when registry is ready; openEdit closes over latest loadBundleYaml.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registryLoading, registry, searchParams, navigate]);
 
   const openHistory = (item: RuleRegistryItem) => {
     setHistoryItem(resolveRegistryRow(item));
@@ -328,6 +421,7 @@ export function RulesMeta() {
   };
 
   const closePanel = () => {
+    clearRulesMetaResume();
     setSelected(null);
     setYamlText("");
     setBaselineYamlText("");
@@ -592,8 +686,8 @@ export function RulesMeta() {
                   setPage(1);
                 }}
               >
-                <option value="updated_desc">수정일 · 최신순</option>
                 <option value="code_asc">서비스 코드 · A→Z</option>
+                <option value="updated_desc">수정일 · 최신순</option>
                 <option value="name_asc">서비스명 · 가나다</option>
                 <option value="rules_desc">규칙 수 · 많은순</option>
               </FinixUnderlineSelect>
@@ -662,140 +756,186 @@ export function RulesMeta() {
           </div>
         </div>
 
-        <div className={FINIX_DATA_TABLE_STACK_CLASS}>
-          <div className={FINIX_DATA_TABLE_HUG_CLASS}>
-            <FinixDataTableFrame>
-              <FinixDataTable>
-              <FinixDataTableHeader>
-                <FinixDataTableRow className="hover:bg-transparent">
-                  <FinixDataTableHead className="whitespace-nowrap">
-                    코드
-                  </FinixDataTableHead>
-                  <FinixDataTableHead className="min-w-[180px]">
-                    서비스명
-                  </FinixDataTableHead>
-                  <FinixDataTableHead>
-                    상태
-                  </FinixDataTableHead>
-                  <FinixDataTableHead className="text-right">
-                    규칙
-                  </FinixDataTableHead>
-                  <FinixDataTableHead className="whitespace-nowrap">
-                    수정
-                  </FinixDataTableHead>
-                  <FinixDataTableHead className="w-[72px] text-right">
-                    이력
-                  </FinixDataTableHead>
-                </FinixDataTableRow>
-              </FinixDataTableHeader>
-              <FinixDataTableBody>
-                {registryLoading ? (
-                  <FinixDataTableRow>
-                    <FinixDataTableCell
-                      colSpan={6}
-                      className="py-12 text-center text-muted-foreground text-sm"
-                    >
-                      <FinixLoading size="md" label="불러오는 중…" inline className="justify-center" />
-                    </FinixDataTableCell>
-                  </FinixDataTableRow>
-                ) : pageRows.length === 0 ? (
-                  <FinixDataTableRow>
-                    <FinixDataTableCell
-                      colSpan={6}
-                      className="py-12 text-center text-muted-foreground text-sm"
-                    >
-                      <div className="flex flex-col items-center gap-3">
-                        <p>
-                          {query || statusFilter || versionFilter
-                            ? "조건에 맞는 규칙 번들이 없습니다."
-                            : "등록된 규칙 번들이 없습니다."}
-                        </p>
-                        {!query && !statusFilter && !versionFilter ? (
-                          <FinixPrimaryButton
-                            type="button"
-                            className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
-                            onClick={openYamlAiDialog}
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            소스에서 YAML 생성
-                          </FinixPrimaryButton>
-                        ) : null}
-                      </div>
-                    </FinixDataTableCell>
-                  </FinixDataTableRow>
-                ) : (
-                  pageRows.map((item) => (
-                    <FinixDataTableRow
-                      key={`${item.serviceCode}:${item.bundleId}`}
-                      interactive
-                      onClick={() => void openEdit(item)}
-                    >
-                      <FinixDataTableCell
-                        className="font-mono text-sm font-medium"
-                        title={
-                          registryVersionHint(item) ??
-                          `편집 대상 #${item.bundleId}`
-                        }
-                      >
-                        {item.serviceCode}
-                      </FinixDataTableCell>
-                      <FinixDataTableCell className="text-sm">
-                        {item.serviceName}
-                      </FinixDataTableCell>
-                      <FinixDataTableCell title={registryStatusHint(item)}>
-                        <StatusPill status={item.status} />
-                      </FinixDataTableCell>
-                      <FinixDataTableCell className="text-right tabular-nums text-sm">
-                        {item.rules}
-                      </FinixDataTableCell>
-                      <FinixDataTableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                        {item.lastUpdatedAt}
-                      </FinixDataTableCell>
-                      <FinixDataTableCell className="text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openHistory(item);
-                          }}
-                          title={`변경 이력 (${item.versionCount})`}
-                          aria-label={`${item.serviceCode} 변경 이력 ${item.versionCount}건`}
-                          className={FINIX_DATA_TABLE_ICON_BTN_CLASS}
-                        >
-                          <History className="w-3.5 h-3.5" />
-                        </button>
-                      </FinixDataTableCell>
-                    </FinixDataTableRow>
-                  ))
-                )}
-              </FinixDataTableBody>
-              </FinixDataTable>
-            </FinixDataTableFrame>
+        <div
+          className={cn(
+            FINIX_DATA_TABLE_STACK_CLASS,
+            "bg-card border border-border rounded-sm overflow-hidden",
+          )}
+        >
+          <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+            <aside className="md:w-[15rem] lg:w-[16.5rem] shrink-0 border-b md:border-b-0 md:border-r border-border max-h-[38%] md:max-h-none flex flex-col min-h-0">
+              <RulesDomainNav
+                nodes={domainNavNodes}
+                selection={domainSelection}
+                onSelect={handleDomainSelect}
+              />
+            </aside>
 
-            <div className="shrink-0 pt-2">
-            <TablePagination
-              summary={
-                <>
-                  표시 중{" "}
-                  {filteredSorted.length === 0
-                    ? 0
-                    : (currentPage - 1) * pageSize + 1}
-                  –
-                  {Math.min(currentPage * pageSize, filteredSorted.length)} / 총{" "}
-                  {filteredSorted.length}건
-                </>
-              }
-              pageSize={pageSize}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-              currentPage={currentPage}
-              totalPages={totalPages}
-              pagesToShow={pagesToShow}
-              onPageChange={setPage}
-              controlsClassName="justify-end"
-            />
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+              <div className="h-11 px-4 border-b border-border shrink-0 flex items-center justify-between gap-3 text-sm">
+                <div className="text-muted-foreground min-w-0 truncate">
+                  현재 범위:{" "}
+                  <span className="text-foreground font-medium">
+                    {domainScopeLabel}
+                  </span>
+                </div>
+                <div className="shrink-0 tabular-nums text-muted-foreground">
+                  <span className="text-foreground font-medium">
+                    {filteredSorted.length}
+                  </span>
+                  건
+                </div>
+              </div>
+
+              <div className={cn(FINIX_DATA_TABLE_HUG_CLASS, "flex-1 p-0")}>
+                <FinixDataTableFrame className="rounded-none border-0">
+                  <FinixDataTable>
+                    <FinixDataTableHeader>
+                      <FinixDataTableRow className="hover:bg-transparent">
+                        <FinixDataTableHead className="whitespace-nowrap">
+                          코드
+                        </FinixDataTableHead>
+                        <FinixDataTableHead className="min-w-[180px]">
+                          서비스명
+                        </FinixDataTableHead>
+                        <FinixDataTableHead>상태</FinixDataTableHead>
+                        <FinixDataTableHead className="text-right">
+                          규칙
+                        </FinixDataTableHead>
+                        <FinixDataTableHead className="whitespace-nowrap">
+                          수정
+                        </FinixDataTableHead>
+                        <FinixDataTableHead className="w-[72px] text-right">
+                          이력
+                        </FinixDataTableHead>
+                      </FinixDataTableRow>
+                    </FinixDataTableHeader>
+                    <FinixDataTableBody>
+                      {registryLoading ? (
+                        <FinixDataTableRow>
+                          <FinixDataTableCell
+                            colSpan={6}
+                            className="py-12 text-center text-muted-foreground text-sm"
+                          >
+                            <FinixLoading
+                              size="md"
+                              label="불러오는 중…"
+                              inline
+                              className="justify-center"
+                            />
+                          </FinixDataTableCell>
+                        </FinixDataTableRow>
+                      ) : pageRows.length === 0 ? (
+                        <FinixDataTableRow>
+                          <FinixDataTableCell
+                            colSpan={6}
+                            className="py-12 text-center text-muted-foreground text-sm"
+                          >
+                            <div className="flex flex-col items-center gap-3">
+                              <p>
+                                {query ||
+                                statusFilter ||
+                                versionFilter ||
+                                domainSelection.type !== "all"
+                                  ? "조건에 맞는 규칙 번들이 없습니다."
+                                  : "등록된 규칙 번들이 없습니다."}
+                              </p>
+                              {!query &&
+                              !statusFilter &&
+                              !versionFilter &&
+                              domainSelection.type === "all" ? (
+                                <FinixPrimaryButton
+                                  type="button"
+                                  className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
+                                  onClick={openYamlAiDialog}
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  소스에서 YAML 생성
+                                </FinixPrimaryButton>
+                              ) : null}
+                            </div>
+                          </FinixDataTableCell>
+                        </FinixDataTableRow>
+                      ) : (
+                        pageRows.map((item) => (
+                          <FinixDataTableRow
+                            key={`${item.serviceCode}:${item.bundleId}`}
+                            interactive
+                            onClick={() => void openEdit(item)}
+                          >
+                            <FinixDataTableCell
+                              className="font-mono text-sm font-medium"
+                              title={
+                                registryVersionHint(item) ??
+                                `편집 대상 #${item.bundleId}`
+                              }
+                            >
+                              {item.serviceCode}
+                            </FinixDataTableCell>
+                            <FinixDataTableCell className="text-sm">
+                              {item.serviceName}
+                            </FinixDataTableCell>
+                            <FinixDataTableCell
+                              title={registryStatusHint(item)}
+                            >
+                              <StatusPill status={item.status} />
+                            </FinixDataTableCell>
+                            <FinixDataTableCell className="text-right tabular-nums text-sm">
+                              {item.rules}
+                            </FinixDataTableCell>
+                            <FinixDataTableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {item.lastUpdatedAt}
+                            </FinixDataTableCell>
+                            <FinixDataTableCell className="text-right">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openHistory(item);
+                                }}
+                                title={`변경 이력 (${item.versionCount})`}
+                                aria-label={`${item.serviceCode} 변경 이력 ${item.versionCount}건`}
+                                className={FINIX_DATA_TABLE_ICON_BTN_CLASS}
+                              >
+                                <History className="w-3.5 h-3.5" />
+                              </button>
+                            </FinixDataTableCell>
+                          </FinixDataTableRow>
+                        ))
+                      )}
+                    </FinixDataTableBody>
+                  </FinixDataTable>
+                </FinixDataTableFrame>
+
+                <div className="shrink-0 px-3 pb-3 pt-2">
+                  <TablePagination
+                    summary={
+                      <>
+                        표시 중{" "}
+                        {filteredSorted.length === 0
+                          ? 0
+                          : (currentPage - 1) * pageSize + 1}
+                        –
+                        {Math.min(
+                          currentPage * pageSize,
+                          filteredSorted.length,
+                        )}{" "}
+                        / 총 {filteredSorted.length}건
+                      </>
+                    }
+                    pageSize={pageSize}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setPage(1);
+                    }}
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    pagesToShow={pagesToShow}
+                    onPageChange={setPage}
+                    controlsClassName="justify-end"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -808,7 +948,11 @@ export function RulesMeta() {
           if (!open) requestClosePanel();
         }}
       >
-        <DialogContent className={FINIX_LARGE_MODAL_CONTENT}>
+        <DialogContent
+          className={FINIX_LARGE_MODAL_CONTENT}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           {selected && (
             <>
               <DialogHeader
@@ -872,6 +1016,8 @@ export function RulesMeta() {
                 {activeTab === "testcases" ? (
                   <RulesMetaTestCasesPanel
                     serviceCode={selected.serviceCode}
+                    resumeBundleId={selected.bundleId}
+                    yamlText={yamlText}
                     activeBundleVersion={selected.activeBundleVersion}
                     editingDraft={
                       selected.hasDraft ||
