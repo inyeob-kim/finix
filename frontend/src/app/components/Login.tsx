@@ -1,4 +1,3 @@
-import finixLogoMark from "@/assets/finix-logo-mark-dark.png";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Eye, EyeOff } from "lucide-react";
@@ -82,19 +81,15 @@ export function Login() {
         {/* Brand + flow hero */}
         <div className="relative flex flex-col justify-center px-8 py-12 lg:col-span-8 lg:px-16 xl:px-24">
           <div className="max-w-2xl">
-            <div className="flex items-center gap-3">
-              <img
-                src={finixLogoMark}
-                alt=""
-                className="size-11 rounded-md shadow-lg shadow-black/40 ring-1 ring-white/10"
-              />
-              <h1 className="text-[clamp(2.5rem,6vw,4.25rem)] font-semibold leading-none tracking-[0.14em] text-white">
-                FINIX
-              </h1>
-            </div>
+            <h1 className="text-[clamp(2.5rem,6vw,4.25rem)] font-semibold leading-none tracking-[0.14em] text-white">
+              FINIX
+            </h1>
 
-            <p className="mt-6 max-w-md text-base leading-relaxed text-slate-300 sm:text-lg">
-              CBS 규칙을 시나리오로 묶고, 연결·실행까지 한 흐름으로 검증합니다.
+            <p className="mt-6 max-w-lg text-base leading-relaxed text-slate-300 sm:text-lg">
+              <span className="font-medium text-white">
+                코드 없이 만드는 CBS QA 노코드 솔루션.
+              </span>{" "}
+              규칙을 시나리오로 묶고, 연결·실행까지 한 흐름으로 검증합니다.
             </p>
 
             <div className="mt-12 login-flow-enter">
@@ -106,17 +101,10 @@ export function Login() {
         {/* Login panel */}
         <div className="flex items-center justify-center border-t border-white/10 bg-white px-6 py-10 lg:col-span-4 lg:border-l lg:border-t-0 border-border/60">
           <div className="w-full max-w-xs">
-            <div className="text-center lg:hidden mb-8">
-              <div className="inline-flex items-center gap-2">
-                <img
-                  src={finixLogoMark}
-                  alt=""
-                  className="size-7 rounded-sm"
-                />
-                <span className="text-sm font-semibold tracking-[0.18em] text-foreground">
-                  FINIX
-                </span>
-              </div>
+            <div className="mb-8 text-center lg:hidden">
+              <span className="text-sm font-semibold tracking-[0.18em] text-foreground">
+                FINIX
+              </span>
             </div>
 
             <div className="text-center">

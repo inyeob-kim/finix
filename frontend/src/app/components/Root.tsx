@@ -5,7 +5,7 @@ import {
   Clock,
   Database,
   FolderKanban,
-  Home,
+  LayoutDashboard,
   Layers,
   LogIn,
   LogOut,
@@ -27,7 +27,7 @@ export function Root() {
   const { user, isAuthenticated, logout } = useAuthStore();
 
   const navItems = [
-    { icon: Home, label: "홈", path: "/" },
+    { icon: LayoutDashboard, label: "대시보드", path: "/" },
     { icon: Sparkles, label: "AI 시나리오 생성", path: "/generate" },
     { icon: FolderKanban, label: "시나리오 관리", path: "/scenario-registry" },
     { icon: Layers, label: "YAML 규칙", path: "/rules" },

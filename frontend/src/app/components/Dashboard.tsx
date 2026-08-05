@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { Home, RotateCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import { LayoutDashboard, RotateCw } from "lucide-react";
 import { ApiError } from "@/api/client";
 import {
   getDashboardOverview,
@@ -9,30 +10,55 @@ import {
 import { listExecutions } from "@/api/executionApi";
 import { getScenario } from "@/api/scenarioApi";
 import { listServiceRulesRegistry } from "@/api/serviceRulesApi";
+import type { ExecutionListItemDto } from "@/api/types";
+import { loadRegistryState } from "@/app/components/scenarioRegistry/storage";
+import { useAuthStore } from "@/app/auth/authStore";
 import {
+  buildCollectionHealth,
+  buildCoverageBars,
+  buildDashboardKpis,
+  buildExecutionTrend,
+  countRunningExecutions,
+  selectDashboardRunItems,
+  type CollectionHealthRow,
+  type CoverageBar,
+  type DashboardPreset,
+  type ExecutionTrendPoint,
+} from "@/lib/dashboardMetrics";
+import {
+  historyPresetLabel,
   historyQueryRange,
   mapExecutionListItem,
   resolveScenarioTitles,
-  type ExecutionHistoryDatePreset,
   type ExecutionHistoryRow,
 } from "@/lib/executionHistoryView";
 import { PAGE_SECTION_STACK_CLASS } from "@/lib/finixShellLayout";
 import { PageShell } from "./PageShell";
-import { HistoryDashboardKpis } from "./history/HistoryDashboardKpis";
 import {
   DashboardAttentionList,
   type CoverageGap,
 } from "./dashboard/DashboardAttentionList";
+import { DashboardCollectionHealth } from "./dashboard/DashboardCollectionHealth";
+import { DashboardCoverageChart } from "./dashboard/DashboardCoverageChart";
+import { DashboardKpiCards } from "./dashboard/DashboardKpiCards";
+import { DashboardPanel } from "./dashboard/DashboardPanel";
 import { DashboardRecentRuns } from "./dashboard/DashboardRecentRuns";
+import {
+  DashboardTrendChart,
+  TREND_BODY_MAX_HEIGHT_CLASS,
+} from "./dashboard/DashboardTrendChart";
 import { cn } from "./ui/utils";
 
-type DatePreset = Extract<ExecutionHistoryDatePreset, "today" | "7d" | "30d">;
-
-const PRESETS: { id: DatePreset; label: string }[] = [
+const PRESETS: { id: DashboardPreset; label: string }[] = [
   { id: "today", label: "오늘" },
   { id: "7d", label: "7일" },
   { id: "30d", label: "30일" },
 ];
+
+/** Backend caps execution paging at 100 rows per request. */
+const EXECUTION_FETCH_LIMIT = 100;
+const COVERAGE_FETCH_LIMIT = 50;
+const DRAFT_FETCH_LIMIT = 20;
 
 function toCoverageGaps(
   items: Array<{ service_code: string; happy: number; negative: number }>,
@@ -47,18 +73,59 @@ function toCoverageGaps(
 }
 
 export function Dashboard() {
-  const [preset, setPreset] = useState<DatePreset>("7d");
+  const username = useAuthStore((state) => state.user?.username ?? "guest");
+  const [preset, setPreset] = useState<DashboardPreset>("7d");
   const [refreshKey, setRefreshKey] = useState(0);
   const [kpi, setKpi] = useState<DashboardOverviewDto | null>(null);
+  const [trend, setTrend] = useState<ExecutionTrendPoint[]>([]);
+  const [runningCount, setRunningCount] = useState(0);
   const [recentRuns, setRecentRuns] = useState<ExecutionHistoryRow[]>([]);
   const [failedRuns, setFailedRuns] = useState<ExecutionHistoryRow[]>([]);
+  const [collectionHealth, setCollectionHealth] = useState<
+    CollectionHealthRow[]
+  >([]);
   const [draftRules, setDraftRules] = useState<
     Awaited<ReturnType<typeof listServiceRulesRegistry>>["items"]
   >([]);
   const [coverageGaps, setCoverageGaps] = useState<CoverageGap[]>([]);
+  const [coverageBars, setCoverageBars] = useState<CoverageBar[]>([]);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const applyExecutions = useCallback(
+    async (
+      items: ExecutionListItemDto[],
+      activePreset: DashboardPreset,
+      updatedBy: string,
+    ) => {
+      setTrend(buildExecutionTrend(items, { preset: activePreset }));
+      setRunningCount(countRunningExecutions(items));
+
+      const registry = loadRegistryState(updatedBy);
+      setCollectionHealth(
+        buildCollectionHealth(registry.folders, registry.scenarios, items),
+      );
+
+      const selection = selectDashboardRunItems(items);
+      const titleMap = await resolveScenarioTitles(
+        selection.scenarioIds,
+        async (id) => {
+          const scenario = await getScenario(id);
+          return scenario.title ?? null;
+        },
+      );
+      const toRow = (item: ExecutionListItemDto) =>
+        mapExecutionListItem(
+          item,
+          item.scenario_id != null ? titleMap.get(item.scenario_id) : undefined,
+        );
+
+      setRecentRuns(selection.recent.map(toRow));
+      setFailedRuns(selection.failed.map(toRow));
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setKpiLoading(true);
@@ -75,60 +142,45 @@ export function Dashboard() {
     const [kpiResult, execResult, draftResult, coverageResult] =
       await Promise.allSettled([
         getDashboardOverview(range),
-        listExecutions({ limit: 40, offset: 0, ...range }),
-        listServiceRulesRegistry({ status: "draft", limit: 20, offset: 0 }),
-        getPoolCoverage(50),
+        listExecutions({ limit: EXECUTION_FETCH_LIMIT, offset: 0, ...range }),
+        listServiceRulesRegistry({
+          status: "draft",
+          limit: DRAFT_FETCH_LIMIT,
+          offset: 0,
+        }),
+        getPoolCoverage(COVERAGE_FETCH_LIMIT),
       ]);
 
-    if (kpiResult.status === "fulfilled") {
-      setKpi(kpiResult.value);
-    } else {
-      setKpi(null);
-    }
+    setKpi(kpiResult.status === "fulfilled" ? kpiResult.value : null);
 
     if (execResult.status === "fulfilled") {
-      const titleMap = await resolveScenarioTitles(
-        execResult.value.items.map((item) => item.scenario_id),
-        async (id) => {
-          const scenario = await getScenario(id);
-          return scenario.title ?? null;
-        },
-      );
-      const rows = execResult.value.items.map((item) =>
-        mapExecutionListItem(
-          item,
-          item.scenario_id != null ? titleMap.get(item.scenario_id) : undefined,
-        ),
-      );
-      setRecentRuns(rows.slice(0, 10));
-      setFailedRuns(rows.filter((r) => r.status === "failed").slice(0, 5));
+      await applyExecutions(execResult.value.items, preset, username);
     } else {
+      setTrend(buildExecutionTrend([], { preset }));
+      setRunningCount(0);
+      const registry = loadRegistryState(username);
+      setCollectionHealth(
+        buildCollectionHealth(registry.folders, registry.scenarios, []),
+      );
       setRecentRuns([]);
       setFailedRuns([]);
     }
 
-    if (draftResult.status === "fulfilled") {
-      setDraftRules(draftResult.value.items);
-    } else {
-      setDraftRules([]);
-    }
+    setDraftRules(draftResult.status === "fulfilled" ? draftResult.value.items : []);
 
     if (coverageResult.status === "fulfilled") {
       setCoverageGaps(toCoverageGaps(coverageResult.value.items));
+      setCoverageBars(buildCoverageBars(coverageResult.value.items));
     } else {
       setCoverageGaps([]);
+      setCoverageBars([]);
     }
 
-    const failures = [
-      kpiResult,
-      execResult,
-      draftResult,
-      coverageResult,
-    ].filter((r) => r.status === "rejected");
+    const failures = [kpiResult, execResult, draftResult, coverageResult].filter(
+      (result) => result.status === "rejected",
+    );
     if (failures.length === 4) {
-      const first = failures[0];
-      const reason =
-        first.status === "rejected" ? first.reason : null;
+      const reason = failures[0].status === "rejected" ? failures[0].reason : null;
       setError(
         reason instanceof ApiError
           ? reason.message
@@ -138,18 +190,38 @@ export function Dashboard() {
 
     setKpiLoading(false);
     setListLoading(false);
-  }, [preset]);
+  }, [applyExecutions, preset, username]);
 
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
 
+  const kpis = useMemo(() => buildDashboardKpis(kpi), [kpi]);
+  const trendTotal = useMemo(
+    () => trend.reduce((sum, point) => sum + point.runs, 0),
+    [trend],
+  );
+  const rangeLabel = historyPresetLabel(preset);
+  const collectionHealthSubtitle =
+    collectionHealth.length > 0
+      ? `${rangeLabel} · 컬렉션 ${collectionHealth.length}개`
+      : `${rangeLabel} · 이 브라우저 레지스트리 기준`;
+
   return (
     <PageShell
-      icon={<Home className="size-5" strokeWidth={2} />}
-      title="홈"
+      icon={<LayoutDashboard className="size-5" strokeWidth={2} />}
+      title="대시보드"
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          {runningCount > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary">
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-70" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+              </span>
+              실행 중 {runningCount}
+            </span>
+          ) : null}
           <div className="inline-flex rounded-md border border-border bg-card p-0.5">
             {PRESETS.map((p) => (
               <button
@@ -173,7 +245,9 @@ export function Dashboard() {
             className="inline-flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setRefreshKey((k) => k + 1)}
           >
-            <RotateCw className="size-3.5" />
+            <RotateCw
+              className={cn("size-3.5", kpiLoading && "animate-spin")}
+            />
           </button>
         </div>
       }
@@ -185,33 +259,88 @@ export function Dashboard() {
           </div>
         ) : null}
 
-        {kpiLoading || kpi ? (
-          <HistoryDashboardKpis data={kpi} loading={kpiLoading} compact />
-        ) : (
-          <div className="rounded-md border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-            KPI를 불러오지 못했습니다. 새로고침해 보세요.
-          </div>
-        )}
+        <DashboardKpiCards items={kpis} loading={kpiLoading} />
 
-        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
-          <section className="min-w-0">
-            <h2 className="mb-3 text-sm font-semibold tracking-tight">
-              지금 볼 것
-            </h2>
+        <div className="grid gap-5 xl:grid-cols-3">
+          <DashboardPanel
+            title="실행 추이"
+            subtitle={`${rangeLabel} · 총 ${trendTotal}건`}
+            index={0}
+            className="xl:col-span-2"
+          >
+            <DashboardTrendChart points={trend} loading={listLoading} />
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="컬렉션 헬스"
+            subtitle={collectionHealthSubtitle}
+            index={1}
+            bodyClassName={cn(
+              "overflow-y-auto overscroll-contain",
+              TREND_BODY_MAX_HEIGHT_CLASS,
+            )}
+            action={
+              <Link
+                to="/scenario-registry"
+                className="text-[11px] text-muted-foreground hover:text-primary"
+              >
+                시나리오 관리
+              </Link>
+            }
+          >
+            <DashboardCollectionHealth
+              rows={collectionHealth}
+              loading={listLoading}
+            />
+          </DashboardPanel>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          <DashboardPanel
+            title="지금 볼 것"
+            subtitle="실패 · 초안 · 커버리지 공백"
+            index={2}
+          >
             <DashboardAttentionList
               failedRuns={failedRuns}
               draftRules={draftRules}
               coverageGaps={coverageGaps}
               loading={listLoading}
             />
-          </section>
-          <section className="min-w-0">
-            <h2 className="mb-3 text-sm font-semibold tracking-tight">
-              최근 활동
-            </h2>
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="최근 활동"
+            subtitle="최신 실행 10건"
+            index={3}
+            action={
+              <Link
+                to="/history"
+                className="text-[11px] text-muted-foreground hover:text-primary"
+              >
+                전체 보기
+              </Link>
+            }
+          >
             <DashboardRecentRuns rows={recentRuns} loading={listLoading} />
-          </section>
+          </DashboardPanel>
         </div>
+
+        <DashboardPanel
+          title="서비스별 Pool 커버리지"
+          subtitle="샘플 보유 상위 서비스"
+          index={4}
+          action={
+            <Link
+              to="/data-pool"
+              className="text-[11px] text-muted-foreground hover:text-primary"
+            >
+              Data Pool
+            </Link>
+          }
+        >
+          <DashboardCoverageChart bars={coverageBars} loading={listLoading} />
+        </DashboardPanel>
       </div>
     </PageShell>
   );
