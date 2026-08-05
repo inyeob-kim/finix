@@ -1,0 +1,21 @@
+# Local PostgreSQL for FINIX (optional; SQLite works without this)
+services:
+  postgres:
+    image: postgres:16
+    container_name: finix-postgres
+    environment:
+      POSTGRES_USER: fcc
+      POSTGRES_PASSWORD: fcc
+      POSTGRES_DB: finix_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - finix_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fcc -d finix_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  finix_pgdata:
