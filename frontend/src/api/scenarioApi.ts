@@ -19,6 +19,22 @@ export async function createScenario(body: {
   });
 }
 
+/** Empty scenario row for registry sync — no LLM generation. */
+export async function createScenarioShell(body: {
+  title: string;
+  prompt?: string | null;
+  is_saved?: boolean;
+}): Promise<ScenarioReadDto> {
+  return apiRequest<ScenarioReadDto>(`${PREFIX}/shell`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: body.title,
+      prompt: body.prompt ?? null,
+      is_saved: body.is_saved ?? false,
+    }),
+  });
+}
+
 export async function getScenario(scenarioId: number): Promise<ScenarioReadDto> {
   return apiRequest<ScenarioReadDto>(`${PREFIX}/${scenarioId}`, {
     method: "GET",

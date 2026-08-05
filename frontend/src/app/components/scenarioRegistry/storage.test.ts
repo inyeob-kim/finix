@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY_V1, STORAGE_KEY_V2 } from "./constants";
+import {
+  REGISTRY_PURGE_KEY,
+  STORAGE_KEY_V1,
+  STORAGE_KEY_V2,
+} from "./constants";
 import { loadRegistryState } from "./storage";
 import type { ScenarioRegistryItem, ScenarioRegistryStateV2 } from "./types";
 
@@ -20,6 +24,8 @@ describe("scenarioRegistry/storage", () => {
   beforeEach(() => {
     ls.clear();
     vi.stubGlobal("localStorage", ls as unknown as Storage);
+    // Skip the one-shot purge so fixture data under test is not wiped.
+    localStorage.setItem(REGISTRY_PURGE_KEY, "1");
   });
 
   it("loads v2 when present", () => {
@@ -137,5 +143,43 @@ describe("scenarioRegistry/storage", () => {
     // v2 should be persisted
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY_V2) ?? "{}").version).toBe(2);
   });
-});
 
+  it("one-shot purge clears stale registry before load", () => {
+    localStorage.removeItem(REGISTRY_PURGE_KEY);
+    localStorage.setItem(
+      STORAGE_KEY_V2,
+      JSON.stringify({
+        version: 2,
+        folders: [
+          {
+            id: "old",
+            name: "CMSvc",
+            parentId: null,
+            createdAt: "t",
+            updatedAt: "t",
+            updatedBy: "u",
+          },
+        ],
+        scenarios: [
+          {
+            id: "s-old",
+            folderId: "old",
+            title: "stale",
+            description: "",
+            tags: [],
+            serviceSequence: [{ code: "X", name: "X" }],
+            createdAt: "t",
+            updatedAt: "t",
+            updatedBy: "u",
+          },
+        ],
+      } satisfies ScenarioRegistryStateV2),
+    );
+
+    const loaded = loadRegistryState("u");
+    expect(localStorage.getItem(REGISTRY_PURGE_KEY)).toBe("1");
+    expect(loaded.scenarios).toEqual([]);
+    expect(loaded.folders).toHaveLength(1);
+    expect(loaded.folders[0]?.name).toBe("Default");
+  });
+});

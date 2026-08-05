@@ -1,4 +1,7 @@
-import { createScenario, saveScenarioDefinition } from "@/api/scenarioApi";
+import {
+  createScenarioShell,
+  saveScenarioDefinition,
+} from "@/api/scenarioApi";
 import {
   buildScenarioStepsWithBindings,
   type StepBindingsByStepKey,
@@ -23,15 +26,23 @@ export async function persistRegistryScenarioToDb(input: {
   postmanConfig?: ScenarioPostmanConfig;
   /** When set, update this scenario instead of creating a new row. */
   existingScenarioId?: number;
+  /**
+   * Maps to DB ``is_saved``.
+   * draft → false, ready / export / run → true (default).
+   */
+  markSaved?: boolean;
 }): Promise<{ scenarioId: number; hasAttachedCases: boolean }> {
   const title = input.title.trim() || "시나리오";
+  const prompt = input.prompt?.trim() || title;
+  const markSaved = input.markSaved ?? true;
   const scenarioId =
     input.existingScenarioId != null && Number.isFinite(input.existingScenarioId)
       ? input.existingScenarioId
       : (
-          await createScenario({
-            prompt: input.prompt?.trim() || title,
+          await createScenarioShell({
             title,
+            prompt,
+            is_saved: markSaved,
           })
         ).id;
   const picks = input.selectedRuleTestcases ?? [];
@@ -45,6 +56,7 @@ export async function persistRegistryScenarioToDb(input: {
   const postman = postmanConfigToApi(normalizedPostman);
   await saveScenarioDefinition(scenarioId, {
     title,
+    prompt,
     steps: buildScenarioStepsWithBindings(
       runSteps.map((s) => ({
         stepKey: s.stepKey,
@@ -56,7 +68,7 @@ export async function persistRegistryScenarioToDb(input: {
     ),
     postman,
     per_step: hasPoolPicks ? perStep : undefined,
-    mark_saved: true,
+    mark_saved: markSaved,
   });
   return { scenarioId, hasAttachedCases: hasPoolPicks };
 }

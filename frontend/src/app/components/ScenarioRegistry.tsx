@@ -24,6 +24,7 @@ import {
     type ScenarioRunMode,
     type ScenarioRunProgressState,
 } from "@/lib/registryScenarioRun";
+import { persistRegistryScenarioToDb } from "@/lib/registryScenarioPersist";
 import { preparePicksForLiveRun } from "@/lib/preparePicksForLiveRun";
 import {
     migrateBindingsToStepKeys,
@@ -258,6 +259,7 @@ export function ScenarioRegistry() {
   const [ioDialog, setIoDialog] = useState<"export" | "import" | null>(null);
   const [ioText, setIoText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [wizardSaving, setWizardSaving] = useState(false);
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderEditingId, setFolderEditingId] = useState<string | null>(null);
   const [folderName, setFolderName] = useState("");
@@ -839,7 +841,8 @@ export function ScenarioRegistry() {
     );
   }, [open, selectedRulePicks]);
 
-  const persistWizard = (mode: ScenarioSaveStatus) => {
+  const persistWizard = async (mode: ScenarioSaveStatus) => {
+    if (wizardSaving) return;
     const flushed = bodyFlushRef.current?.flush();
     if (flushed && !flushed.ok) {
       // Invalid JSON is already shown on the Input panel; avoid footer/page banner.
@@ -886,25 +889,57 @@ export function ScenarioRegistry() {
     if (flushed?.bindings) {
       setStepBindingsByStepKey(flushed.bindings);
     }
-    setItems((prev) => {
-      const idx = prev.findIndex((row) => row.id === item.id);
-      if (idx < 0) return [item, ...prev];
-      return prev.map((row) => (row.id === item.id ? item : row));
-    });
+
+    setWizardSaving(true);
     setError(null);
-    // Keep wizard open on draft save; lock editingId so re-saves update the same row.
-    // Do not open the grid preview panel while drafting.
-    if (mode === "draft") {
-      setEditingId(item.id);
-      return;
+    try {
+      const { scenarioId } = await persistRegistryScenarioToDb({
+        title: item.title,
+        prompt: item.description?.trim() || item.title,
+        serviceSequence: item.serviceSequence,
+        stepBindingsByStepKey: item.stepBindingsByStepKey,
+        selectedRuleTestcases: item.selectedRuleTestcases,
+        postmanConfig: item.postmanConfig,
+        existingScenarioId: item.backendScenarioId,
+        markSaved: mode === "ready",
+      });
+      const synced: ScenarioRegistryItem = {
+        ...item,
+        backendScenarioId: scenarioId,
+      };
+      setItems((prev) => {
+        const idx = prev.findIndex((row) => row.id === synced.id);
+        if (idx < 0) return [synced, ...prev];
+        return prev.map((row) => (row.id === synced.id ? synced : row));
+      });
+      // Keep wizard open on draft save; lock editingId so re-saves update the same row.
+      // Do not open the grid preview panel while drafting.
+      if (mode === "draft") {
+        setEditingId(synced.id);
+        return;
+      }
+      setSelectedScenarioId(synced.id);
+      setPreviewCollapsed(false);
+      setOpen(false);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : mode === "draft"
+            ? "임시저장에 실패했습니다. DB 저장이 필요합니다."
+            : "완료 저장에 실패했습니다. DB 저장이 필요합니다.",
+      );
+    } finally {
+      setWizardSaving(false);
     }
-    setSelectedScenarioId(item.id);
-    setPreviewCollapsed(false);
-    setOpen(false);
   };
 
-  const save = () => persistWizard("ready");
-  const saveDraft = () => persistWizard("draft");
+  const save = () => {
+    void persistWizard("ready");
+  };
+  const saveDraft = () => {
+    void persistWizard("draft");
+  };
 
   const openPostmanExportDialog = (item: ScenarioRegistryItem) => {
     const block = registryScenarioPostmanExportBlockReason(item);
@@ -1941,10 +1976,11 @@ export function ScenarioRegistry() {
                 </button>
                 <button
                   type="button"
-                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
                   onClick={saveDraft}
+                  disabled={wizardSaving}
                 >
-                  임시저장
+                  {wizardSaving ? "저장 중…" : "임시저장"}
                 </button>
                 <FinixPrimaryButton
                   type="button"
@@ -1956,6 +1992,7 @@ export function ScenarioRegistry() {
                     setError(null);
                     setScenarioWizardStep(2);
                   }}
+                  disabled={wizardSaving}
                   className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-1"
                 >
                   다음
@@ -2015,10 +2052,11 @@ export function ScenarioRegistry() {
                 </button>
                 <button
                   type="button"
-                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
                   onClick={saveDraft}
+                  disabled={wizardSaving}
                 >
-                  임시저장
+                  {wizardSaving ? "저장 중…" : "임시저장"}
                 </button>
                 <FinixPrimaryButton
                   type="button"
@@ -2026,6 +2064,7 @@ export function ScenarioRegistry() {
                     setError(null);
                     setScenarioWizardStep(3);
                   }}
+                  disabled={wizardSaving}
                   className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-1"
                 >
                   다음
@@ -2055,16 +2094,18 @@ export function ScenarioRegistry() {
                 </button>
                 <button
                   type="button"
-                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
+                  className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
                   onClick={saveDraft}
+                  disabled={wizardSaving}
                 >
-                  임시저장
+                  {wizardSaving ? "저장 중…" : "임시저장"}
                 </button>
                 <FinixPrimaryButton
                   onClick={save}
+                  disabled={wizardSaving}
                   className="h-9 px-4 w-auto rounded-sm"
                 >
-                  완료
+                  {wizardSaving ? "저장 중…" : "완료"}
                 </FinixPrimaryButton>
               </>
             )}

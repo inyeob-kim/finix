@@ -77,6 +77,32 @@ async def list_scenarios_v1(
     ]
 
 
+class ScenarioShellCreateV1(BaseModel):
+    """Create an empty scenario row for registry sync (no LLM)."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    prompt: str | None = Field(default=None, max_length=4000)
+    is_saved: bool = Field(default=False)
+
+
+@router.post(
+    "/shell",
+    response_model=ScenarioRead,
+    summary="Create blank scenario shell for registry persist",
+)
+async def create_scenario_shell_v1(
+    payload: ScenarioShellCreateV1,
+    service: ScenarioService = Depends(get_scenario_service),
+) -> ScenarioRead:
+    """Persist a new empty scenario without AI generation."""
+    entity = await service.create_blank(
+        title=payload.title,
+        prompt=payload.prompt,
+        is_saved=payload.is_saved,
+    )
+    return scenario_entity_to_read(entity)
+
+
 @router.get(
     "/{scenario_id}/test-cases",
     response_model=list[TestCaseRead],
@@ -203,8 +229,10 @@ async def save_scenario_definition_v1(
             scenario_id,
             per_step=payload.per_step,
         )
-    if payload.mark_saved:
-        entity = await scenario_service.mark_saved(scenario_id, saved=True)
+    entity = await scenario_service.mark_saved(
+        scenario_id,
+        saved=payload.mark_saved,
+    )
     return scenario_entity_to_read(entity)
 
 

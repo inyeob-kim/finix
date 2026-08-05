@@ -60,37 +60,11 @@ export function defaultRegistryV2(updatedBy: string): ScenarioRegistryStateV2 {
     updatedAt: base,
     updatedBy,
   };
-  return [
-    {
-      version: 2 as const,
-      folders: [rootFolder],
-      scenarios: [
-        {
-          id: newId(),
-          folderId: rootFolder.id,
-          title: "급여이체 입력 검증(필수값/날짜)",
-          description:
-            "필수 입력 누락, 날짜 범위 오류 등 대표 Negative 케이스를 표준 시나리오로 관리합니다.",
-          tags: ["결제", "Input validation", "Negative"],
-          serviceSequence: [{ code: "PY016", name: "Request bank salary payment" }],
-          createdAt: base,
-          updatedAt: base,
-          updatedBy,
-        },
-        {
-          id: newId(),
-          folderId: rootFolder.id,
-          title: "정기예금 만기 전 해지(실패) 대체 처리",
-          description: "만기 전 해지 불가 규칙과 대체 플로우를 포함합니다.",
-          tags: ["예금", "해지", "Alternative"],
-          serviceSequence: [{ code: "CM060", name: "정기예금 가입" }],
-          createdAt: base,
-          updatedAt: base,
-          updatedBy,
-        },
-      ],
-    },
-  ][0];
+  return {
+    version: 2,
+    folders: [rootFolder],
+    scenarios: [],
+  };
 }
 
 export function getFolderLabel(

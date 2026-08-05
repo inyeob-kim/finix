@@ -4,6 +4,8 @@ export const STORAGE_KEY_V2 = "finix.scenario.registry.v2";
 export const STORAGE_KEY_V1 = "finix.scenario.registry.v1";
 /** Ephemeral UI selection (folder already in v2); survives navigation away. */
 export const REGISTRY_UI_SESSION_KEY = "finix.scenario.registry.uiSession.v1";
+/** One-shot wipe of stale local-only registry data (runs once per browser). */
+export const REGISTRY_PURGE_KEY = "finix.purge.registry.empty.20260805";
 
 export const SERVICE_CATALOG: ServiceCatalogItem[] = [
   { code: "PY016", name: "Request bank salary payment" },

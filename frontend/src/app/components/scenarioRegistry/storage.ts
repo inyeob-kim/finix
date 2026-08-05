@@ -1,4 +1,9 @@
-import { STORAGE_KEY_V1, STORAGE_KEY_V2 } from "./constants";
+import {
+  REGISTRY_PURGE_KEY,
+  REGISTRY_UI_SESSION_KEY,
+  STORAGE_KEY_V1,
+  STORAGE_KEY_V2,
+} from "./constants";
 import { firstFolderIdInDisplayOrder } from "./folderModel";
 import type {
   ScenarioRegistryFolder,
@@ -57,7 +62,28 @@ export function normalizeScenarioItem(
   };
 }
 
+/**
+ * One-shot wipe of local-only registry leftovers that were never DB-synced.
+ * Runs once per browser after this key is introduced.
+ */
+function purgeStaleLocalRegistryOnce(): void {
+  if (typeof localStorage === "undefined") return;
+  if (localStorage.getItem(REGISTRY_PURGE_KEY)) return;
+  localStorage.removeItem(STORAGE_KEY_V1);
+  localStorage.removeItem(STORAGE_KEY_V2);
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(REGISTRY_UI_SESSION_KEY);
+    }
+  } catch {
+    // ignore quota / private-mode sessionStorage failures
+  }
+  localStorage.setItem(REGISTRY_PURGE_KEY, "1");
+}
+
 export function loadRegistryState(updatedBy: string): LoadedRegistryState {
+  purgeStaleLocalRegistryOnce();
+
   const v2 = safeJsonParse<ScenarioRegistryStateV2>(
     localStorage.getItem(STORAGE_KEY_V2),
   );

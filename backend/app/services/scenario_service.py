@@ -423,6 +423,30 @@ class ScenarioService:
             raise EntityNotFoundError("Scenario", scenario_id)
         return entity
 
+    async def create_blank(
+        self,
+        *,
+        title: str,
+        prompt: str | None = None,
+        is_saved: bool = False,
+    ) -> Scenario:
+        """Insert an empty scenario shell (no LLM). Used by registry persist."""
+        await self._registry.ensure_default_runner_stub()
+        t = (title or "시나리오").strip()[:255] or "시나리오"
+        entity = await self._metadata.create_scenario(
+            title=t,
+            description=None,
+            content=None,
+            prompt=(prompt or t).strip() or t,
+            steps_json="[]",
+            is_saved=is_saved,
+        )
+        logger.info(
+            "Scenario shell created",
+            extra={"scenario_id": entity.id, "is_saved": is_saved},
+        )
+        return entity
+
     async def mark_saved(self, scenario_id: int, *, saved: bool) -> Scenario:
         entity = await self._metadata.update_scenario_fields(
             scenario_id,
