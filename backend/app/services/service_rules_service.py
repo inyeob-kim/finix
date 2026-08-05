@@ -18,6 +18,7 @@ from app.domain.cbs_service_taxonomy import (
     infer_business_domain,
 )
 from app.domain.dynamic_macro_resolver import validate_input_macros
+from app.domain.yaml_rules_order import sort_rules_normal_then_error
 from app.models.service_rule_current import ServiceRuleCurrent
 from app.models.service_rule_history import ServiceRuleHistory
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
@@ -427,6 +428,7 @@ def validate_and_prepare_yaml(
         payload,
         soft_drop_invalid_rules=soft_drop_invalid_rules,
     )
+    payload = sort_rules_normal_then_error(payload)
     canonical = yaml.dump(
         payload,
         allow_unicode=True,

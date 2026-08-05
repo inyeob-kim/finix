@@ -76,9 +76,10 @@ rules:
     _, payload = validate_and_prepare_yaml(yaml_text)
     assert payload["service_code"] == "PY016"
     assert len(payload["rules"]) == 2
-    assert payload["rules"][0]["case_id"] == "PY016-E-001"
-    assert payload["rules"][0]["input"] == {"custId": None}
-    assert "rule_id" not in payload["rules"][0]
+    assert payload["rules"][0]["case_id"] == "PY016-N-001"
+    assert payload["rules"][1]["case_id"] == "PY016-E-001"
+    assert payload["rules"][1]["input"] == {"custId": None}
+    assert "rule_id" not in payload["rules"][1]
 
 
 def test_validate_and_prepare_yaml_normalizes_duplicate_case_ids():
@@ -91,7 +92,7 @@ rules:
 """
     canonical, payload = validate_and_prepare_yaml(yaml_text)
     ids = [r["case_id"] for r in payload["rules"]]
-    assert ids == ["PY016-E-001", "PY016-E-002", "PY016-N-001"]
+    assert ids == ["PY016-N-001", "PY016-E-001", "PY016-E-002"]
     assert "PY016-E-002" in canonical
 
 
@@ -161,7 +162,7 @@ rules:
 {_case_rule("PY016-N-001", "N", tags='["business"]')}
 """
     _, payload = validate_and_prepare_yaml(yaml_text)
-    err = payload["rules"][0]
+    err = next(r for r in payload["rules"] if r["case_id"] == "PY016-E-001")
     assert err["assertions"][0]["value"] == "BAPPYE0008"
 
 

@@ -18,6 +18,7 @@ from app.utils.helpers import build_placeholder_body
 from app.utils.json_text import dumps_json, loads_json
 from app.utils.scenario_steps_document import parse_steps_list
 from app.utils.testcase_display_name import build_materialized_testcase_name
+from app.domain.yaml_rules_order import sort_rules_normal_then_error
 
 logger = get_logger(__name__)
 
@@ -224,7 +225,10 @@ class TestCaseService:
         endpoint = svc_meta.uri if svc_meta else f"/services/{code}"
         created: list[TestCase] = []
         step_index = step_index_start
-        for rule_idx, rule in enumerate(bundle.rules):
+        ordered_rules = sort_rules_normal_then_error(
+            {"rules": [r for r in bundle.rules if isinstance(r, dict)]}
+        )["rules"]
+        for rule_idx, rule in enumerate(ordered_rules):
             case_id = str(
                 rule.get("case_id")
                 or rule.get("rule_id")
