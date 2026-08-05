@@ -30,6 +30,7 @@ import {
   parseYamlRulesDocument,
   removeRuleAtIndex,
   setRulesOrder,
+  sortedYamlRuleIndices,
   tagsFromDraft,
   normalizeTagsFromRule,
   type YamlRuleRecord,
@@ -48,6 +49,9 @@ type YamlRulesFieldsFormProps = {
   expandRuleIndex?: number | null;
   expandRuleSignal?: number;
   onRuleEditingChange?: (editing: boolean) => void;
+  onRegisterMacroInsert?: (insert: ((macro: string) => void) | null) => void;
+  macroPanelOpen?: boolean;
+  onToggleMacroPanel?: () => void;
 };
 
 function formatJsonFieldForForm(value: unknown): string {
@@ -173,6 +177,9 @@ export function YamlRulesFieldsForm({
   expandRuleIndex = null,
   expandRuleSignal = 0,
   onRuleEditingChange,
+  onRegisterMacroInsert,
+  macroPanelOpen = false,
+  onToggleMacroPanel,
 }: YamlRulesFieldsFormProps) {
   const parsed = useMemo(() => parseYamlRulesDocument(yamlText), [yamlText]);
   const rules = parsed.ok && Array.isArray(parsed.doc.rules) ? parsed.doc.rules : [];
@@ -190,7 +197,7 @@ export function YamlRulesFieldsForm({
   const listScrollTopRef = useRef(0);
 
   const yamlRuleIndices = useMemo(
-    () => rules.map((_, index) => index),
+    () => sortedYamlRuleIndices(rules as YamlRuleRecord[]),
     [rules],
   );
 
@@ -596,6 +603,9 @@ export function YamlRulesFieldsForm({
                       setDrafts((prev) => ({ ...prev, [editingDisplayIndex]: next }))
                     }
                     onApply={applyCurrentEdit}
+                    onRegisterMacroInsert={onRegisterMacroInsert}
+                    macroPanelOpen={macroPanelOpen}
+                    onToggleMacroPanel={onToggleMacroPanel}
                   />
                 </div>
               </>

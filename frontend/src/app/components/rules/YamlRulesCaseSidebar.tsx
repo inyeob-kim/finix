@@ -4,6 +4,8 @@ import { CaseTypeBadge, ruleListLabel } from "./yamlCaseListUi";
 
 type Props = {
   rules: YamlRuleRecord[];
+  /** Document indices in display order (N then E). Defaults to 0..n-1. */
+  displayIndices?: number[];
   disabled?: boolean;
   editingDocument: boolean;
   selectedRuleIndex: number;
@@ -14,6 +16,7 @@ type Props = {
 
 export function YamlRulesCaseSidebar({
   rules,
+  displayIndices,
   disabled = false,
   editingDocument,
   selectedRuleIndex,
@@ -21,6 +24,11 @@ export function YamlRulesCaseSidebar({
   onSelectDocument,
   onSelectRule,
 }: Props) {
+  const indices =
+    displayIndices && displayIndices.length === rules.length
+      ? displayIndices
+      : rules.map((_, index) => index);
+
   return (
     <aside className="sm:w-56 shrink-0 flex flex-col rounded-md border border-border overflow-hidden max-h-40 sm:max-h-none">
       <p className="px-2.5 py-2 text-[11px] font-medium text-muted-foreground border-b border-border bg-muted/20">
@@ -42,7 +50,8 @@ export function YamlRulesCaseSidebar({
             전체 문서
           </button>
         </li>
-        {rules.map((rule, index) => {
+        {indices.map((index) => {
+          const rule = rules[index];
           if (!rule || typeof rule !== "object") {
             return (
               <li key={`invalid-${index}`}>

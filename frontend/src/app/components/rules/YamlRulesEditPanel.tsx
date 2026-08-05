@@ -8,10 +8,12 @@ import {
   type YamlCaseType,
 } from "@/lib/yamlRulesDocument";
 import { toYamlDiagnostic, type YamlDiagnostic } from "@/lib/yamlDiagnostic";
+import { FINIX_YAML_MACRO_RAIL_WIDTH } from "@/lib/finixModalLayout";
 import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixLoading } from "../ui/finix-loading";
 import { cn } from "../ui/utils";
-import { YamlInputMacroHelper } from "./YamlInputMacroHelper";
+import { YamlInputMacroPanel } from "./YamlInputMacroPanel";
+import { YamlInputMacroToggle } from "./YamlInputMacroToggle";
 import {
   YamlRulesCaseSourceEditor,
   type YamlRulesCaseSourceEditorHandle,
@@ -31,6 +33,8 @@ type YamlRulesEditPanelProps = {
   onNotice: (msg: string) => void;
   onError: (msg: string | null) => void;
   onFocusEditChange?: (focused: boolean) => void;
+  /** 동적값 패널 열림 — 부모가 모달 폭을 넓힐 때 사용 */
+  onMacroPanelOpenChange?: (open: boolean) => void;
 };
 
 export function YamlRulesEditPanel({
@@ -44,6 +48,7 @@ export function YamlRulesEditPanel({
   onNotice,
   onError,
   onFocusEditChange,
+  onMacroPanelOpenChange,
 }: YamlRulesEditPanelProps) {
   const [subTab, setSubTab] = useState<YamlEditSubTab>("source");
   const [validating, setValidating] = useState(false);
@@ -51,20 +56,70 @@ export function YamlRulesEditPanel({
   const [expandRuleIndex, setExpandRuleIndex] = useState<number | null>(null);
   const [expandRuleToken, setExpandRuleToken] = useState(0);
   const [fieldsRuleEditing, setFieldsRuleEditing] = useState(false);
+  const [macroPanelOpen, setMacroPanelOpen] = useState(false);
   const [sourceDiagnostic, setSourceDiagnostic] =
     useState<YamlDiagnostic | null>(null);
   const sourceEditorRef = useRef<YamlRulesCaseSourceEditorHandle>(null);
+  const fieldsMacroInsertRef = useRef<((macro: string) => void) | null>(null);
 
   const focusEdit = subTab === "fields" && fieldsRuleEditing;
+
+  const setMacroOpen = useCallback(
+    (open: boolean) => {
+      setMacroPanelOpen(open);
+      onMacroPanelOpenChange?.(open);
+    },
+    [onMacroPanelOpenChange],
+  );
+
+  useEffect(() => {
+    return () => onMacroPanelOpenChange?.(false);
+  }, [onMacroPanelOpenChange]);
 
   const handleFieldsEditingChange = useCallback(
     (editing: boolean) => {
       setFieldsRuleEditing(editing);
       onFocusEditChange?.(subTab === "fields" && editing);
+      if (!editing) {
+        fieldsMacroInsertRef.current = null;
+      }
     },
     [onFocusEditChange, subTab],
   );
 
+  const registerFieldsMacroInsert = useCallback(
+    (insert: ((macro: string) => void) | null) => {
+      fieldsMacroInsertRef.current = insert;
+    },
+    [],
+  );
+
+  const toggleMacroPanel = useCallback(() => {
+    setMacroOpen(!macroPanelOpen);
+  }, [macroPanelOpen, setMacroOpen]);
+  const applyMacro = useCallback(
+    (macro: string) => {
+      if (subTab === "source") {
+        sourceEditorRef.current?.insertMacro(macro);
+        return;
+      }
+      if (fieldsMacroInsertRef.current) {
+        fieldsMacroInsertRef.current(macro);
+        return;
+      }
+      onNotice("케이스를 열어 input에 커서를 둔 뒤 동적값을 넣으세요.");
+    },
+    [onNotice, subTab],
+  );
+
+  const macroHelperText =
+    subTab === "source"
+      ? '커서가 있는 값(따옴표 포함)을 "{{$…}}" 형식으로 바꿉니다. YAML에 즉시 반영됩니다.'
+      : fieldsRuleEditing
+        ? "커서가 있는 JSON 문자열 값을 매크로로 바꿉니다. 실행 시 실제 값으로 해석됩니다."
+        : "케이스를 열어 input에 커서를 둔 뒤 적용하세요.";
+
+  const macroApplyLabel = "값 반영";
   useEffect(() => {
     return () => onFocusEditChange?.(false);
   }, [onFocusEditChange]);
@@ -149,151 +204,168 @@ export function YamlRulesEditPanel({
       )}
     >
       {!focusEdit ? (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex gap-1 rounded-sm border border-border p-0.5">
-              {(
-                [
-                  { id: "source" as const, label: "YAML 소스" },
-                  { id: "fields" as const, label: "입력/기대값" },
-                ] as const
-              ).map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setSubTab(t.id)}
-                  className={cn(
-                    "h-8 px-3 text-xs rounded-sm",
-                    subTab === t.id
-                      ? "bg-primary/15 text-foreground"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {subTab === "source" ? (
-                <>
-                  <YamlInputMacroHelper
-                    disabled={disabled}
-                    onApplyMacro={(macro) =>
-                      sourceEditorRef.current?.insertMacro(macro)
-                    }
-                    applyLabel="커서에 넣기"
-                    helperText='커서가 있는 값(따옴표 포함)을 "{{$…}}" 형식으로 바꿉니다. YAML에 즉시 반영됩니다.'
-                  />
-                  <button
-                    type="button"
-                    onClick={handleFormat}
-                    disabled={disabled || !yamlText.trim()}
-                    className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <AlignLeft className="w-3.5 h-3.5" />
-                    포맷
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleValidate()}
-                    disabled={disabled || validating || !yamlText.trim()}
-                    className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {validating ? (
-                      <FinixLoading size="sm" inline />
-                    ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    )}
-                    검증
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onCopy}
-                    disabled={disabled || !yamlText.trim()}
-                    className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                    title={yamlCopyDone ? "복사됨" : "YAML 복사"}
-                  >
-                    {yamlCopyDone ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </button>
-                  <FinixPrimaryButton
-                    onClick={onExport}
-                    className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Export
-                  </FinixPrimaryButton>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs text-muted-foreground hidden sm:inline">
-                    추가할 타입
-                  </span>
-                  <div
-                    className="inline-flex rounded-sm border border-border bg-muted/30 p-0.5"
-                    role="group"
-                    aria-label="추가할 케이스 타입"
-                  >
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => setNewRuleType("E")}
-                      className={caseTypeChipClass("E")}
-                    >
-                      Error (E)
-                    </button>
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => setNewRuleType("N")}
-                      className={caseTypeChipClass("N")}
-                    >
-                      Normal (N)
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddRule}
-                    disabled={disabled}
-                    className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    케이스 추가
-                  </button>
-                </>
-              )}
-            </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex gap-1 rounded-sm border border-border p-0.5">
+            {(
+              [
+                { id: "source" as const, label: "YAML 소스" },
+                { id: "fields" as const, label: "입력/기대값" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSubTab(t.id)}
+                className={cn(
+                  "h-8 px-3 text-xs rounded-sm",
+                  subTab === t.id
+                    ? "bg-primary/15 text-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-        </>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <YamlInputMacroToggle
+              disabled={disabled}
+              active={macroPanelOpen}
+              onClick={toggleMacroPanel}
+            />
+            {subTab === "source" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleFormat}
+                  disabled={disabled || !yamlText.trim()}
+                  className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <AlignLeft className="w-3.5 h-3.5" />
+                  포맷
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleValidate()}
+                  disabled={disabled || validating || !yamlText.trim()}
+                  className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {validating ? (
+                    <FinixLoading size="sm" inline />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  검증
+                </button>
+                <button
+                  type="button"
+                  onClick={onCopy}
+                  disabled={disabled || !yamlText.trim()}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  title={yamlCopyDone ? "복사됨" : "YAML 복사"}
+                >
+                  {yamlCopyDone ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+                <FinixPrimaryButton
+                  onClick={onExport}
+                  className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export
+                </FinixPrimaryButton>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  추가할 타입
+                </span>
+                <div
+                  className="inline-flex rounded-sm border border-border bg-muted/30 p-0.5"
+                  role="group"
+                  aria-label="추가할 케이스 타입"
+                >
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setNewRuleType("E")}
+                    className={caseTypeChipClass("E")}
+                  >
+                    Error (E)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setNewRuleType("N")}
+                    className={caseTypeChipClass("N")}
+                  >
+                    Normal (N)
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddRule}
+                  disabled={disabled}
+                  className="h-9 px-3 rounded-sm border border-border bg-background text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  케이스 추가
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       ) : null}
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {subTab === "source" ? (
-          <YamlRulesCaseSourceEditor
-            ref={sourceEditorRef}
-            yamlText={yamlText}
-            onYamlChange={(text) => {
-              setSourceDiagnostic(null);
-              onYamlChange(text);
-            }}
-            disabled={disabled}
-            externalDiagnostic={sourceDiagnostic}
-            onClearExternalDiagnostic={() => setSourceDiagnostic(null)}
-          />
-        ) : (
-          <YamlRulesFieldsForm
-            yamlText={yamlText}
-            onYamlChange={onYamlChange}
-            disabled={disabled}
-            expandRuleIndex={expandRuleIndex}
-            expandRuleSignal={expandRuleToken}
-            onRuleEditingChange={handleFieldsEditingChange}
-          />
-        )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {subTab === "source" ? (
+            <YamlRulesCaseSourceEditor
+              ref={sourceEditorRef}
+              yamlText={yamlText}
+              onYamlChange={(text) => {
+                setSourceDiagnostic(null);
+                onYamlChange(text);
+              }}
+              disabled={disabled}
+              externalDiagnostic={sourceDiagnostic}
+              onClearExternalDiagnostic={() => setSourceDiagnostic(null)}
+            />
+          ) : (
+            <YamlRulesFieldsForm
+              yamlText={yamlText}
+              onYamlChange={onYamlChange}
+              disabled={disabled}
+              expandRuleIndex={expandRuleIndex}
+              expandRuleSignal={expandRuleToken}
+              onRuleEditingChange={handleFieldsEditingChange}
+              onRegisterMacroInsert={registerFieldsMacroInsert}
+              macroPanelOpen={macroPanelOpen}
+              onToggleMacroPanel={toggleMacroPanel}
+            />
+          )}
+        </div>
+
+        {macroPanelOpen ? (
+          <div
+            className={cn(
+              "flex h-full min-h-0 shrink-0 flex-col",
+              FINIX_YAML_MACRO_RAIL_WIDTH,
+            )}
+          >
+            <YamlInputMacroPanel
+              disabled={disabled}
+              applyLabel={macroApplyLabel}
+              helperText={macroHelperText}
+              onApplyMacro={applyMacro}
+              onClose={() => setMacroOpen(false)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

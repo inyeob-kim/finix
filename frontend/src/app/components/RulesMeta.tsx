@@ -96,7 +96,10 @@ import {
   type RulesMetaResumeState,
 } from "@/lib/rulesMetaResume";
 import { useAuthStore } from "../auth/authStore";
-import { FINIX_LARGE_MODAL_CONTENT } from "@/lib/finixModalLayout";
+import {
+  FINIX_LARGE_MODAL_CONTENT,
+  FINIX_LARGE_MODAL_WITH_RAIL_CONTENT,
+} from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
 
 type SortKey =
@@ -200,6 +203,7 @@ export function RulesMeta() {
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [yamlCopyDone, setYamlCopyDone] = useState(false);
   const [yamlRuleFocusEdit, setYamlRuleFocusEdit] = useState(false);
+  const [yamlMacroPanelOpen, setYamlMacroPanelOpen] = useState(false);
   const [historyItem, setHistoryItem] = useState<RuleRegistryItem | null>(null);
 
   useEffect(() => {
@@ -949,7 +953,11 @@ export function RulesMeta() {
         }}
       >
         <DialogContent
-          className={FINIX_LARGE_MODAL_CONTENT}
+          className={
+            yamlMacroPanelOpen && activeTab === "yaml"
+              ? FINIX_LARGE_MODAL_WITH_RAIL_CONTENT
+              : FINIX_LARGE_MODAL_CONTENT
+          }
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -1038,6 +1046,7 @@ export function RulesMeta() {
                     onNotice={setEditNotice}
                     onError={setEditError}
                     onFocusEditChange={setYamlRuleFocusEdit}
+                    onMacroPanelOpenChange={setYamlMacroPanelOpen}
                   />
                 )}
               </div>

@@ -4,6 +4,7 @@ import {
   parseYamlRule,
   parseYamlRulesDocument,
   replaceRuleAtIndex,
+  sortedYamlRuleIndices,
   type YamlRuleRecord,
 } from "@/lib/yamlRulesDocument";
 import {
@@ -52,6 +53,11 @@ export const YamlRulesCaseSourceEditor = forwardRef<
     return parsed.doc.rules as YamlRuleRecord[];
   }, [parsed]);
 
+  const displayIndices = useMemo(
+    () => sortedYamlRuleIndices(rules),
+    [rules],
+  );
+
   const [selection, setSelection] = useState<Selection>(() =>
     rules.length > 0 ? { kind: "rule", index: 0 } : { kind: "document" },
   );
@@ -93,9 +99,12 @@ export const YamlRulesCaseSourceEditor = forwardRef<
       return;
     }
 
-    // Modal often opens with empty yaml then loads — pick first case once rules appear.
+    // Modal often opens with empty yaml then loads — pick first sorted case once rules appear.
     if (prevLen === 0 && rules.length > 0) {
-      setSelection({ kind: "rule", index: 0 });
+      setSelection({
+        kind: "rule",
+        index: sortedYamlRuleIndices(rules)[0] ?? 0,
+      });
       return;
     }
 
@@ -211,6 +220,7 @@ export const YamlRulesCaseSourceEditor = forwardRef<
     <div className="flex flex-col sm:flex-row gap-3 min-h-0 h-full">
       <YamlRulesCaseSidebar
         rules={rules}
+        displayIndices={displayIndices}
         disabled={disabled}
         editingDocument={editingDocument}
         selectedRuleIndex={selectedRuleIndex}

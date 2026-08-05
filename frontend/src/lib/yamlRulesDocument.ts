@@ -58,6 +58,33 @@ export function caseTypeLabel(ruleType: string | undefined): string {
   return normalizeCaseType(ruleType) === "E" ? "Error (E)" : "Normal (N)";
 }
 
+/** Normal (N) first, then Error (E); within type, case_id ascending (numeric-aware). */
+export function compareYamlRules(
+  a: YamlRuleRecord,
+  b: YamlRuleRecord,
+): number {
+  const typeA = normalizeCaseType(String(a?.rule_type ?? ""));
+  const typeB = normalizeCaseType(String(b?.rule_type ?? ""));
+  if (typeA !== typeB) {
+    return typeA === "N" ? -1 : 1;
+  }
+  return getCaseId(a).localeCompare(getCaseId(b), "en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+export function sortYamlRules(rules: YamlRuleRecord[]): YamlRuleRecord[] {
+  return [...rules].sort(compareYamlRules);
+}
+
+/** Stable document indices ordered like ``sortYamlRules``. */
+export function sortedYamlRuleIndices(rules: YamlRuleRecord[]): number[] {
+  return rules
+    .map((_, index) => index)
+    .sort((a, b) => compareYamlRules(rules[a] ?? {}, rules[b] ?? {}));
+}
+
 export function parseYamlRulesDocument(text: string): ParseYamlResult {
   const trimmed = (text || "").trim();
   if (!trimmed) {
@@ -135,6 +162,9 @@ export function replaceRuleAtIndex(
 export function formatYamlRulesText(text: string): ParseYamlResult & { text?: string } {
   const parsed = parseYamlRulesDocument(text);
   if (!parsed.ok) return parsed;
+  if (Array.isArray(parsed.doc.rules)) {
+    parsed.doc.rules = sortYamlRules(parsed.doc.rules as YamlRuleRecord[]);
+  }
   return { ok: true, doc: parsed.doc, text: dumpYamlRulesDocument(parsed.doc) };
 }
 

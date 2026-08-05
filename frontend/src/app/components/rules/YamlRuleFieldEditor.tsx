@@ -3,7 +3,8 @@ import { Undo2 } from "lucide-react";
 import { FinixField, FinixUnderlineInput, FinixUnderlineSelect } from "../ui/finix-form";
 import type { YamlRuleRecord } from "@/lib/yamlRulesDocument";
 import { getCaseId, normalizeCaseType } from "@/lib/yamlRulesDocument";
-import { YamlInputMacroHelper } from "./YamlInputMacroHelper";
+import { insertOrReplaceJsonStringValue } from "@/lib/jsonStringReplace";
+import { YamlInputMacroToggle } from "./YamlInputMacroToggle";
 
 export type RuleFieldDraft = {
   title: string;
@@ -24,6 +25,10 @@ type YamlRuleFieldEditorProps = {
   disabled?: boolean;
   onDraftChange: (draft: RuleFieldDraft) => void;
   onApply: () => void;
+  /** Register insert callback for the parent macro side panel. */
+  onRegisterMacroInsert?: (insert: ((macro: string) => void) | null) => void;
+  macroPanelOpen?: boolean;
+  onToggleMacroPanel?: () => void;
 };
 
 const INPUT_UNDO_LIMIT = 50;
@@ -35,6 +40,9 @@ export function YamlRuleFieldEditor({
   disabled = false,
   onDraftChange,
   onApply,
+  onRegisterMacroInsert,
+  macroPanelOpen = false,
+  onToggleMacroPanel,
 }: YamlRuleFieldEditorProps) {
   const caseType = normalizeCaseType(String(rule.rule_type ?? ""));
   const showErrorFields =
@@ -96,6 +104,38 @@ export function YamlRuleFieldEditor({
     });
   }, [draft, onDraftChange]);
 
+  const insertMacro = useCallback(
+    (macro: string) => {
+      const el = inputRef.current;
+      const value = inputJsonRef.current;
+      const start = el?.selectionStart ?? value.length;
+      const end = el?.selectionEnd ?? start;
+      const scrollTop = el?.scrollTop ?? 0;
+      const quoted = JSON.stringify(macro);
+      const { next, cursor } = insertOrReplaceJsonStringValue(
+        value,
+        start,
+        end,
+        quoted,
+      );
+      setInputJson(next, true);
+      requestAnimationFrame(() => {
+        const ta = inputRef.current;
+        if (!ta) return;
+        ta.focus();
+        ta.scrollTop = scrollTop;
+        ta.setSelectionRange(cursor, cursor);
+      });
+    },
+    [setInputJson],
+  );
+
+  useEffect(() => {
+    if (!onRegisterMacroInsert) return;
+    onRegisterMacroInsert(insertMacro);
+    return () => onRegisterMacroInsert(null);
+  }, [insertMacro, onRegisterMacroInsert]);
+
   return (
     <div className="space-y-4 pb-2 pt-1">
       <div className="space-y-4">
@@ -134,12 +174,13 @@ export function YamlRuleFieldEditor({
             <Undo2 className="size-3.5" />
             되돌리기
           </button>
-          <YamlInputMacroHelper
-            disabled={disabled}
-            value={draft.inputJson}
-            textareaRef={inputRef}
-            onInsert={(next) => setInputJson(next, true)}
-          />
+          {onToggleMacroPanel ? (
+            <YamlInputMacroToggle
+              disabled={disabled}
+              active={macroPanelOpen}
+              onClick={onToggleMacroPanel}
+            />
+          ) : null}
         </div>
         <textarea
           ref={inputRef}

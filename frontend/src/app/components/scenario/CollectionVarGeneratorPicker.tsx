@@ -17,10 +17,15 @@ type Props = {
   onValueChange: (mode: string) => void;
   loading?: boolean;
   disabled?: boolean;
-  /** popover = scenario dialog; inline = YAML helper (search list always visible). */
+  /** popover = compact trigger; inline = always-visible search list. */
   variant?: "popover" | "inline";
   /** Include 「고정값」 row (scenario only). */
   includeLiteral?: boolean;
+  className?: string;
+  /** Override list scroll area (e.g. flex-1 min-h-0 for side panels). */
+  listClassName?: string;
+  /** Focus search input on mount / open. Default true. */
+  autoFocusSearch?: boolean;
 };
 
 function OptionRow({
@@ -41,15 +46,15 @@ function OptionRow({
       <button
         type="button"
         className={cn(
-          "w-full text-left px-2.5 py-1.5 rounded-sm",
+          "w-full text-left px-3 py-2 rounded-sm",
           active ? "bg-muted" : "hover:bg-muted/60",
           selected ? "text-primary" : "text-foreground",
         )}
         onMouseDown={(e) => e.preventDefault()}
         onClick={onPick}
       >
-        <span className="block text-xs font-medium truncate">{option.label}</span>
-        <span className="block text-[10px] text-muted-foreground font-mono truncate">
+        <span className="block text-sm font-medium truncate">{option.label}</span>
+        <span className="block text-[11px] text-muted-foreground font-mono truncate mt-0.5">
           {option.key}
           {option.source === "shared" ? " · 공유" : ""}
           {option.hint ? ` · ${option.hint}` : ""}
@@ -67,6 +72,9 @@ export function CollectionVarGeneratorPicker({
   disabled = false,
   variant = "popover",
   includeLiteral,
+  className,
+  listClassName,
+  autoFocusSearch = true,
 }: Props) {
   const showLiteral = includeLiteral ?? variant === "popover";
   const options = useMemo(() => toGeneratorPickerOptions(catalog), [catalog]);
@@ -120,13 +128,14 @@ export function CollectionVarGeneratorPicker({
   }, [activeIndex, open, inline]);
 
   useEffect(() => {
+    if (!autoFocusSearch) return;
     if (inline) {
       requestAnimationFrame(() => inputRef.current?.focus());
       return;
     }
     if (!open) return;
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open, inline]);
+  }, [open, inline, autoFocusSearch]);
 
   const pick = (mode: string) => {
     onValueChange(mode);
@@ -162,11 +171,11 @@ export function CollectionVarGeneratorPicker({
 
   const listBody = (
     <>
-      <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
-        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-2">
+        <Search className="size-4 shrink-0 text-muted-foreground" />
         <input
           ref={inputRef}
-          className="h-7 w-full bg-transparent text-xs outline-none"
+          className="h-8 w-full bg-transparent text-sm outline-none"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -179,16 +188,16 @@ export function CollectionVarGeneratorPicker({
         ref={listRef}
         role="listbox"
         className={cn(
-          "overflow-y-auto p-1 space-y-0.5",
-          inline ? "max-h-44" : "max-h-56",
+          "overflow-y-auto p-1.5 space-y-0.5",
+          listClassName ?? (inline ? "max-h-80 min-h-[16rem]" : "max-h-64"),
         )}
       >
         {loading ? (
-          <li className="px-2.5 py-2 text-[11px] text-muted-foreground">
+          <li className="px-3 py-2.5 text-xs text-muted-foreground">
             불러오는 중…
           </li>
         ) : flatList.length === 0 ? (
-          <li className="px-2.5 py-2 text-[11px] text-muted-foreground">
+          <li className="px-3 py-2.5 text-xs text-muted-foreground">
             검색 결과 없음
           </li>
         ) : null}
@@ -205,7 +214,7 @@ export function CollectionVarGeneratorPicker({
                     <button
                       type="button"
                       className={cn(
-                        "w-full text-left px-2.5 py-1.5 rounded-sm text-xs font-medium",
+                        "w-full text-left px-3 py-2 rounded-sm text-sm font-medium",
                         index === activeIndex ? "bg-muted" : "hover:bg-muted/60",
                         value === LITERAL_GENERATOR_MODE
                           ? "text-primary"
@@ -215,7 +224,7 @@ export function CollectionVarGeneratorPicker({
                       onClick={() => pick(LITERAL_GENERATOR_MODE)}
                     >
                       고정값
-                      <span className="block text-[10px] font-normal text-muted-foreground">
+                      <span className="block text-[11px] font-normal text-muted-foreground mt-0.5">
                         실행마다 같은 문자열
                       </span>
                     </button>
@@ -236,7 +245,7 @@ export function CollectionVarGeneratorPicker({
           : null}
       </ul>
       {!query.trim() && (builtin.length > 0 || shared.length > 0) ? (
-        <p className="border-t border-border px-2.5 py-1.5 text-[10px] text-muted-foreground">
+        <p className="shrink-0 border-t border-border px-2.5 py-1.5 text-[11px] text-muted-foreground">
           내장 {builtin.length} · 공유 {shared.length}
         </p>
       ) : null}
@@ -245,7 +254,12 @@ export function CollectionVarGeneratorPicker({
 
   if (inline) {
     return (
-      <div className="rounded-sm border border-border overflow-hidden bg-background">
+      <div
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden rounded-sm border border-border bg-background",
+          className,
+        )}
+      >
         {listBody}
       </div>
     );

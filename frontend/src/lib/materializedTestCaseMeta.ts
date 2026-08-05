@@ -74,13 +74,23 @@ export function testCaseMatchesQuery(
   return haystack.includes(q);
 }
 
-/** Order by case_id (numeric-aware), then id. */
+/** Order: Normal (N) then Error (E), then case_id ascending; finally id. */
 export function compareTestCasesByCaseId(
   a: TestCaseReadDto,
   b: TestCaseReadDto,
 ): number {
-  const caseA = parseMaterializedTestCaseName(a.name).caseId ?? a.name;
-  const caseB = parseMaterializedTestCaseName(b.name).caseId ?? b.name;
+  const metaA = parseMaterializedTestCaseName(a.name);
+  const metaB = parseMaterializedTestCaseName(b.name);
+  const kindA = metaA.pathKind ?? inferPathKindFromTestCase(a);
+  const kindB = metaB.pathKind ?? inferPathKindFromTestCase(b);
+  if (kindA !== kindB) {
+    if (kindA === "N") return -1;
+    if (kindB === "N") return 1;
+    if (kindA === "E") return -1;
+    if (kindB === "E") return 1;
+  }
+  const caseA = metaA.caseId ?? a.name;
+  const caseB = metaB.caseId ?? b.name;
   const byCase = caseA.localeCompare(caseB, "en", {
     numeric: true,
     sensitivity: "base",

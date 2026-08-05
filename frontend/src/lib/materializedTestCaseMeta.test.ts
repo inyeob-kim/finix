@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareTestCasesByCaseId,
   inferPathKindFromTestCase,
   parseMaterializedTestCaseName,
   testCaseMatchesQuery,
@@ -69,5 +70,23 @@ describe("testCaseMatchesQuery", () => {
     expect(testCaseMatchesQuery(row, "PY027-E-001")).toBe(true);
     expect(testCaseMatchesQuery(row, "/api/x")).toBe(true);
     expect(testCaseMatchesQuery(row, "missing")).toBe(false);
+  });
+});
+
+describe("compareTestCasesByCaseId", () => {
+  it("orders Normal before Error, then case_id ascending", () => {
+    const rows = [
+      sample({ id: 1, name: "[E] PY027-E-002 · b" }),
+      sample({ id: 2, name: "[N] PY027-N-002 · n2" }),
+      sample({ id: 3, name: "[E] PY027-E-001 · a" }),
+      sample({ id: 4, name: "[N] PY027-N-001 · n1" }),
+    ];
+    const ordered = [...rows].sort(compareTestCasesByCaseId).map((r) => r.name);
+    expect(ordered).toEqual([
+      "[N] PY027-N-001 · n1",
+      "[N] PY027-N-002 · n2",
+      "[E] PY027-E-001 · a",
+      "[E] PY027-E-002 · b",
+    ]);
   });
 });

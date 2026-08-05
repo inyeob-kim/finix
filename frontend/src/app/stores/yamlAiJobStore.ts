@@ -98,9 +98,9 @@ export function buildYamlAiJobStages(payload: {
     stages.push({ id: "swagger", label: "Swagger 참조 중" });
   }
   stages.push(
-    { id: "llm", label: "YAML 생성 중" },
-    { id: "validate", label: "서버 검증 중" },
-    { id: "save", label: "초안 저장 중" },
+    { id: "llm", label: "소스 분석·YAML 생성 중" },
+    { id: "validate", label: "기존 규칙 merge·검증 중" },
+    { id: "save", label: "작업본 저장 중" },
   );
   return stages;
 }
