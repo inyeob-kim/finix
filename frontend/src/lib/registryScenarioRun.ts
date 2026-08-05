@@ -5,10 +5,11 @@ import {
 } from "@/api/executionApi";
 import { ApiError } from "@/api/client";
 import type { ScenarioRegistryItem } from "@/app/components/scenarioRegistry/types";
-import type {
-  ScenarioRunFocusStatus,
-  ScenarioRunFocusStep,
-} from "@/app/components/scenario/ScenarioRunFocusProgress";
+import type { ScenarioRunFocusStep } from "@/app/components/scenario/ScenarioRunFocusProgress";
+import {
+  consumeExecutionProgressStream,
+  type ExecutionRunProgressState,
+} from "@/lib/executionProgressStream";
 import { migrateBindingsToStepKeys } from "@/lib/scenarioBindings";
 import { mergeExportPostmanConfig } from "@/lib/postmanExportDownload";
 import { persistRegistryScenarioToDb } from "@/lib/registryScenarioPersist";
@@ -21,14 +22,7 @@ import {
 
 export type ScenarioRunMode = "simulate" | "live";
 
-const STEP_RESULT_HOLD_MS = 480;
-
-export type ScenarioRunProgressState = {
-  steps: ScenarioRunFocusStep[];
-  currentIndex: number;
-  status: ScenarioRunFocusStatus;
-  total: number;
-};
+export type ScenarioRunProgressState = ExecutionRunProgressState;
 
 export function canRunRegistryScenario(item: ScenarioRegistryItem): boolean {
   return canExportRegistryScenarioPostman(item);
@@ -44,32 +38,6 @@ export function focusStepsFromRegistryItem(
   }));
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function upsertFocusStep(
-  steps: ScenarioRunFocusStep[],
-  index: number,
-  label: string,
-): ScenarioRunFocusStep[] {
-  const next = [...steps];
-  while (next.length <= index) {
-    next.push({
-      key: `step-${next.length}`,
-      label: `Step ${next.length + 1}`,
-    });
-  }
-  const prev = next[index];
-  next[index] = {
-    key: prev?.key ?? `step-${index}`,
-    label: label.trim() || prev?.label || `Step ${index + 1}`,
-  };
-  return next;
-}
-
 export async function consumeScenarioExecutionStream(
   body: {
     scenario_id: number;
@@ -80,42 +48,10 @@ export async function consumeScenarioExecutionStream(
   onProgress: (state: ScenarioRunProgressState) => void,
   signal?: AbortSignal,
 ): Promise<Extract<ExecutionStreamEvent, { type: "done" }>> {
-  let steps = seedSteps.length > 0 ? [...seedSteps] : [];
-  let currentIndex = 0;
-  let status: ScenarioRunFocusStatus = "pending";
-  let total = Math.max(steps.length, 1);
-
-  const emit = () => {
-    onProgress({ steps, currentIndex, status, total });
-  };
-  emit();
-
-  return streamScenarioExecution(
-    body,
-    async (event) => {
-      if (event.type === "run_started") {
-        total = Math.max(event.total, steps.length, 1);
-        emit();
-        return;
-      }
-      if (event.type === "step_started") {
-        total = Math.max(event.total, total, 1);
-        currentIndex = event.step_index;
-        status = "running";
-        steps = upsertFocusStep(steps, event.step_index, event.step_label);
-        emit();
-        return;
-      }
-      if (event.type === "step_finished") {
-        total = Math.max(event.total, total, 1);
-        currentIndex = event.step_index;
-        status = event.status === "passed" ? "passed" : "failed";
-        steps = upsertFocusStep(steps, event.step_index, event.step_label);
-        emit();
-        await sleep(STEP_RESULT_HOLD_MS);
-        return;
-      }
-    },
+  return consumeExecutionProgressStream(
+    (onEvent, abortSignal) => streamScenarioExecution(body, onEvent, abortSignal),
+    seedSteps,
+    onProgress,
     signal,
   );
 }

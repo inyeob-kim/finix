@@ -1,12 +1,18 @@
 import { ApiError } from "@/api/client";
+import { getExecution } from "@/api/executionApi";
 import {
   listTestCasesByServiceCode,
   materializeTestCasesForService,
   downloadServicePostmanCollection,
-  runServiceTestCasesExecution,
   runTestCaseExecution,
+  streamServiceTestCasesExecution,
 } from "@/api/testcaseApi";
 import type { ExecutionDetailDto, TestCaseReadDto } from "@/api/types";
+import {
+  consumeExecutionProgressStream,
+  type ExecutionRunProgressState,
+} from "@/lib/executionProgressStream";
+import { focusStepsFromPoolTestCases } from "@/lib/poolTestCaseRun";
 import {
   compareTestCasesByCaseId,
   inferPathKindFromTestCase,
@@ -30,6 +36,7 @@ import { toast } from "sonner";
 import { ConfirmPopover } from "../scenarioRegistry/components/ConfirmPopover";
 import { ScenarioCollectionVarsDialog } from "../scenario/ScenarioCollectionVarsDialog";
 import { ScenarioRunDialogForm } from "../scenario/ScenarioRunDialogForm";
+import { ScenarioRunFocusProgress } from "../scenario/ScenarioRunFocusProgress";
 import {
   Dialog,
   DialogContent,
@@ -101,6 +108,9 @@ export function RulesMetaTestCasesPanel({
   const [runError, setRunError] = useState<string | null>(null);
   const [runHeaderOpen, setRunHeaderOpen] = useState(false);
   const [runResult, setRunResult] = useState<ExecutionDetailDto | null>(null);
+  const [runFocus, setRunFocus] = useState<ExecutionRunProgressState | null>(
+    null,
+  );
   const [exportAllLoading, setExportAllLoading] = useState(false);
 
   const code = serviceCode.trim();
@@ -193,6 +203,7 @@ export function RulesMetaTestCasesPanel({
   const beginRunSession = (session: RunSession) => {
     setRunError(null);
     setRunResult(null);
+    setRunFocus(null);
     setRunMode("live");
     setRunHeaderOpen(false);
     setRunDraft(loadExecutionPostmanDefaults());
@@ -231,6 +242,21 @@ export function RulesMetaTestCasesPanel({
     setRunSession(null);
     setRunError(null);
     setRunResult(null);
+    setRunFocus(null);
+  };
+
+  const runAllWithProgress = async (payload: {
+    base_url: string;
+    mode: ScenarioRunMode;
+    postman: ReturnType<typeof postmanConfigToApi>;
+  }): Promise<ExecutionDetailDto> => {
+    const done = await consumeExecutionProgressStream(
+      (onEvent, signal) =>
+        streamServiceTestCasesExecution(code, payload, onEvent, signal),
+      focusStepsFromPoolTestCases(rows),
+      setRunFocus,
+    );
+    return getExecution(done.execution_id);
   };
 
   const confirmRun = async () => {
@@ -243,6 +269,7 @@ export function RulesMetaTestCasesPanel({
     setRunLoading(true);
     setRunError(null);
     setRunResult(null);
+    setRunFocus(null);
     try {
       saveExecutionPostmanDefaults(runDraft);
       const payload = {
@@ -252,15 +279,18 @@ export function RulesMetaTestCasesPanel({
       };
       const exec =
         runSession.kind === "all"
-          ? await runServiceTestCasesExecution(code, payload)
+          ? await runAllWithProgress(payload)
           : await runTestCaseExecution(runSession.test.id, payload);
       setRunResult(exec);
     } catch (e) {
       setRunError(
-        e instanceof ApiError ? e.message : "테스트 실행에 실패했습니다.",
+        e instanceof ApiError || e instanceof Error
+          ? e.message
+          : "테스트 실행에 실패했습니다.",
       );
     } finally {
       setRunLoading(false);
+      setRunFocus(null);
     }
   };
 
@@ -508,7 +538,14 @@ export function RulesMetaTestCasesPanel({
                 : "overflow-y-auto overscroll-contain",
             )}
           >
-            {runLoading ? (
+            {runLoading && runFocus ? (
+              <ScenarioRunFocusProgress
+                steps={runFocus.steps}
+                currentIndex={runFocus.currentIndex}
+                status={runFocus.status}
+                total={runFocus.total}
+              />
+            ) : runLoading ? (
               <div className="flex h-full min-h-[12rem] items-center justify-center py-8">
                 <FinixLoading
                   size="md"

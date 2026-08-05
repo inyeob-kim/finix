@@ -21,7 +21,6 @@ import {
 } from "../ui/alert-dialog";
 import {
   applyRuleFieldUpdates,
-  caseTypeLabel,
   duplicateRuleAtIndex,
   getCaseId,
   getRuleInput,
@@ -478,9 +477,15 @@ export function YamlRulesFieldsForm({
                         disabled={disabled}
                       >
                         <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        <span className="font-mono text-xs text-primary">{caseId}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {caseTypeLabel(r.rule_type)}
+                        <span
+                          className={cn(
+                            "font-mono text-xs",
+                            normalizeCaseType(r.rule_type) === "E"
+                              ? "text-destructive"
+                              : "text-primary",
+                          )}
+                        >
+                          {caseId}
                         </span>
                         <span className="text-xs truncate flex-1">
                           {draft.title.trim() || (
@@ -553,9 +558,15 @@ export function YamlRulesFieldsForm({
                       <ArrowLeft className="w-3.5 h-3.5" />
                       목록으로
                     </button>
-                    <span className="font-mono text-sm text-primary">{caseId}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {caseTypeLabel(r.rule_type)}
+                    <span
+                      className={cn(
+                        "font-mono text-sm",
+                        normalizeCaseType(r.rule_type) === "E"
+                          ? "text-destructive"
+                          : "text-primary",
+                      )}
+                    >
+                      {caseId}
                     </span>
                     <span className="text-xs text-muted-foreground truncate max-w-[min(20rem,40vw)]">
                       {draft.title.trim() || (

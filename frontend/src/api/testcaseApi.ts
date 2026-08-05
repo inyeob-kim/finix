@@ -1,5 +1,36 @@
 import { apiRequest, fetchBlob } from "./client";
+import {
+  streamExecutionEvents,
+  type ExecutionStreamEvent,
+} from "./executionApi";
 import type { ExecutionDetailDto, TestCaseReadDto } from "./types";
+
+type TestCaseExecutionRequest = {
+  base_url?: string;
+  mode?: "simulate" | "live";
+  postman?: {
+    base_url?: string;
+    header_vars?: Array<{ key: string; value?: string }>;
+    start_vars?: Array<{
+      key: string;
+      value?: string;
+      generator?: string;
+    }>;
+    default_headers?: Array<{ key: string; value?: string }>;
+  };
+};
+
+function testCaseExecutionBody(body?: TestCaseExecutionRequest) {
+  return {
+    base_url: body?.base_url ?? "",
+    mode: body?.mode ?? "simulate",
+    postman: body?.postman ?? null,
+  };
+}
+
+function serviceTestCasesExecutionPath(serviceCode: string): string {
+  return `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/executions`;
+}
 
 export async function generateTestCases(
   scenarioId: number,
@@ -82,30 +113,13 @@ export async function attachTestCasesToScenario(
 
 export async function runTestCaseExecution(
   testcaseId: number,
-  body?: {
-    base_url?: string;
-    mode?: "simulate" | "live";
-    postman?: {
-      base_url?: string;
-      header_vars?: Array<{ key: string; value?: string }>;
-      start_vars?: Array<{
-        key: string;
-        value?: string;
-        generator?: string;
-      }>;
-      default_headers?: Array<{ key: string; value?: string }>;
-    };
-  },
+  body?: TestCaseExecutionRequest,
 ): Promise<ExecutionDetailDto> {
   return apiRequest<ExecutionDetailDto>(
     `/api/v1/test-cases/${testcaseId}/executions`,
     {
       method: "POST",
-      body: JSON.stringify({
-        base_url: body?.base_url ?? "",
-        mode: body?.mode ?? "simulate",
-        postman: body?.postman ?? null,
-      }),
+      body: JSON.stringify(testCaseExecutionBody(body)),
     },
   );
 }
@@ -113,31 +127,29 @@ export async function runTestCaseExecution(
 /** Run all materialized pool test cases for one service as a single multi-step execution. */
 export async function runServiceTestCasesExecution(
   serviceCode: string,
-  body?: {
-    base_url?: string;
-    mode?: "simulate" | "live";
-    postman?: {
-      base_url?: string;
-      header_vars?: Array<{ key: string; value?: string }>;
-      start_vars?: Array<{
-        key: string;
-        value?: string;
-        generator?: string;
-      }>;
-      default_headers?: Array<{ key: string; value?: string }>;
-    };
-  },
+  body?: TestCaseExecutionRequest,
 ): Promise<ExecutionDetailDto> {
   return apiRequest<ExecutionDetailDto>(
-    `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/executions`,
+    serviceTestCasesExecutionPath(serviceCode),
     {
       method: "POST",
-      body: JSON.stringify({
-        base_url: body?.base_url ?? "",
-        mode: body?.mode ?? "simulate",
-        postman: body?.postman ?? null,
-      }),
+      body: JSON.stringify(testCaseExecutionBody(body)),
     },
+  );
+}
+
+/** Same as `runServiceTestCasesExecution`, but streams per-case progress. */
+export async function streamServiceTestCasesExecution(
+  serviceCode: string,
+  body: TestCaseExecutionRequest | undefined,
+  onEvent: (event: ExecutionStreamEvent) => void | Promise<void>,
+  signal?: AbortSignal,
+): Promise<Extract<ExecutionStreamEvent, { type: "done" }>> {
+  return streamExecutionEvents(
+    `${serviceTestCasesExecutionPath(serviceCode)}/stream`,
+    testCaseExecutionBody(body),
+    onEvent,
+    signal,
   );
 }
 

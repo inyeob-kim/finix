@@ -214,6 +214,44 @@ class ExecutionService:
         limit: int = 500,
     ) -> ExecutionRun:
         """Execute all materialized pool test cases for one CBS service code."""
+        prepared = await self._prepare_service_testcases_run(
+            service_code=service_code,
+            base_url=base_url,
+            mode=mode,
+            postman_config=postman_config,
+            limit=limit,
+        )
+        return await self._create_run_for_testcases(**prepared)
+
+    async def iter_run_for_service_testcases(
+        self,
+        *,
+        service_code: str,
+        base_url: str = "",
+        mode: str = "simulate",
+        postman_config: object | None = None,
+        limit: int = 500,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Execute a service test case pool and yield progress events (for SSE)."""
+        prepared = await self._prepare_service_testcases_run(
+            service_code=service_code,
+            base_url=base_url,
+            mode=mode,
+            postman_config=postman_config,
+            limit=limit,
+        )
+        async for event in self._iter_run_for_testcases(**prepared):
+            yield event
+
+    async def _prepare_service_testcases_run(
+        self,
+        *,
+        service_code: str,
+        base_url: str,
+        mode: str,
+        postman_config: object | None,
+        limit: int,
+    ) -> dict[str, Any]:
         from app.domain.postman_collection_config import PostmanCollectionConfig
         from app.utils.scenario_steps_document import parse_postman_config
 
@@ -248,14 +286,14 @@ class ExecutionService:
         if mode == "live" and not effective_base:
             raise InvalidInputError("Live 실행에는 base_url이 필요합니다.")
 
-        return await self._create_run_for_testcases(
-            scenario_id=None,
-            testcases=testcases,
-            steps_json=None,
-            base_url=effective_base,
-            mode=mode,
-            postman_config=parsed,
-        )
+        return {
+            "scenario_id": None,
+            "testcases": testcases,
+            "steps_json": None,
+            "base_url": effective_base,
+            "mode": mode,
+            "postman_config": parsed,
+        }
 
     async def _create_run_for_testcases(
         self,

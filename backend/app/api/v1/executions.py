@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.deps import get_execution_service
-from app.core.exceptions import DomainError
 from app.schemas.execution_schema import (
     ExecutionCreateV1,
     ExecutionDetailReadV1,
@@ -18,12 +16,9 @@ from app.schemas.execution_schema import (
     execution_run_to_list_item,
 )
 from app.services.execution_service import ExecutionService
+from app.utils.sse import SSE_HEADERS, sse_stream_events
 
 router = APIRouter(prefix="/executions")
-
-
-def _sse_pack(event: dict) -> str:
-    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @router.post("", response_model=ExecutionDetailReadV1, summary="Run scenario tests")
@@ -46,38 +41,15 @@ async def create_execution_stream_v1(
     service: ExecutionService = Depends(get_execution_service),
 ) -> StreamingResponse:
     """Execute a scenario and stream per-step progress as Server-Sent Events."""
-
-    async def event_gen():
-        try:
-            async for event in service.iter_run_for_scenario(
-                scenario_id=payload.scenario_id,
-                base_url=payload.base_url,
-                mode=payload.mode,
-            ):
-                yield _sse_pack(event)
-        except DomainError as exc:
-            yield _sse_pack(
-                {
-                    "type": "error",
-                    "message": str(exc),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            yield _sse_pack(
-                {
-                    "type": "error",
-                    "message": str(exc) or "시나리오 실행에 실패했습니다.",
-                },
-            )
-
+    events = service.iter_run_for_scenario(
+        scenario_id=payload.scenario_id,
+        base_url=payload.base_url,
+        mode=payload.mode,
+    )
     return StreamingResponse(
-        event_gen(),
+        sse_stream_events(events, fallback_message="시나리오 실행에 실패했습니다."),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=SSE_HEADERS,
     )
 
 

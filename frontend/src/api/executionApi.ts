@@ -78,16 +78,14 @@ function parseSseChunk(buffer: string): {
   return { events, rest };
 }
 
-export async function streamScenarioExecution(
-  body: {
-    scenario_id: number;
-    base_url?: string;
-    mode?: "simulate" | "live";
-  },
+/** POST a run request and consume its SSE progress frames until `done`. */
+export async function streamExecutionEvents(
+  path: string,
+  body: unknown,
   onEvent: (event: ExecutionStreamEvent) => void | Promise<void>,
   signal?: AbortSignal,
 ): Promise<Extract<ExecutionStreamEvent, { type: "done" }>> {
-  const res = await fetch(apiUrl("/api/v1/executions/stream"), {
+  const res = await fetch(apiUrl(path), {
     method: "POST",
     headers: {
       Accept: "text/event-stream",
@@ -125,7 +123,7 @@ export async function streamScenarioExecution(
     for (const event of parsed.events) {
       await onEvent(event);
       if (event.type === "error") {
-        throw new Error(event.message || "시나리오 실행에 실패했습니다.");
+        throw new Error(event.message || "실행에 실패했습니다.");
       }
       if (event.type === "done") {
         doneEvent = event;
@@ -138,7 +136,7 @@ export async function streamScenarioExecution(
     for (const event of parsed.events) {
       await onEvent(event);
       if (event.type === "error") {
-        throw new Error(event.message || "시나리오 실행에 실패했습니다.");
+        throw new Error(event.message || "실행에 실패했습니다.");
       }
       if (event.type === "done") {
         doneEvent = event;
@@ -150,6 +148,18 @@ export async function streamScenarioExecution(
     throw new Error("실행이 완료 이벤트 없이 종료되었습니다.");
   }
   return doneEvent;
+}
+
+export async function streamScenarioExecution(
+  body: {
+    scenario_id: number;
+    base_url?: string;
+    mode?: "simulate" | "live";
+  },
+  onEvent: (event: ExecutionStreamEvent) => void | Promise<void>,
+  signal?: AbortSignal,
+): Promise<Extract<ExecutionStreamEvent, { type: "done" }>> {
+  return streamExecutionEvents("/api/v1/executions/stream", body, onEvent, signal);
 }
 
 export async function getExecution(

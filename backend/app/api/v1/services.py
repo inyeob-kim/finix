@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.deps import get_execution_service, get_testcase_service
@@ -15,6 +15,7 @@ from app.schemas.execution_schema import (
 from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
 from app.services.execution_service import ExecutionService
 from app.services.testcase_service import TestCaseService
+from app.utils.sse import SSE_HEADERS, sse_stream_events
 
 router = APIRouter(prefix="/services")
 
@@ -68,6 +69,29 @@ async def run_service_test_cases_v1(
         postman_config=payload.postman,
     )
     return execution_run_to_detail(run)
+
+
+@router.post(
+    "/{service_code}/test-cases/executions/stream",
+    summary="Run all pool test cases for a service with SSE progress",
+)
+async def run_service_test_cases_stream_v1(
+    service_code: str,
+    payload: TestCaseExecutionCreateV1 = TestCaseExecutionCreateV1(),
+    execution_service: ExecutionService = Depends(get_execution_service),
+) -> StreamingResponse:
+    """Execute the service test case pool and stream per-case progress."""
+    events = execution_service.iter_run_for_service_testcases(
+        service_code=service_code,
+        base_url=payload.base_url,
+        mode=payload.mode,
+        postman_config=payload.postman,
+    )
+    return StreamingResponse(
+        sse_stream_events(events, fallback_message="테스트케이스 실행에 실패했습니다."),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
 
 
 @router.get(
