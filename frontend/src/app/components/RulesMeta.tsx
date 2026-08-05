@@ -793,21 +793,26 @@ export function RulesMeta() {
 
               <div className={cn(FINIX_DATA_TABLE_HUG_CLASS, "flex-1 p-0")}>
                 <FinixDataTableFrame className="rounded-none border-0">
-                  <FinixDataTable>
+                  <FinixDataTable className="table-fixed">
                     <FinixDataTableHeader>
                       <FinixDataTableRow className="hover:bg-transparent">
-                        <FinixDataTableHead className="whitespace-nowrap">
+                        <FinixDataTableHead className="w-[110px] whitespace-nowrap">
                           코드
                         </FinixDataTableHead>
-                        <FinixDataTableHead className="min-w-[180px]">
+                        <FinixDataTableHead className="min-w-[160px]">
                           서비스명
                         </FinixDataTableHead>
-                        <FinixDataTableHead>상태</FinixDataTableHead>
-                        <FinixDataTableHead className="text-right">
+                        <FinixDataTableHead className="w-[104px]">
+                          상태
+                        </FinixDataTableHead>
+                        <FinixDataTableHead className="w-[72px] text-right">
                           규칙
                         </FinixDataTableHead>
-                        <FinixDataTableHead className="whitespace-nowrap">
+                        <FinixDataTableHead className="w-[140px] whitespace-nowrap">
                           수정
+                        </FinixDataTableHead>
+                        <FinixDataTableHead className="w-[110px] whitespace-nowrap">
+                          수정자
                         </FinixDataTableHead>
                         <FinixDataTableHead className="w-[72px] text-right">
                           이력
@@ -818,7 +823,7 @@ export function RulesMeta() {
                       {registryLoading ? (
                         <FinixDataTableRow>
                           <FinixDataTableCell
-                            colSpan={6}
+                            colSpan={7}
                             className="py-12 text-center text-muted-foreground text-sm"
                           >
                             <FinixLoading
@@ -832,7 +837,7 @@ export function RulesMeta() {
                       ) : pageRows.length === 0 ? (
                         <FinixDataTableRow>
                           <FinixDataTableCell
-                            colSpan={6}
+                            colSpan={7}
                             className="py-12 text-center text-muted-foreground text-sm"
                           >
                             <div className="flex flex-col items-center gap-3">
@@ -868,7 +873,7 @@ export function RulesMeta() {
                             onClick={() => void openEdit(item)}
                           >
                             <FinixDataTableCell
-                              className="font-mono text-sm font-medium"
+                              className="font-mono text-sm font-medium truncate"
                               title={
                                 registryVersionHint(item) ??
                                 `편집 대상 #${item.bundleId}`
@@ -876,7 +881,10 @@ export function RulesMeta() {
                             >
                               {item.serviceCode}
                             </FinixDataTableCell>
-                            <FinixDataTableCell className="text-sm">
+                            <FinixDataTableCell
+                              className="text-sm truncate"
+                              title={item.serviceName}
+                            >
                               {item.serviceName}
                             </FinixDataTableCell>
                             <FinixDataTableCell
@@ -887,8 +895,14 @@ export function RulesMeta() {
                             <FinixDataTableCell className="text-right tabular-nums text-sm">
                               {item.rules}
                             </FinixDataTableCell>
-                            <FinixDataTableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            <FinixDataTableCell className="text-sm text-muted-foreground truncate">
                               {item.lastUpdatedAt}
+                            </FinixDataTableCell>
+                            <FinixDataTableCell
+                              className="text-sm text-muted-foreground truncate"
+                              title={item.lastUpdatedBy}
+                            >
+                              {item.lastUpdatedBy}
                             </FinixDataTableCell>
                             <FinixDataTableCell className="text-right">
                               <button

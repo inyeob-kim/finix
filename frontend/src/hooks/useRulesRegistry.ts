@@ -31,10 +31,12 @@ export type RuleRegistryItem = {
 };
 
 export function mapRegistryRow(r: ServiceRuleRegistryItemDto): RuleRegistryItem {
+  // Minutes precision keeps the grid column from overflowing into its neighbour.
   const at = r.last_updated_at
     ? new Date(r.last_updated_at)
         .toLocaleString("sv-SE", { hour12: false })
         .replace("T", " ")
+        .slice(0, 16)
     : "—";
   const businessDomain =
     (r.business_domain || "").trim() ||
