@@ -22,6 +22,11 @@ export type ScenarioRuleTestcaseRef = {
   /** When set, row came from GET /api/v1/test-cases (DB). */
   backendTestcaseId?: number;
   scenarioId?: number | null;
+  /**
+   * Fingerprint of pool request_body when this pick was added or last acknowledged.
+   * Used to detect live pool changes (not a body snapshot).
+   */
+  pinnedFingerprint?: string;
 };
 
 export type ScenarioRegistryFolder = {

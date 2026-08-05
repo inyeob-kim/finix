@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { ChevronLeft, ChevronsLeft, ChevronsRight, GripVertical } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
+  GripVertical,
+} from "lucide-react";
 import {
   countScenarioCaseTypes,
   filterScenarioCaseType,
@@ -9,6 +16,8 @@ import {
   type ScenarioCaseType,
   type ScenarioCaseTypeFilter,
 } from "@/lib/scenarioCaseTypeFilter";
+import type { PoolCaseLiveHealth } from "@/lib/poolCaseLiveRef";
+import { isBlockingLiveStatus } from "@/lib/poolCaseLiveRef";
 import { FinixLoading } from "../../ui/finix-loading";
 import { FinixStatusBadge } from "../../ui/finix-status-badge";
 import {
@@ -27,6 +36,8 @@ type ScenarioTestcaseTransferProps = {
   rulePickLoading: boolean;
   hasServices: boolean;
   activeServiceCode?: string | null;
+  pickHealthById?: Record<string, PoolCaseLiveHealth>;
+  onAcknowledgePick?: (id: string) => void;
   onAdd: (row: ScenarioRuleTestcaseRef) => void;
   onRemove: (id: string) => void;
   onReorder: (dragIndex: number, hoverIndex: number) => void;
@@ -101,6 +112,8 @@ function TestcasePickRow({
   includeCount,
   occurrence,
   duplicateTotal,
+  health,
+  onAcknowledge,
 }: {
   row: ScenarioRuleTestcaseRef;
   onClick: () => void;
@@ -110,6 +123,8 @@ function TestcasePickRow({
   includeCount?: number;
   occurrence?: number;
   duplicateTotal?: number;
+  health?: PoolCaseLiveHealth;
+  onAcknowledge?: () => void;
 }) {
   const caseType = resolveScenarioCaseType(row);
   const from: DragSource = variant === "selected" ? "selected" : "pool";
@@ -118,6 +133,8 @@ function TestcasePickRow({
     occurrence != null &&
     duplicateTotal != null &&
     duplicateTotal > 1;
+  const warn =
+    variant === "selected" && health && isBlockingLiveStatus(health.status);
 
   return (
     <li
@@ -145,72 +162,112 @@ function TestcasePickRow({
           : undefined
       }
     >
-      <button
-        type="button"
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData(
-            "application/json",
-            JSON.stringify({ id: row.id, from }),
-          );
-          if (variant === "selected" && index != null) {
-            e.dataTransfer.setData("text/plain", String(index));
-          }
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onClick={onClick}
-        className={
+      <div
+        className={cn(
+          "rounded-sm border px-2 py-2 text-xs",
           variant === "pool"
-            ? "w-full text-left rounded-sm border border-transparent hover:border-border hover:bg-muted/50 px-2 py-2 text-xs"
-            : "w-full text-left rounded-sm border border-border bg-background px-2 py-2 text-xs hover:bg-muted/40"
-        }
+            ? "border-transparent hover:border-border hover:bg-muted/50"
+            : warn
+              ? "border-destructive/40 bg-destructive/[0.04]"
+              : "border-border bg-background hover:bg-muted/40",
+        )}
       >
-        <div className="flex items-center gap-1">
-          {variant === "selected" ? (
-            <span
-              className="shrink-0 self-center text-muted-foreground cursor-grab active:cursor-grabbing"
-              title="드래그로 순서 변경"
-              aria-hidden
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </span>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
-                {row.ruleId?.trim()
-                  ? row.ruleId
-                  : row.backendTestcaseId != null
-                    ? `#${row.backendTestcaseId}`
-                    : row.serviceCode}
-                {showOccurrence ? (
-                  <span className="text-muted-foreground"> · {occurrence}회</span>
-                ) : null}
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData(
+              "application/json",
+              JSON.stringify({ id: row.id, from }),
+            );
+            if (variant === "selected" && index != null) {
+              e.dataTransfer.setData("text/plain", String(index));
+            }
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onClick={onClick}
+          className="w-full text-left"
+        >
+          <div className="flex items-center gap-1">
+            {variant === "selected" ? (
+              <span
+                className="shrink-0 self-center text-muted-foreground cursor-grab active:cursor-grabbing"
+                title="드래그로 순서 변경"
+                aria-hidden
+              >
+                <GripVertical className="w-3.5 h-3.5" />
               </span>
-              <div className="flex items-center gap-1 shrink-0">
-                {variant === "pool" && includeCount != null && includeCount > 0 ? (
-                  <span
-                    className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
-                    title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
-                  >
-                    {includeCount}
-                  </span>
-                ) : null}
-                <CaseTypeBadge caseType={caseType} />
-                {variant === "selected" ? (
-                  <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
-                ) : null}
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
+                  {row.ruleId?.trim()
+                    ? row.ruleId
+                    : row.backendTestcaseId != null
+                      ? `#${row.backendTestcaseId}`
+                      : row.serviceCode}
+                  {showOccurrence ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {occurrence}회
+                    </span>
+                  ) : null}
+                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {warn ? (
+                    <span
+                      className="inline-flex text-destructive"
+                      title={health?.message}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" />
+                    </span>
+                  ) : null}
+                  {variant === "pool" &&
+                  includeCount != null &&
+                  includeCount > 0 ? (
+                    <span
+                      className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
+                      title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
+                    >
+                      {includeCount}
+                    </span>
+                  ) : null}
+                  <CaseTypeBadge caseType={caseType} />
+                  {variant === "selected" ? (
+                    <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
+                  ) : null}
+                </div>
+              </div>
+              <div className="font-medium text-foreground mt-0.5 line-clamp-2">
+                {row.description?.trim() || row.title}
+              </div>
+              <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                {row.serviceCode}
               </div>
             </div>
-            <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-              {row.description?.trim() || row.title}
-            </div>
-            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              {row.serviceCode}
-            </div>
           </div>
-        </div>
-      </button>
+        </button>
+        {warn ? (
+          <div className="mt-1.5 flex items-start justify-between gap-2 pl-5">
+            <p className="text-[10px] text-destructive leading-snug">
+              {health?.message}
+            </p>
+            {health?.status === "changed" && onAcknowledge ? (
+              <button
+                type="button"
+                className="shrink-0 inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAcknowledge();
+                }}
+              >
+                <Check className="w-3 h-3" />
+                확인
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -221,6 +278,8 @@ export function ScenarioTestcaseTransfer({
   rulePickLoading,
   hasServices,
   activeServiceCode,
+  pickHealthById,
+  onAcknowledgePick,
   onAdd,
   onRemove,
   onReorder,
@@ -422,6 +481,12 @@ export function ScenarioTestcaseTransfer({
                     duplicateTotal={duplicateTotal}
                     onReorder={onReorder}
                     onClick={() => onRemove(r.id)}
+                    health={pickHealthById?.[r.id]}
+                    onAcknowledge={
+                      onAcknowledgePick
+                        ? () => onAcknowledgePick(r.id)
+                        : undefined
+                    }
                   />
                 );
               })}

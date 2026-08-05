@@ -158,8 +158,19 @@ export async function runRegistryScenario(input: {
   summary: { passed?: number; failed?: number };
 }> {
   try {
+    const { preparePicksForLiveRun } = await import("@/lib/preparePicksForLiveRun");
+    const prepared = await preparePicksForLiveRun(
+      input.item.selectedRuleTestcases ?? [],
+    );
+    if (prepared.error) {
+      throw new Error(prepared.error);
+    }
+    const item = {
+      ...input.item,
+      selectedRuleTestcases: prepared.picks,
+    };
     const scenarioId = await persistRegistryItemForRun(
-      input.item,
+      item,
       input.postmanConfig,
     );
     const baseUrl = input.postmanConfig?.baseUrl?.trim() ?? "";
@@ -172,7 +183,7 @@ export async function runRegistryScenario(input: {
           base_url: baseUrl,
           mode,
         },
-        focusStepsFromRegistryItem(input.item),
+        focusStepsFromRegistryItem(item),
         input.onProgress,
       );
       return {

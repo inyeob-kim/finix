@@ -192,21 +192,28 @@ class MetadataRepository:
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
-    async def find_pool_testcase_twin(
+    async def find_pool_testcase_by_service_and_case_id(
         self,
+        service_code: str,
+        case_id: str,
         *,
-        name: str,
-        rule_history_id: int | None,
+        limit_scan: int = 500,
     ) -> TestCase | None:
-        """Return a pool template (no scenario) matching name and optional rule history."""
-        stmt = select(TestCase).where(
-            TestCase.scenario_id.is_(None),
-            TestCase.name == name,
-        )
-        if rule_history_id is not None:
-            stmt = stmt.where(TestCase.rule_history_id == rule_history_id)
-        stmt = stmt.order_by(TestCase.id.asc()).limit(1)
-        return (await self._session.execute(stmt)).scalar_one_or_none()
+        """
+        Return the newest pool TC whose name encodes ``case_id`` for ``service_code``.
+        """
+        from app.utils.testcase_case_id import parse_case_id_from_testcase_name
+
+        code = (service_code or "").strip()
+        cid = (case_id or "").strip()
+        if not code or not cid:
+            return None
+        rows = await self.list_testcases_for_service_code(code, limit=limit_scan)
+        for row in rows:
+            parsed = parse_case_id_from_testcase_name(row.name or "", service_code=code)
+            if parsed == cid:
+                return row
+        return None
 
     async def find_pool_testcase_by_sample_id(self, sample_id: int) -> TestCase | None:
         """Return scenario-less testcase promoted from a pool sample."""

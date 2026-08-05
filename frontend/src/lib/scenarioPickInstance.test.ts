@@ -41,6 +41,6 @@ describe("scenarioPickInstance", () => {
     ];
     expect(scenarioPickOccurrence(picks, 0)).toBe(1);
     expect(scenarioPickOccurrence(picks, 2)).toBe(2);
-    expect(countPicksBySourceKey(picks).get("tc:10")).toBe(2);
+    expect(countPicksBySourceKey(picks).get("rule:AC001:AC001-N-001")).toBe(2);
   });
 });

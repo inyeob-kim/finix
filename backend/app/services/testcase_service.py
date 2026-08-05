@@ -317,16 +317,32 @@ class TestCaseService:
         testcase_id: int,
         *,
         scenario_id: int,
+        service_code: str | None = None,
     ) -> TestCase:
         """
         Resolve which row to clone from when attaching to a scenario.
 
-        Pool templates are preferred. Scenario-attached rows (same or other scenario)
-        are mapped to their pool twin when possible so re-save after delete works.
+        Prefers the live pool twin matched by ``service_code`` + ``case_id`` so
+        rematerialized bodies are picked up even when numeric ids changed.
         """
+        from app.utils.testcase_case_id import parse_case_id_from_testcase_name
+
         row = await self._metadata.get_testcase_by_id(testcase_id)
         if row is None:
             raise EntityNotFoundError("TestCase", testcase_id)
+
+        case_id = parse_case_id_from_testcase_name(
+            row.name or "",
+            service_code=service_code,
+        )
+        if case_id and service_code:
+            live = await self._metadata.find_pool_testcase_by_service_and_case_id(
+                service_code,
+                case_id,
+            )
+            if live is not None:
+                return live
+
         if row.scenario_id is None:
             return row
         pool = await self._metadata.find_pool_testcase_twin(
@@ -365,11 +381,21 @@ class TestCaseService:
             )
         attach_plan: list[tuple[int, TestCase]] = []
         for step_i, ids in enumerate(per_step):
+            service_code = None
+            if step_i < len(raw_steps) and isinstance(raw_steps[step_i], dict):
+                service_code = self._extract_service_code(raw_steps[step_i])
             for tid in ids:
                 source = await self._resolve_attach_source_testcase(
                     int(tid),
                     scenario_id=scenario_id,
+                    service_code=service_code,
                 )
+                body = loads_json(source.request_body_json, {})
+                if not isinstance(body, dict) or len(body) == 0:
+                    raise InvalidInputError(
+                        f"원본 Input이 비어 있습니다 (스텝 {step_i + 1}, "
+                        f"testcase #{source.id}). YAML을 채운 뒤 풀을 다시 생성하세요.",
+                    )
                 attach_plan.append((step_i, source))
         await self._metadata.delete_testcases_for_scenario(scenario_id)
         touched: list[TestCase] = []

@@ -34,6 +34,13 @@ class ScenarioResolveService:
             raise InvalidInputError(
                 "시나리오에 연결된 테스트 케이스가 없습니다. 풀에서 선택 후 연결(attach)하세요.",
             )
+        from app.services.live_pool_body import apply_live_pool_bodies_to_testcases
+
+        await apply_live_pool_bodies_to_testcases(
+            self._metadata,
+            testcases,
+            steps_json=scenario.steps_json,
+        )
         return self._resolve_rows(
             testcases,
             steps_json=scenario.steps_json,
@@ -71,9 +78,17 @@ class ScenarioResolveService:
                     ),
                 )
         steps_dump = [s.model_dump() for s in steps]
+        steps_json = dumps_json(steps_dump)
+        from app.services.live_pool_body import apply_live_pool_bodies_to_testcases
+
+        await apply_live_pool_bodies_to_testcases(
+            self._metadata,
+            ordered,
+            steps_json=steps_json,
+        )
         return self._resolve_rows(
             ordered,
-            steps_json=dumps_json(steps_dump),
+            steps_json=steps_json,
             simulate_responses=simulate_responses,
         )
 

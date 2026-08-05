@@ -24,6 +24,7 @@ import {
     type ScenarioRunMode,
     type ScenarioRunProgressState,
 } from "@/lib/registryScenarioRun";
+import { preparePicksForLiveRun } from "@/lib/preparePicksForLiveRun";
 import {
     migrateBindingsToStepKeys,
     type StepBindingsByStepKey,
@@ -81,6 +82,15 @@ import { useLocation, useNavigate } from "react-router";
 import { listTestCasesByServiceCode } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
 import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
+import {
+  fingerprintRequestBody,
+  hydratePickFingerprints,
+  anyPickBlocksRun,
+  evaluatePickLiveHealth,
+  rebindPicksToLivePool,
+  acknowledgePickFingerprint,
+  type PoolCaseLiveHealth,
+} from "@/lib/poolCaseLiveRef";
 import { useAuthStore } from "../auth/authStore";
 import { PageShell } from "./PageShell";
 import { ScenarioAiSuggestionsPanel } from "./scenario/ScenarioAiSuggestionsPanel";
@@ -172,12 +182,13 @@ function mapPersistedTestcaseToRef(
     id: `tc-${row.id}`,
     serviceCode,
     serviceName,
-    ruleId: parsed.ruleId,
+    ruleId: row.case_id?.trim() || parsed.ruleId,
     ruleType: parsed.ruleType,
     title: row.name,
     description: parsed.shortLabel,
     backendTestcaseId: row.id,
     scenarioId: row.scenario_id,
+    pinnedFingerprint: fingerprintRequestBody(row.request_body),
   };
 }
 
@@ -316,6 +327,22 @@ export function ScenarioRegistry() {
       ),
     [selectedRulePicks, serviceDrafts],
   );
+
+  const pickHealthById = useMemo(() => {
+    const out: Record<string, PoolCaseLiveHealth> = {};
+    for (const pick of selectedRulePicks) {
+      out[pick.id] = evaluatePickLiveHealth(pick, allYamlRuleRefs);
+    }
+    return out;
+  }, [selectedRulePicks, allYamlRuleRefs]);
+
+  const acknowledgeSelectedPick = (id: string) => {
+    setSelectedRulePicks((prev) =>
+      prev.map((p) =>
+        p.id === id ? acknowledgePickFingerprint(p, allYamlRuleRefs) : p,
+      ),
+    );
+  };
 
   const wizardBindingStats = useMemo(
     () => countBindingStats(wizardRunSteps, stepBindingsByStepKey),
@@ -543,7 +570,14 @@ export function ScenarioRegistry() {
             // ignore per-service fetch errors
           }
         }
-        if (!cancelled) setAllYamlRuleRefs(merged);
+        if (!cancelled) {
+          setAllYamlRuleRefs(merged);
+          setSelectedRulePicks((prev) => {
+            if (prev.length === 0) return prev;
+            const rebound = rebindPicksToLivePool(prev, merged);
+            return hydratePickFingerprints(rebound, merged);
+          });
+        }
       } finally {
         if (!cancelled) setRulePickLoading(false);
       }
@@ -814,6 +848,15 @@ export function ScenarioRegistry() {
     }
     const bindingsForSave = flushed?.bindings ?? stepBindingsByStepKey;
 
+    if (mode === "ready") {
+      const liveBlock = anyPickBlocksRun(selectedRulePicks, allYamlRuleRefs);
+      if (liveBlock) {
+        setError(liveBlock);
+        setScenarioWizardStep(1);
+        return;
+      }
+    }
+
     const existing = editingId
       ? (items.find((i) => i.id === editingId) ?? null)
       : null;
@@ -1002,13 +1045,24 @@ export function ScenarioRegistry() {
     }
   };
 
-  const openScenarioRunDialog = (item: ScenarioRegistryItem) => {
+  const openScenarioRunDialog = async (item: ScenarioRegistryItem) => {
     if (!canRunRegistryScenario(item)) {
       setError(
-        "실행하려면 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
+        registryScenarioPostmanExportBlockReason(item) ??
+          "실행하려면 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.",
       );
       return;
     }
+    const picks = item.selectedRuleTestcases ?? [];
+    const prepared = await preparePicksForLiveRun(picks);
+    if (prepared.error) {
+      setError(prepared.error);
+      return;
+    }
+    const itemForRun = {
+      ...item,
+      selectedRuleTestcases: prepared.picks,
+    };
     setScenarioRunError(null);
     setScenarioRunFocus(null);
     setScenarioRunHeaderOpen(false);
@@ -1016,7 +1070,14 @@ export function ScenarioRegistry() {
       mergeWithExecutionDefaults(ensurePostmanConfig(item.postmanConfig)),
     );
     setScenarioRunMode("live");
-    setScenarioRunTarget(item);
+    setScenarioRunTarget(itemForRun);
+    setItems((prev) =>
+      prev.map((row) =>
+        row.id === item.id
+          ? { ...row, selectedRuleTestcases: prepared.picks }
+          : row,
+      ),
+    );
   };
 
   const closeScenarioRunDialog = () => {
@@ -1532,7 +1593,7 @@ export function ScenarioRegistry() {
                     onRegister={startCreate}
                     onOpenHistory={() => navigate("/history")}
                     onEdit={startEdit}
-                    onRun={openScenarioRunDialog}
+                    onRun={(item) => void openScenarioRunDialog(item)}
                     onExport={openPostmanExportDialog}
                     onRequestDelete={remove}
                     onConfirmDeleteOpenChange={(v, id) =>
@@ -1661,7 +1722,7 @@ export function ScenarioRegistry() {
                         onRegister={startCreate}
                         onOpenHistory={() => navigate("/history")}
                         onEdit={startEdit}
-                        onRun={openScenarioRunDialog}
+                        onRun={(item) => void openScenarioRunDialog(item)}
                         onExport={openPostmanExportDialog}
                         onRequestDelete={remove}
                         onConfirmDeleteOpenChange={(v, id) =>
@@ -1787,6 +1848,8 @@ export function ScenarioRegistry() {
                   rulePickLoading={rulePickLoading}
                   hasServices={serviceDrafts.length > 0}
                   activeServiceCode={activeServiceCode}
+                  pickHealthById={pickHealthById}
+                  onAcknowledgePick={acknowledgeSelectedPick}
                   onAdd={addRuleToSelected}
                   onRemove={removeRuleFromSelected}
                   onReorder={reorderSelectedRules}

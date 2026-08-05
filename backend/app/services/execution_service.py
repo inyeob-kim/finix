@@ -139,6 +139,14 @@ class ExecutionService:
         if not testcases:
             raise InvalidInputError("시나리오에 생성된 테스트 케이스가 없습니다.")
 
+        from app.services.live_pool_body import apply_live_pool_bodies_to_testcases
+
+        await apply_live_pool_bodies_to_testcases(
+            self._metadata,
+            testcases,
+            steps_json=scenario.steps_json,
+        )
+
         _raw_steps, postman_config = parse_steps_document(scenario.steps_json)
         effective_base = base_url.strip() or (
             postman_config.base_url.strip() if postman_config else ""

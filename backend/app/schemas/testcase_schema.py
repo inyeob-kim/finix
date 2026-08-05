@@ -17,6 +17,7 @@ class TestCaseRead(BaseModel):
     id: int
     scenario_id: int | None
     name: str
+    case_id: str | None = None
     method: str | None
     endpoint: str | None
     request_body: dict[str, Any]
@@ -40,10 +41,13 @@ class TestCasePatchV1(BaseModel):
 
 def testcase_entity_to_read(entity: TestCase) -> TestCaseRead:
     """Map ORM test case to API read model."""
+    from app.utils.testcase_case_id import parse_case_id_from_testcase_name
+
     return TestCaseRead(
         id=entity.id,
         scenario_id=entity.scenario_id,
         name=entity.name,
+        case_id=parse_case_id_from_testcase_name(entity.name or ""),
         method=entity.http_method,
         endpoint=entity.endpoint,
         request_body=loads_json(entity.request_body_json, {}),

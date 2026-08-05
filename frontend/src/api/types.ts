@@ -156,6 +156,7 @@ export interface TestCaseReadDto {
   id: number;
   scenario_id: number | null;
   name: string;
+  case_id?: string | null;
   method: string | null;
   endpoint: string | null;
   request_body: Record<string, unknown>;

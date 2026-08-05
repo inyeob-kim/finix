@@ -31,7 +31,7 @@ function sanitizeFilenameStem(title: string): string {
   return stem || "scenario";
 }
 
-/** Ready status + every pick has a persisted DB testcase id. */
+/** Ready status + every pick has case_id and a persisted DB testcase id. */
 export function canExportRegistryScenarioPostman(
   item: ScenarioRegistryItem,
 ): boolean {
@@ -42,7 +42,9 @@ export function canExportRegistryScenarioPostman(
   if (picks.length === 0) {
     return false;
   }
-  return picks.every((p) => p.backendTestcaseId != null);
+  return picks.every(
+    (p) => p.backendTestcaseId != null && Boolean(p.ruleId?.trim()),
+  );
 }
 
 export function registryScenarioPostmanExportBlockReason(
@@ -54,6 +56,9 @@ export function registryScenarioPostmanExportBlockReason(
   const picks = item.selectedRuleTestcases ?? [];
   if (picks.length === 0) {
     return "포스트맨 export를 위해 시나리오에 DB 테스트 케이스가 포함되어 있어야 합니다.";
+  }
+  if (!picks.every((p) => Boolean(p.ruleId?.trim()))) {
+    return "모든 테스트 케이스에 case_id가 필요합니다. 풀에서 다시 선택하세요.";
   }
   if (!picks.every((p) => p.backendTestcaseId != null)) {
     return "포스트맨 export를 위해 시나리오의 모든 테스트 케이스가 DB에 저장되어 있어야 합니다.";

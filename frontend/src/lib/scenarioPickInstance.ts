@@ -2,11 +2,11 @@ import type { ScenarioRuleTestcaseRef } from "@/app/components/scenarioRegistry/
 
 /** Stable identity of the underlying TC/rule (not the scenario step instance). */
 export function scenarioPickSourceKey(row: ScenarioRuleTestcaseRef): string {
+  const ruleId = row.ruleId?.trim();
+  if (ruleId) return `rule:${row.serviceCode}:${ruleId}`;
   if (row.backendTestcaseId != null && Number.isFinite(row.backendTestcaseId)) {
     return `tc:${row.backendTestcaseId}`;
   }
-  const ruleId = row.ruleId?.trim();
-  if (ruleId) return `rule:${row.serviceCode}:${ruleId}`;
   return `id:${row.id}`;
 }
 
