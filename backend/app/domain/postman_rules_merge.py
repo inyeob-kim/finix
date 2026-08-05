@@ -16,7 +16,11 @@ from app.domain.postman_rules_plans import (
     MergePlan,
     RulesPayload,
 )
-from app.utils.rule_input_omm_skeleton import merge_skeleton_overlay
+from app.domain.yaml_rules_merge import (
+    apply_input_strategy,
+    looks_like_macro,
+    next_case_id,
+)
 
 _ERROR_NAME_RE = re.compile(
     r"(error|fail|reject|거절|오류|실패|부족|초과|invalid|violation|exception|"
@@ -27,7 +31,6 @@ _ERROR_FOLDER_RE = re.compile(
     r"(^|/)(validation|bizrule|biz_rule|negative|error)(/|$)",
     re.IGNORECASE,
 )
-_MACRO_RE = re.compile(r"\{\{[^{}]+\}\}")
 _POSTMAN_ERROR_CODE_RE = re.compile(
     r"(?:messageId|error[_]?code|errorCode)\s*[:=)]?\s*['\"]([A-Z][A-Z0-9_]{3,})['\"]"
     r"|['\"]([A-Z]{2,}[A-Z0-9]*E\d{3,5})['\"]",
@@ -45,14 +48,7 @@ def _looks_like_error_case(candidate: PostmanRequestCandidate) -> bool:
 
 
 def _next_case_id(service_code: str, rule_type: str, used: set[str]) -> str:
-    prefix = f"{service_code}-{rule_type}-"
-    n = 1
-    while True:
-        cid = f"{prefix}{n:03d}"
-        if cid not in used:
-            used.add(cid)
-            return cid
-        n += 1
+    return next_case_id(service_code, rule_type, used)
 
 
 def _source_evidence(candidate: PostmanRequestCandidate) -> dict[str, str]:
@@ -63,7 +59,7 @@ def _source_evidence(candidate: PostmanRequestCandidate) -> dict[str, str]:
 
 
 def _looks_like_macro(value: Any) -> bool:
-    return isinstance(value, str) and bool(_MACRO_RE.search(value))
+    return looks_like_macro(value)
 
 
 def _apply_input_strategy(
@@ -73,23 +69,12 @@ def _apply_input_strategy(
     base_input: dict[str, Any] | None,
     postman_body: dict[str, Any],
 ) -> dict[str, Any]:
-    base = dict(base_input) if isinstance(base_input, dict) else {}
-    body = dict(postman_body) if isinstance(postman_body, dict) else {}
-    if strategy == "keep_base_macros":
-        merged = merge_skeleton_overlay(skeleton, {**body, **base})
-        for key, val in base.items():
-            if _looks_like_macro(val):
-                merged[key] = val
-        return merged
-    if strategy == "fill_nulls_only":
-        overlay: dict[str, Any] = {}
-        for key, val in body.items():
-            cur = base.get(key, None)
-            if cur is None or cur == "" or cur == {}:
-                overlay[key] = val
-        return merge_skeleton_overlay(skeleton, {**base, **overlay})
-    # overlay_postman_values
-    return merge_skeleton_overlay(skeleton, {**base, **body})
+    return apply_input_strategy(
+        strategy=strategy,
+        skeleton=skeleton,
+        base_input=base_input,
+        incoming_body=postman_body,
+    )
 
 
 def reindex_candidates(

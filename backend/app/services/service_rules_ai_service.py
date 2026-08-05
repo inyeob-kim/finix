@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 import httpx
+import yaml
 
 from app.core.config import get_settings
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.domain.draft_enrichment import build_draft_enrichment_hints
+from app.domain.yaml_rules_merge import (
+    apply_yaml_rules_merge_plan,
+    extract_rules_list,
+    fallback_yaml_rules_merge_plan,
+    merge_candidate_payload_from_rule,
+)
 from app.integrations.llm_client import LlmClient
 from app.prompts.service_rules_from_source_prompt import (
     build_repair_user_prompt,
@@ -25,8 +33,11 @@ from app.prompts.service_rules_yaml_prompt import (
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.services.openapi_ingest_service import OpenApiIngestService
 from app.services.pool_service import PoolService
+from app.services.postman_rules_import_ai_service import PostmanRulesImportAiService
 from app.services.service_rules_service import ServiceRulesService, validate_and_prepare_yaml
 from app.utils.rule_input_omm_skeleton import build_input_skeleton_for_generation
+
+logger = logging.getLogger(__name__)
 
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\n|\n```$", re.MULTILINE)
@@ -105,12 +116,14 @@ class ServiceRulesAiService:
         rules_service: ServiceRulesService,
         pool_service: PoolService | None = None,
         openapi_service: OpenApiIngestService | None = None,
+        merge_planner: PostmanRulesImportAiService | None = None,
     ) -> None:
         self._llm = llm
         self._catalog_repo = catalog_repo
         self._rules = rules_service
         self._pool = pool_service
         self._openapi = openapi_service
+        self._merge_planner = merge_planner or PostmanRulesImportAiService(llm=llm)
 
     async def _generate_validated_yaml_text(
         self,
@@ -211,6 +224,98 @@ class ServiceRulesAiService:
             created_by=created_by,
         )
 
+    @staticmethod
+    def _editor_base_rules(row: Any) -> list[dict[str, Any]]:
+        """Prefer working draft rules, else applied — same view as the YAML editor."""
+        raw: str | None = None
+        if getattr(row, "has_draft", False):
+            raw = getattr(row, "draft_rules_json", None)
+        if not (raw or "").strip() and getattr(row, "has_applied", False):
+            raw = getattr(row, "rules_json", None)
+        if not (raw or "").strip():
+            return []
+        try:
+            parsed = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return []
+        return extract_rules_list(parsed)
+
+    async def _merge_generated_into_base(
+        self,
+        *,
+        service_code: str,
+        service_name: str,
+        base_rules: list[dict[str, Any]],
+        generated_yaml: str,
+        skeleton: dict[str, Any],
+    ) -> str:
+        """Apply shared merge plan (Postman merge LLM + yaml apply) onto base rules."""
+        _, generated_doc = validate_and_prepare_yaml(
+            generated_yaml,
+            input_skeleton=skeleton,
+            soft_drop_invalid_rules=True,
+        )
+        generated_rules = extract_rules_list(generated_doc)
+        if not generated_rules:
+            # Nothing useful from source — keep base as draft content.
+            return yaml.safe_dump(
+                {
+                    "service_code": service_code,
+                    "service_name": service_name,
+                    "rules": base_rules,
+                },
+                allow_unicode=True,
+                sort_keys=False,
+                default_flow_style=False,
+            )
+
+        candidates = [
+            merge_candidate_payload_from_rule(i, rule)
+            for i, rule in enumerate(generated_rules)
+        ]
+        try:
+            plan = await self._merge_planner.plan_merge_payloads(
+                service_code=service_code,
+                skeleton_keys=list(skeleton.keys())[:80],
+                base_rules=base_rules,
+                candidates=candidates,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "source_rules_merge AI plan failed service=%s: %s",
+                service_code,
+                exc,
+            )
+            plan = fallback_yaml_rules_merge_plan(generated_rules)
+
+        payload, diff = apply_yaml_rules_merge_plan(
+            service_code=service_code,
+            service_name=service_name,
+            base_rules=base_rules,
+            generated_rules=generated_rules,
+            plan=plan,
+            skeleton=skeleton,
+        )
+        logger.info(
+            "source_rules_merge service=%s updated=%s added=%s kept=%s",
+            service_code,
+            diff.updated,
+            diff.added,
+            diff.kept,
+        )
+        merged_yaml = yaml.safe_dump(
+            payload.as_dict(),
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        canonical, _ = validate_and_prepare_yaml(
+            merged_yaml,
+            input_skeleton=skeleton,
+            soft_drop_invalid_rules=True,
+        )
+        return canonical
+
     async def generate_draft_from_source(
         self,
         *,
@@ -222,7 +327,12 @@ class ServiceRulesAiService:
         use_data_pool: bool = False,
         use_swagger: bool = False,
     ):
-        """LLM reads pasted source, emits template-shaped YAML, then validates and stores draft."""
+        """
+        LLM reads pasted source, emits template-shaped YAML.
+
+        When a working draft or applied YAML already exists, merge generated
+        cases into that base (same match/add plan as Postman import).
+        """
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
@@ -258,6 +368,22 @@ class ServiceRulesAiService:
             out_dto=out_dto,
         )
 
+        current = await self._rules.get_current(code)
+        base_rules = self._editor_base_rules(current) if current is not None else []
+        existing_yaml = None
+        if current is not None:
+            if current.has_draft and (current.draft_yaml_text or "").strip():
+                existing_yaml = current.draft_yaml_text
+            elif current.has_applied and (current.yaml_text or "").strip():
+                existing_yaml = current.yaml_text
+
+        skeleton = build_input_skeleton_for_generation(
+            in_dto=in_dto,
+            java_source=raw_src,
+            raw_catalog_json=svc.raw_json,
+            existing_yaml=existing_yaml,
+        )
+
         system_prompt = build_yaml_ai_cached_system_prompt_from_source()
         user_prompt = build_user_prompt_from_source(
             service=meta,
@@ -265,18 +391,25 @@ class ServiceRulesAiService:
             hints=merged_hints,
         )
 
-        yaml_text = await self._generate_validated_yaml_text(
+        generated_yaml = await self._generate_validated_yaml_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            input_skeleton=build_input_skeleton_for_generation(
-                in_dto=in_dto,
-                java_source=raw_src,
-                raw_catalog_json=svc.raw_json,
-                existing_yaml=None,
-            ),
+            input_skeleton=skeleton,
         )
 
-        label = (source_version or "").strip() or None
+        if base_rules:
+            yaml_text = await self._merge_generated_into_base(
+                service_code=code,
+                service_name=svc.service_name or code,
+                base_rules=base_rules,
+                generated_yaml=generated_yaml,
+                skeleton=skeleton,
+            )
+            label = (source_version or "").strip() or "source-merge"
+        else:
+            yaml_text = generated_yaml
+            label = (source_version or "").strip() or "source-create"
+
         return await self._rules.create_draft(
             service_code=code,
             yaml_text=yaml_text,

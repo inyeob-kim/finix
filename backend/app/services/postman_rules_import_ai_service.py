@@ -14,6 +14,7 @@ from app.domain.postman_rules_plans import (
     MergeDecision,
     MergePlan,
 )
+from app.domain.yaml_rules_merge import summarize_base_rule
 from app.integrations.llm_client import LlmClient
 from app.prompts.postman_rules_create_prompt import (
     build_create_system_prompt,
@@ -50,21 +51,6 @@ def _candidate_payload(c: PostmanRequestCandidate) -> dict[str, Any]:
         "body": c.body,
         "description": c.description[:500],
         "test_script_excerpt": c.test_script_excerpt[:800],
-    }
-
-
-def _summarize_base_rule(rule: dict[str, Any]) -> dict[str, Any]:
-    inp = rule.get("input") if isinstance(rule.get("input"), dict) else {}
-    expect = rule.get("expect") if isinstance(rule.get("expect"), dict) else {}
-    return {
-        "case_id": rule.get("case_id"),
-        "rule_type": rule.get("rule_type"),
-        "title": rule.get("title") or rule.get("description"),
-        "description": str(rule.get("description") or "")[:300],
-        "input_keys": list(inp.keys())[:40],
-        "input_preview": {k: inp[k] for k in list(inp.keys())[:12]},
-        "expect_outcome": expect.get("outcome"),
-        "error_code": expect.get("error_code"),
     }
 
 
@@ -188,6 +174,27 @@ class PostmanRulesImportAiService:
         )
         return parse_create_plan_dict(_loads_json_object(raw))
 
+    async def plan_merge_payloads(
+        self,
+        *,
+        service_code: str,
+        skeleton_keys: list[str],
+        base_rules: list[dict[str, Any]],
+        candidates: list[dict[str, Any]],
+    ) -> MergePlan:
+        """Merge plan from already-shaped candidate payloads (Postman or source)."""
+        summary = [summarize_base_rule(r) for r in base_rules if isinstance(r, dict)]
+        raw = await self._llm.complete_json(
+            system_prompt=build_merge_system_prompt(),
+            user_prompt=build_merge_user_prompt(
+                service_code=service_code,
+                skeleton_keys=skeleton_keys,
+                base_rules_summary=summary,
+                candidates=candidates,
+            ),
+        )
+        return parse_merge_plan_dict(_loads_json_object(raw))
+
     async def plan_merge(
         self,
         *,
@@ -196,14 +203,9 @@ class PostmanRulesImportAiService:
         base_rules: list[dict[str, Any]],
         candidates: list[PostmanRequestCandidate],
     ) -> MergePlan:
-        summary = [_summarize_base_rule(r) for r in base_rules if isinstance(r, dict)]
-        raw = await self._llm.complete_json(
-            system_prompt=build_merge_system_prompt(),
-            user_prompt=build_merge_user_prompt(
-                service_code=service_code,
-                skeleton_keys=skeleton_keys,
-                base_rules_summary=summary,
-                candidates=[_candidate_payload(c) for c in candidates],
-            ),
+        return await self.plan_merge_payloads(
+            service_code=service_code,
+            skeleton_keys=skeleton_keys,
+            base_rules=base_rules,
+            candidates=[_candidate_payload(c) for c in candidates],
         )
-        return parse_merge_plan_dict(_loads_json_object(raw))
