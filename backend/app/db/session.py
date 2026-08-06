@@ -53,11 +53,21 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Create database tables if they do not exist."""
+    """Create database tables if they do not exist and seed defaults."""
     engine = get_engine()
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # Drop legacy fnx_* (surrogate id) before create_all so natural-key
+        # tables are recreated on next boot.
         await conn.run_sync(apply_sqlite_migrations)
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = get_session_factory()
+    async with factory() as session:
+        from app.repositories.institution_repo import InstitutionRepository
+        from app.services.institution_service import InstitutionService
+
+        await InstitutionService(InstitutionRepository(session)).ensure_default()
+        await session.commit()
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:

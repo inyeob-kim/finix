@@ -256,7 +256,9 @@ export async function getDashboardOverview(params?: {
 }
 
 export type PromoteResultDto = {
-  testcase_id: number;
+  inst_cd: string;
+  svc_code: string;
+  rule_case_id: string;
   pool_sample_id: number | null;
   name: string;
   reused: boolean;

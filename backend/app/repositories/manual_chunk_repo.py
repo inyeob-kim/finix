@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.manual_chunk import ManualChunk, ManualIndexMeta
+from app.models.fnx_manual_chunk import ManualChunk, ManualIndexMeta
 
 
 class ManualChunkRepository:

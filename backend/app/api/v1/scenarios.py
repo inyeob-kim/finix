@@ -10,6 +10,7 @@ from app.core.deps import (
     get_scenario_resolve_service,
     get_scenario_service,
     get_testcase_service,
+    require_active_inst_cd,
 )
 from app.schemas.scenario_bindings_suggest_schema import (
     ScenarioBindingsSuggestRead,
@@ -29,7 +30,7 @@ from app.schemas.scenario_resolve_schema import (
     ScenarioResolvePreviewInlineRequest,
     ScenarioResolvePreviewRead,
 )
-from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
+from app.schemas.testcase_schema import TestCaseRead, TestCaseRefV1, testcase_entity_to_read
 from app.services.scenario_bindings_ai_service import ScenarioBindingsAiService
 from app.services.scenario_resolve_service import ScenarioResolveService
 from app.services.scenario_service import ScenarioService
@@ -43,11 +44,13 @@ router = APIRouter(prefix="/scenarios")
 async def create_scenario_v1(
     payload: ScenarioCreateV1,
     service: ScenarioService = Depends(get_scenario_service),
+    inst_cd: str = Depends(require_active_inst_cd),
 ) -> ScenarioRead:
     """Persist a new scenario with template-derived steps."""
     entity = await service.create_from_prompt_v1(
         prompt=payload.prompt,
         title=payload.title,
+        inst_cd=inst_cd,
     )
     return scenario_entity_to_read(entity)
 
@@ -55,6 +58,7 @@ async def create_scenario_v1(
 @router.get("", response_model=list[ScenarioListRead], summary="List scenarios")
 async def list_scenarios_v1(
     service: ScenarioService = Depends(get_scenario_service),
+    inst_cd: str = Depends(require_active_inst_cd),
     saved: bool | None = Query(default=None, description="Filter by saved flag"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -64,6 +68,7 @@ async def list_scenarios_v1(
         saved_only=saved,
         limit=limit,
         offset=offset,
+        inst_cd=inst_cd,
     )
     return [
         ScenarioListRead(
@@ -93,12 +98,14 @@ class ScenarioShellCreateV1(BaseModel):
 async def create_scenario_shell_v1(
     payload: ScenarioShellCreateV1,
     service: ScenarioService = Depends(get_scenario_service),
+    inst_cd: str = Depends(require_active_inst_cd),
 ) -> ScenarioRead:
     """Persist a new empty scenario without AI generation."""
     entity = await service.create_blank(
         title=payload.title,
         prompt=payload.prompt,
         is_saved=payload.is_saved,
+        inst_cd=inst_cd,
     )
     return scenario_entity_to_read(entity)
 
@@ -110,10 +117,11 @@ async def create_scenario_shell_v1(
 )
 async def list_test_cases_for_scenario(
     scenario_id: int,
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> list[TestCaseRead]:
     """Return HTTP test cases linked to the scenario."""
-    rows = await testcase_service.list_for_scenario(scenario_id)
+    rows = await testcase_service.list_for_scenario(scenario_id, inst_cd=inst_cd)
     return [testcase_entity_to_read(r) for r in rows]
 
 
@@ -129,11 +137,12 @@ class TestCaseGenerateRequest(BaseModel):
 async def generate_test_cases_for_scenario(
     scenario_id: int,
     payload: TestCaseGenerateRequest = TestCaseGenerateRequest(),
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> list[TestCaseRead]:
     """Materialize template-based API tests from stored scenario steps."""
     rows = await testcase_service.generate_all_for_scenario(
-        scenario_id, instruction=payload.instruction
+        scenario_id, instruction=payload.instruction, inst_cd=inst_cd
     )
     return [testcase_entity_to_read(r) for r in rows]
 
@@ -164,6 +173,7 @@ async def resolve_preview_inline_v1(
     return await service.preview_inline(
         steps=payload.steps,
         per_step=payload.per_step,
+        inst_cd=payload.inst_cd,
         simulate_responses=payload.simulate_responses,
     )
 
@@ -176,11 +186,13 @@ async def resolve_preview_inline_v1(
 async def resolve_preview_for_scenario_v1(
     scenario_id: int,
     simulate_responses: bool = Query(default=True),
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ScenarioResolveService = Depends(get_scenario_resolve_service),
 ) -> ScenarioResolvePreviewRead:
     """Return template vs resolved bodies and context trace."""
     return await service.preview_for_scenario(
         scenario_id,
+        inst_cd=inst_cd,
         simulate_responses=simulate_responses,
     )
 
@@ -192,9 +204,9 @@ class ScenarioSaveDefinitionRequest(BaseModel):
     prompt: str | None = Field(default=None, max_length=4000)
     steps: list[ScenarioStepRead] | None = None
     postman: PostmanCollectionConfig | None = None
-    per_step: list[list[int]] | None = Field(
+    per_step: list[list[TestCaseRefV1]] | None = Field(
         default=None,
-        description="Pool testcase ids per logical step; clones templates into scenario.",
+        description="Natural-key testcase refs per logical step; links pool rows to scenario.",
     )
     mark_saved: bool = Field(default=True)
 
@@ -207,10 +219,11 @@ class ScenarioSaveDefinitionRequest(BaseModel):
 async def save_scenario_definition_v1(
     scenario_id: int,
     payload: ScenarioSaveDefinitionRequest,
+    inst_cd: str = Depends(require_active_inst_cd),
     scenario_service: ScenarioService = Depends(get_scenario_service),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> ScenarioRead:
-    """Patch steps/title and optionally attach pool testcases (clone, keep pool)."""
+    """Patch steps/title and optionally link pool testcases (natural-key refs)."""
     patch = payload.model_dump(exclude_unset=True)
     steps_dump = None
     if payload.steps is not None:
@@ -228,6 +241,7 @@ async def save_scenario_definition_v1(
         await testcase_service.attach_pool_to_scenario(
             scenario_id,
             per_step=payload.per_step,
+            inst_cd=inst_cd,
         )
     entity = await scenario_service.mark_saved(
         scenario_id,
@@ -247,6 +261,7 @@ async def export_scenario_postman_v1(
         default=True,
         description="When true, use {{var}} placeholders and pm.environment scripts for chaining.",
     ),
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
     generator_service: CollectionVarGeneratorService = Depends(
         get_collection_var_generator_service,
@@ -256,6 +271,7 @@ async def export_scenario_postman_v1(
     catalog = await generator_service.build_catalog_map()
     collection = await testcase_service.build_postman_for_scenario(
         scenario_id,
+        inst_cd=inst_cd,
         resolved=resolved,
         native=native,
         generator_catalog=catalog,
@@ -271,12 +287,14 @@ async def export_scenario_postman_v1(
 async def attach_test_cases_to_scenario(
     scenario_id: int,
     payload: ScenarioAttachTestCasesRequest,
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> list[TestCaseRead]:
     """Assign existing testcase rows to this scenario (per-step groups, global order)."""
     rows = await testcase_service.attach_pool_to_scenario(
         scenario_id,
         per_step=payload.per_step,
+        inst_cd=inst_cd,
     )
     return [testcase_entity_to_read(r) for r in rows]
 

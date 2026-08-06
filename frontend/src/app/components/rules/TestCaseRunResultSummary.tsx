@@ -156,7 +156,7 @@ function StepListSidebar({
           const active = idx === selectedIdx;
           const failed = step.status === "failed";
           return (
-            <li key={`${step.stepIndex}-${step.testcaseId ?? idx}`}>
+            <li key={`${step.stepIndex}-${step.svcCode ?? ""}-${step.ruleCaseId ?? idx}`}>
               <button
                 type="button"
                 className={cn(

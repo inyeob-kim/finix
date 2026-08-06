@@ -426,6 +426,8 @@ export const ScenarioStepPostmanPanel = forwardRef<
           <div className="min-h-0 flex-1 overflow-y-auto">
             <ScenarioStepPostmanTests
               step={step}
+              stepIndex={stepIndex}
+              runSteps={runSteps}
               bindings={bindings}
               onBindingsChange={onBindingsChange}
             />

@@ -1,4 +1,5 @@
 import { apiRequest, apiUrl, ApiError } from "./client";
+import { withInstCdQuery } from "@/lib/instScope";
 import type {
   ExecutionDetailDto,
   ExecutionListResponseDto,
@@ -9,7 +10,7 @@ export async function runScenarioExecution(body: {
   base_url?: string;
   mode?: "simulate" | "live";
 }): Promise<ExecutionDetailDto> {
-  return apiRequest<ExecutionDetailDto>("/api/v1/executions", {
+  return apiRequest<ExecutionDetailDto>(withInstCdQuery("/api/v1/executions"), {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -28,7 +29,8 @@ export type ExecutionStreamEvent =
       step_index: number;
       total: number;
       step_label: string;
-      testcase_id: number;
+      svc_code: string;
+      rule_case_id: string;
     }
   | {
       type: "step_finished";
@@ -36,7 +38,8 @@ export type ExecutionStreamEvent =
       step_index: number;
       total: number;
       step_label: string;
-      testcase_id: number;
+      svc_code: string;
+      rule_case_id: string;
       status: "passed" | "failed";
       error_message?: string | null;
     }
@@ -159,7 +162,12 @@ export async function streamScenarioExecution(
   onEvent: (event: ExecutionStreamEvent) => void | Promise<void>,
   signal?: AbortSignal,
 ): Promise<Extract<ExecutionStreamEvent, { type: "done" }>> {
-  return streamExecutionEvents("/api/v1/executions/stream", body, onEvent, signal);
+  return streamExecutionEvents(
+    withInstCdQuery("/api/v1/executions/stream"),
+    body,
+    onEvent,
+    signal,
+  );
 }
 
 export async function getExecution(
@@ -187,7 +195,7 @@ export async function listExecutions(params?: {
   }
   const query = qs.toString();
   return apiRequest<ExecutionListResponseDto>(
-    `/api/v1/executions${query ? `?${query}` : ""}`,
+    withInstCdQuery(`/api/v1/executions${query ? `?${query}` : ""}`),
     { method: "GET" },
   );
 }

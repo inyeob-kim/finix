@@ -13,7 +13,6 @@ const base: ScenarioRuleTestcaseRef = {
   serviceName: "계좌개설",
   ruleId: "AC001-N-001",
   title: "정상 개설",
-  backendTestcaseId: 10,
 };
 
 describe("scenarioPickInstance", () => {
@@ -23,8 +22,8 @@ describe("scenarioPickInstance", () => {
     const b = createScenarioPickInstance(base, () => `id-${++n}`);
     expect(a.id).toBe("pick-id-1");
     expect(b.id).toBe("pick-id-2");
-    expect(a.backendTestcaseId).toBe(10);
-    expect(b.backendTestcaseId).toBe(10);
+    expect(a.ruleId).toBe("AC001-N-001");
+    expect(b.ruleId).toBe("AC001-N-001");
     expect(scenarioPickSourceKey(a)).toBe(scenarioPickSourceKey(b));
   });
 
@@ -34,7 +33,6 @@ describe("scenarioPickInstance", () => {
       {
         ...base,
         id: "other",
-        backendTestcaseId: 99,
         ruleId: "AC001-N-002",
       },
       createScenarioPickInstance(base, () => "b"),

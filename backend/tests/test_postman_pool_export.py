@@ -17,14 +17,15 @@ def _tc(
     expected_body: str = '{"outcome":"success"}',
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        id=id,
+        inst_cd="1001",
+        svc_code="PY025",
+        rule_case_id=f"C-{id}",
         name=name,
         http_method="POST",
         endpoint=endpoint,
         request_body_json=request_body,
         expected_status=expected_status,
         expected_body_json=expected_body,
-        step_index=0,
     )
 
 

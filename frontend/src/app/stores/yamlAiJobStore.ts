@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { ApiError } from "@/api/client";
 import {
   generateServiceRulesDraftFromSource,
-  getServiceRulesBundle,
+  getActiveServiceRules,
   importServiceRulesFromPostman,
   type PostmanRulesImportResultDto,
 } from "@/api/serviceRulesApi";
@@ -282,10 +282,8 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       const first = result.services[0];
       if (first) {
         try {
-          bundle = await getServiceRulesBundle(
-            first.service_code,
-            first.draft_id,
-          );
+          bundle =
+            (await getActiveServiceRules(first.service_code)) ?? undefined;
         } catch {
           bundle = undefined;
         }

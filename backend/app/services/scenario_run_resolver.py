@@ -19,7 +19,7 @@ from app.domain.scenario_bindings import (
     parse_overrides,
 )
 from app.domain.step_http_result import StepHttpResult, coerce_step_http_result
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.utils.json_text import loads_json
 from app.utils.scenario_steps_document import parse_steps_list
 
@@ -28,7 +28,9 @@ from app.utils.scenario_steps_document import parse_steps_list
 class ResolvedTestCaseStep:
     """One testcase row after template + inject resolution."""
 
-    testcase_id: int
+    inst_cd: str
+    svc_code: str
+    rule_case_id: str
     step_index: int
     name: str
     method: str | None
@@ -77,13 +79,13 @@ def bindings_by_logical_step(
 
 
 def resolve_one_testcase_step(
-    tc: TestCase,
+    tc: FnxTestcase,
     *,
     idx: int,
     bindings: dict[int, tuple[list[InjectSpec], list[ExtractSpec], list[OverrideSpec]]],
     context: dict[str, Any],
     simulate_response: Callable[
-        [TestCase, dict[str, Any]], StepHttpResult | tuple[int, Any]
+        [FnxTestcase, dict[str, Any]], StepHttpResult | tuple[int, Any]
     ]
     | None = None,
     generator_catalog: dict[str, CatalogGeneratorSpec] | None = None,
@@ -92,10 +94,13 @@ def resolve_one_testcase_step(
     """
     Resolve one testcase step and optionally call HTTP/simulate.
 
+    ``idx`` is the testcase's position within the ordered list for this run,
+    which is also its logical scenario step index (one FnxTestcase per step).
+
     Returns:
         Resolved step, updated context, and new global warning strings.
     """
-    logical_step = tc.step_index if tc.step_index is not None else idx
+    logical_step = idx
     injects, extracts, overrides = bindings.get(logical_step, ([], [], []))
     raw_body = loads_json(tc.request_body_json, {})
     template = raw_body if isinstance(raw_body, dict) else {}
@@ -146,7 +151,9 @@ def resolve_one_testcase_step(
             )
 
     step = ResolvedTestCaseStep(
-        testcase_id=tc.id,
+        inst_cd=tc.inst_cd,
+        svc_code=tc.svc_code,
+        rule_case_id=tc.rule_case_id,
         step_index=logical_step,
         name=tc.name,
         method=tc.http_method,
@@ -167,12 +174,12 @@ def resolve_one_testcase_step(
 
 
 def resolve_scenario_run(
-    testcases: list[TestCase],
+    testcases: list[FnxTestcase],
     *,
     steps_json: str | None,
     initial_context: dict[str, Any] | None = None,
     simulate_response: Callable[
-        [TestCase, dict[str, Any]], StepHttpResult | tuple[int, Any]
+        [FnxTestcase, dict[str, Any]], StepHttpResult | tuple[int, Any]
     ]
     | None = None,
     generator_catalog: dict[str, CatalogGeneratorSpec] | None = None,

@@ -1,5 +1,9 @@
 import { apiRequest } from "./client";
-import type { ServiceRuleBundleReadDto } from "./types";
+import { getRequiredInstCd, withInstCdQuery } from "@/lib/instScope";
+import type {
+  ServiceRuleBundleReadDto,
+  ServiceRuleEditorCasesDto,
+} from "./types";
 
 export interface ServiceRuleRegistryItemDto {
   service_code: string;
@@ -42,16 +46,17 @@ export async function listServiceRulesRegistry(params?: {
   status?: string;
   limit?: number;
   offset?: number;
+  instCd?: string | null;
 }): Promise<ServiceRuleRegistryListDto> {
   const q = new URLSearchParams();
+  q.set("inst_cd", getRequiredInstCd(params?.instCd));
   if (params?.query) q.set("query", params.query);
   if (params?.status) q.set("status", params.status);
   const limit = Math.min(params?.limit ?? REGISTRY_PAGE_SIZE, REGISTRY_PAGE_SIZE);
   q.set("limit", String(limit));
   q.set("offset", String(params?.offset ?? 0));
-  const qs = q.toString();
   return apiRequest<ServiceRuleRegistryListDto>(
-    `/api/v1/service-rules/registry${qs ? `?${qs}` : ""}`,
+    `/api/v1/service-rules/registry?${q.toString()}`,
     { method: "GET" },
   );
 }
@@ -60,6 +65,7 @@ export async function listServiceRulesRegistry(params?: {
 export async function listAllServiceRulesRegistry(params?: {
   query?: string;
   status?: string;
+  instCd?: string | null;
 }): Promise<ServiceRuleRegistryListDto> {
   const all: ServiceRuleRegistryItemDto[] = [];
   let offset = 0;
@@ -69,6 +75,7 @@ export async function listAllServiceRulesRegistry(params?: {
     const page = await listServiceRulesRegistry({
       query: params?.query,
       status: params?.status,
+      instCd: params?.instCd,
       limit: REGISTRY_PAGE_SIZE,
       offset,
     });
@@ -88,11 +95,28 @@ export async function listAllServiceRulesRegistry(params?: {
   };
 }
 
+export async function listServiceRuleCases(
+  serviceCode: string,
+  instCd?: string | null,
+): Promise<ServiceRuleEditorCasesDto | null> {
+  return apiRequest<ServiceRuleEditorCasesDto | null>(
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/cases`,
+      instCd,
+    ),
+    { method: "GET" },
+  );
+}
+
 export async function getActiveServiceRules(
   serviceCode: string,
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto | null> {
   return apiRequest<ServiceRuleBundleReadDto | null>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}`,
+      instCd,
+    ),
     { method: "GET" },
   );
 }
@@ -100,9 +124,13 @@ export async function getActiveServiceRules(
 export async function getServiceRulesBundle(
   serviceCode: string,
   bundleId: number,
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
   return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+      instCd,
+    ),
     { method: "GET" },
   );
 }
@@ -110,18 +138,26 @@ export async function getServiceRulesBundle(
 export async function deleteServiceRulesBundle(
   serviceCode: string,
   bundleId: number,
+  instCd?: string | null,
 ): Promise<void> {
   await apiRequest<void>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+      instCd,
+    ),
     { method: "DELETE" },
   );
 }
 
 export async function listServiceRulesVersions(
   serviceCode: string,
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto[]> {
   return apiRequest<ServiceRuleBundleReadDto[]>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/versions`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/versions`,
+      instCd,
+    ),
     { method: "GET" },
   );
 }
@@ -133,9 +169,13 @@ export async function createServiceRulesDraft(
     source_version?: string | null;
     created_by?: string | null;
   },
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
   return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}`,
+      instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify({
@@ -155,9 +195,13 @@ export async function updateServiceRulesDraft(
     source_version?: string | null;
     created_by?: string | null;
   },
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
   return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/bundles/${bundleId}`,
+      instCd,
+    ),
     {
       method: "PUT",
       body: JSON.stringify({
@@ -172,9 +216,13 @@ export async function updateServiceRulesDraft(
 export async function validateServiceRulesYaml(
   serviceCode: string,
   yamlText: string,
+  instCd?: string | null,
 ): Promise<ServiceRuleValidateYamlResultDto> {
   return apiRequest<ServiceRuleValidateYamlResultDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/validate-yaml`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/validate-yaml`,
+      instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify({ yaml_text: yamlText }),
@@ -185,9 +233,13 @@ export async function validateServiceRulesYaml(
 export async function activateServiceRulesBundle(
   serviceCode: string,
   bundleId: number,
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
   return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/${bundleId}/activate`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/${bundleId}/activate`,
+      instCd,
+    ),
     { method: "POST" },
   );
 }
@@ -196,9 +248,13 @@ export async function activateServiceRulesBundle(
 export async function rollbackServiceRules(
   serviceCode: string,
   historyId: number,
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
   return apiRequest<ServiceRuleBundleReadDto>(
-    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/rollback`,
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/rollback`,
+      instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify({ to_version: historyId }),
@@ -216,8 +272,12 @@ export async function generateServiceRulesDraftFromSource(
     use_data_pool?: boolean;
     use_swagger?: boolean;
   },
+  instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
-  const path = `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/generate-draft-from-source`;
+  const path = withInstCdQuery(
+    `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/generate-draft-from-source`,
+    instCd,
+  );
   return apiRequest<ServiceRuleBundleReadDto>(path, {
     method: "POST",
     body: JSON.stringify({
@@ -263,12 +323,14 @@ export async function importServiceRulesFromPostman(payload: {
   environment?: unknown | null;
   overwrite_draft?: boolean;
   created_by?: string | null;
+  instCd?: string | null;
 }): Promise<PostmanRulesImportResultDto> {
   return apiRequest<PostmanRulesImportResultDto>(
     "/api/v1/service-rules/import-from-postman",
     {
       method: "POST",
       body: JSON.stringify({
+        inst_cd: getRequiredInstCd(payload.instCd),
         collection: payload.collection,
         environment: payload.environment ?? null,
         overwrite_draft: payload.overwrite_draft ?? false,

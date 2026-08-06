@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.service_catalog_item import ServiceCatalogItem
+from app.models.fnx_service_catalog import ServiceCatalogItem
 
 
 class ServiceCatalogRepository:

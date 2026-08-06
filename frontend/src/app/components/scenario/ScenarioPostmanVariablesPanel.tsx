@@ -170,14 +170,14 @@ export function ScenarioPostmanVariablesPanel({
           <div className="flex flex-wrap gap-1">
             {extractVars.map((ex) => (
               <span
-                key={ex.var}
+                key={`${ex.stepIndex}:${ex.var}`}
                 className="inline-flex items-center gap-1 rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-mono text-emerald-900 dark:text-emerald-200"
-                title={`[${ex.stepIndex + 1}] ${ex.caseLabel}`}
+                title={ex.caseLabel}
               >
-                {ex.var}
                 <span className="font-sans text-muted-foreground">
-                  ← [{ex.stepIndex + 1}]
+                  TC{ex.stepIndex + 1}
                 </span>
+                {ex.var}
               </span>
             ))}
           </div>

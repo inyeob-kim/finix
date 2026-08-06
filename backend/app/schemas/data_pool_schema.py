@@ -134,7 +134,9 @@ class PromoteByServiceRequest(BaseModel):
 
 
 class PromoteResult(BaseModel):
-    testcase_id: int
+    inst_cd: str
+    svc_code: str
+    rule_case_id: str
     pool_sample_id: int | None = None
     name: str
     reused: bool = False

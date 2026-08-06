@@ -1,3 +1,4 @@
+import type { TestCaseRefDto } from "@/api/types";
 import type { ScenarioRuleTestcaseRef } from "@/app/components/scenarioRegistry/types";
 import { parseMaterializedTestcaseName } from "@/lib/materializedTestcaseName";
 
@@ -34,10 +35,9 @@ export type ScenarioRunStep = {
   order: number;
   serviceCode: string;
   serviceName: string;
-  /** YAML case_id e.g. ``PY023-N-001``. */
+  /** YAML case_id e.g. ``PY023-N-001``; also the pool natural key (rule_case_id). */
   ruleId?: string;
   title: string;
-  backendTestcaseId?: number;
 };
 
 /** Label for run-step chips (``PY023-N-001`` style). */
@@ -66,18 +66,20 @@ export function buildRunStepsFromPicks(
         p.serviceCode,
       ruleId,
       title,
-      backendTestcaseId: p.backendTestcaseId,
     };
   });
 }
 
-/** ``per_step[i]`` = pool testcase ids for run step ``i`` (1:1 with pick order). */
-export function buildPerStepFromRunSteps(steps: ScenarioRunStep[]): number[][] {
-  return steps.map((s) =>
-    s.backendTestcaseId != null && Number.isFinite(s.backendTestcaseId)
-      ? [s.backendTestcaseId]
-      : [],
-  );
+/** ``per_step[i]`` = natural-key refs for run step ``i`` (1:1 with pick order). */
+export function buildPerStepFromRunSteps(
+  steps: ScenarioRunStep[],
+): TestCaseRefDto[][] {
+  return steps.map((s) => {
+    const ruleCaseId = s.ruleId?.trim();
+    return ruleCaseId
+      ? [{ svc_code: s.serviceCode, rule_case_id: ruleCaseId }]
+      : [];
+  });
 }
 
 export function serviceNameMapFromDrafts(

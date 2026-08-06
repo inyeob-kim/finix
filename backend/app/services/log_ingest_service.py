@@ -10,7 +10,7 @@ from app.core.exceptions import InvalidInputError
 from app.core.logger import get_logger
 from app.domain.bxcm_log.models import ParsedExchange
 from app.domain.bxcm_log.parser import parse_log_text
-from app.models.pool_sample import PoolSample
+from app.models.fnx_pool_sample import PoolSample
 from app.repositories.pool_sample_repo import PoolSampleRepository
 from app.utils.json_text import dumps_json
 

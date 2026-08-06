@@ -2,10 +2,10 @@
 
 import {
   stripBindingPathForInput,
-  upsertExtract,
   upsertInject,
   removeInjectByPath,
   removeInjectByVar,
+  setExtractVarAtPath,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
 import {
@@ -13,6 +13,7 @@ import {
   buildRuntimeConnectionLinks,
   fieldVarNameFromPath,
 } from "@/lib/scenarioConnectionUx";
+import { allocateUniqueExtractVarName } from "@/lib/extractVarNaming";
 import {
   runStepCaseIdLabel,
   runStepShortDescription,
@@ -155,12 +156,14 @@ export function applyVarLink(
 ): StepBindingsByStepKey {
   const toStep = runSteps[input.toStepIndex];
   if (!toStep) return bindings;
-  const varName = input.varName.trim() || fieldVarNameFromPath(input.requestPath);
-  if (!varName || !input.requestPath.trim()) return bindings;
+  if (!input.requestPath.trim()) return bindings;
 
   let next = bindings;
   if (input.fromStepIndex === START_VAR_STEP_INDEX) {
-    next = upsertInject(next, toStep.stepKey, varName, input.requestPath);
+    const startVar =
+      input.varName.trim() || fieldVarNameFromPath(input.requestPath);
+    if (!startVar) return bindings;
+    next = upsertInject(next, toStep.stepKey, startVar, input.requestPath);
     return next;
   }
 
@@ -169,7 +172,18 @@ export function applyVarLink(
   if (!input.responsePath.trim()) return bindings;
   if (input.fromStepIndex >= input.toStepIndex) return bindings;
 
-  next = upsertExtract(next, fromStep.stepKey, varName, input.responsePath);
+  const varName = allocateUniqueExtractVarName({
+    responsePath: input.responsePath,
+    preferredName:
+      input.varName.trim() || fieldVarNameFromPath(input.responsePath),
+    runSteps,
+    bindings,
+    sourceStepIndex: input.fromStepIndex,
+    exceptResponsePath: input.responsePath,
+  });
+  if (!varName) return bindings;
+
+  next = setExtractVarAtPath(next, fromStep.stepKey, input.responsePath, varName);
   next = upsertInject(next, toStep.stepKey, varName, input.requestPath);
   return next;
 }

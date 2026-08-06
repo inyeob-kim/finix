@@ -30,8 +30,10 @@ type YamlRulesCaseSourceEditorProps = {
   yamlText: string;
   onYamlChange: (text: string) => void;
   disabled?: boolean;
+  runningCaseId?: string | null;
   externalDiagnostic?: YamlDiagnostic | null;
   onClearExternalDiagnostic?: () => void;
+  onRunCase?: (caseId: string, ruleIndex: number) => void;
 };
 
 export const YamlRulesCaseSourceEditor = forwardRef<
@@ -42,8 +44,10 @@ export const YamlRulesCaseSourceEditor = forwardRef<
     yamlText,
     onYamlChange,
     disabled = false,
+    runningCaseId = null,
     externalDiagnostic = null,
     onClearExternalDiagnostic,
+    onRunCase,
   },
   ref,
 ) {
@@ -222,11 +226,13 @@ export const YamlRulesCaseSourceEditor = forwardRef<
         rules={rules}
         displayIndices={displayIndices}
         disabled={disabled}
+        runningCaseId={runningCaseId}
         editingDocument={editingDocument}
         selectedRuleIndex={selectedRuleIndex}
         caseHasLocalError={localDiagnostic != null && !editingDocument}
         onSelectDocument={selectDocument}
         onSelectRule={selectRule}
+        onRunCase={onRunCase}
       />
 
       <div className="flex-1 min-h-0 flex flex-col gap-2">

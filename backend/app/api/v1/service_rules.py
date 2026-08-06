@@ -7,13 +7,15 @@ import json
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import (
+    get_institution_service,
     get_postman_rules_import_service,
     get_service_rules_ai_service,
     get_service_rules_service,
+    require_active_inst_cd,
 )
-from app.core.exceptions import InvalidInputError
-from app.models.service_rule_current import ServiceRuleCurrent
-from app.models.service_rule_history import ServiceRuleHistory
+from app.core.exceptions import EntityNotFoundError, InvalidInputError
+from app.models.fnx_rule_doc_current import ServiceRuleCurrent
+from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.schemas.service_rules_schema import (
     PostmanRulesImportRequest,
     PostmanRulesImportResponse,
@@ -22,6 +24,7 @@ from app.schemas.service_rules_schema import (
     ServiceRuleBundleRead,
     ServiceRuleDraftCreate,
     ServiceRuleDraftUpdate,
+    ServiceRuleEditorCasesRead,
     ServiceRuleGenerateDraftRequest,
     ServiceRuleGenerateFromSourceRequest,
     ServiceRuleRegistryItemRead,
@@ -30,6 +33,7 @@ from app.schemas.service_rules_schema import (
     ServiceRuleValidateYamlRequest,
     ServiceRuleValidateYamlResponse,
 )
+from app.services.institution_service import InstitutionService
 from app.services.postman_rules_import_service import PostmanRulesImportService
 from app.services.service_rules_ai_service import ServiceRulesAiService
 from app.services.service_rules_service import ServiceRulesService, _editor_view
@@ -83,6 +87,90 @@ def _to_read_current(
     )
 
 
+def _editor_rules_list(payload: dict) -> list[dict]:
+    rules = payload.get("rules")
+    if isinstance(rules, dict) and isinstance(rules.get("rules"), list):
+        return [r for r in rules["rules"] if isinstance(r, dict)]
+    return []
+
+
+def _editor_dict_to_cases(payload: dict) -> ServiceRuleEditorCasesRead:
+    """Map case-first editor dict to cases API response."""
+    return ServiceRuleEditorCasesRead(
+        service_code=str(payload["service_code"]),
+        service_name=payload.get("service_name_snapshot"),
+        source_version=payload.get("source_version"),
+        status=str(payload["status"]),
+        has_draft=bool(payload.get("has_draft")),
+        is_active=bool(payload.get("is_active")),
+        bundle_id=int(payload.get("id") or 0),
+        checksum=str(payload.get("checksum") or ""),
+        updated_at=payload.get("updated_at"),
+        updated_by=payload.get("created_by"),
+        rules=_editor_rules_list(payload),
+        yaml_text=str(payload.get("yaml_text") or ""),
+    )
+
+
+def _editor_dict_to_read(payload: dict) -> ServiceRuleBundleRead:
+    """Map case-first editor bundle dict to API response."""
+    rules = payload.get("rules")
+    return ServiceRuleBundleRead(
+        id=int(payload["id"]),
+        service_code=str(payload["service_code"]),
+        service_name_snapshot=payload.get("service_name_snapshot"),
+        status=str(payload["status"]),
+        is_active=bool(payload["is_active"]),
+        version=int(payload.get("version") or 0),
+        source_version=payload.get("source_version"),
+        checksum=str(payload.get("checksum") or ""),
+        created_by=payload.get("created_by"),
+        created_at=payload.get("created_at"),
+        updated_at=payload.get("updated_at"),
+        yaml_text=payload.get("yaml_text"),
+        rules=rules if isinstance(rules, dict) else None,
+        has_draft=bool(payload.get("has_draft")),
+        change_kind=None,
+    )
+
+
+async def _read_editor_bundle(
+    service: ServiceRulesService,
+    service_code: str,
+    *,
+    inst_cd: str,
+) -> ServiceRuleBundleRead | None:
+    payload = await service.get_editor_bundle_dict(service_code, inst_cd=inst_cd)
+    if payload is None:
+        return None
+    return _editor_dict_to_read(payload)
+
+
+async def _read_editor_cases(
+    service: ServiceRulesService,
+    service_code: str,
+    *,
+    inst_cd: str,
+) -> ServiceRuleEditorCasesRead | None:
+    payload = await service.get_editor_bundle_dict(service_code, inst_cd=inst_cd)
+    if payload is None:
+        return None
+    return _editor_dict_to_cases(payload)
+
+
+async def _read_editor_bundle_after_write(
+    service: ServiceRulesService,
+    service_code: str,
+    *,
+    inst_cd: str,
+    row: ServiceRuleCurrent,
+) -> ServiceRuleBundleRead:
+    bundle = await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
+    if bundle is not None:
+        return bundle
+    return _to_read_current(row, include_yaml=True, include_rules=True, prefer_draft=True)
+
+
 def _to_read_history(
     row: ServiceRuleHistory,
     *,
@@ -115,6 +203,7 @@ def _to_read_history(
     summary="List rule documents aggregated per service (Rules/Meta UI)",
 )
 async def list_rules_registry(
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
     query: str | None = Query(default=None),
     status: str | None = Query(default=None, description="active or draft"),
@@ -126,6 +215,7 @@ async def list_rules_registry(
         status=status,
         limit=limit,
         offset=offset,
+        inst_cd=inst_cd,
     )
     items = [
         ServiceRuleRegistryItemRead(
@@ -166,12 +256,15 @@ async def list_rules_registry(
 async def import_from_postman(
     payload: PostmanRulesImportRequest,
     service: PostmanRulesImportService = Depends(get_postman_rules_import_service),
+    institutions: InstitutionService = Depends(get_institution_service),
 ) -> PostmanRulesImportResponse:
+    inst_cd = await institutions.assert_active(payload.inst_cd)
     result = await service.import_collection(
         payload.collection,
         environment=payload.environment,
         created_by=payload.created_by,
         overwrite_draft=payload.overwrite_draft,
+        inst_cd=inst_cd,
     )
     return PostmanRulesImportResponse(
         services=[
@@ -192,6 +285,7 @@ async def import_from_postman(
 async def delete_rules_bundle(
     service_code: str,
     bundle_id: int,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> None:
     await service.delete_bundle(service_code=service_code, bundle_id=bundle_id)
@@ -205,16 +299,20 @@ async def delete_rules_bundle(
 async def get_rules_bundle(
     service_code: str,
     bundle_id: int,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
     entity = await service.get_bundle(bundle_id)
     if entity.service_code != (service_code or "").strip():
         raise InvalidInputError("service_code mismatch")
     if isinstance(entity, ServiceRuleCurrent):
-        return _to_read_current(
-            entity, include_yaml=True, include_rules=True, prefer_draft=True
-        )
-    current = await service.get_active(service_code)
+        if (entity.inst_cd or "").strip() != inst_cd.strip():
+            raise InvalidInputError("institution mismatch")
+        bundle = await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
+        if bundle is not None:
+            return bundle
+        raise EntityNotFoundError("ServiceRuleEditor", service_code)
+    current = await service.get_active(service_code, inst_cd=inst_cd)
     is_current = (
         current is not None
         and current.has_applied
@@ -229,22 +327,29 @@ async def get_rules_bundle(
 
 
 @router.get(
+    "/{service_code}/cases",
+    response_model=ServiceRuleEditorCasesRead | None,
+    summary="List editor rule cases for service (SoT: fnx_rule_case)",
+)
+async def list_editor_cases(
+    service_code: str,
+    inst_cd: str = Depends(require_active_inst_cd),
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleEditorCasesRead | None:
+    return await _read_editor_cases(service, service_code, inst_cd=inst_cd)
+
+
+@router.get(
     "/{service_code}",
     response_model=ServiceRuleBundleRead | None,
-    summary="Get applied rules for service (editor prefers draft when present)",
+    summary="Get editor document assembled from rule cases",
 )
 async def get_active_rules(
     service_code: str,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead | None:
-    row = await service.get_editor_document(service_code)
-    if row is None:
-        return None
-    if not row.has_applied and not row.has_draft:
-        return None
-    return _to_read_current(
-        row, include_yaml=True, include_rules=True, prefer_draft=True
-    )
+    return await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
 
 
 @router.get(
@@ -254,9 +359,12 @@ async def get_active_rules(
 )
 async def list_versions(
     service_code: str,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> list[ServiceRuleBundleRead]:
-    rows = await service.list_versions_with_active_flag(service_code)
+    rows = await service.list_versions_with_active_flag(
+        service_code, inst_cd=inst_cd
+    )
     return [
         _to_read_history(r, is_current=is_current) for r, is_current in rows
     ]
@@ -270,6 +378,7 @@ async def list_versions(
 async def validate_yaml(
     service_code: str,
     payload: ServiceRuleValidateYamlRequest,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleValidateYamlResponse:
     _ = (service_code or "").strip()
@@ -289,6 +398,7 @@ async def validate_yaml(
 async def create_draft(
     service_code: str,
     payload: ServiceRuleDraftCreate,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
     row = await service.create_draft(
@@ -296,8 +406,11 @@ async def create_draft(
         yaml_text=payload.yaml_text,
         source_version=payload.source_version,
         created_by=payload.created_by,
+        inst_cd=inst_cd,
     )
-    return _to_read_current(row, include_yaml=True, include_rules=True)
+    return await _read_editor_bundle_after_write(
+        service, service_code, inst_cd=inst_cd, row=row
+    )
 
 
 @router.put(
@@ -309,6 +422,7 @@ async def update_draft(
     service_code: str,
     bundle_id: int,
     payload: ServiceRuleDraftUpdate,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
     row = await service.update_draft(
@@ -317,8 +431,11 @@ async def update_draft(
         yaml_text=payload.yaml_text,
         source_version=payload.source_version,
         created_by=payload.created_by,
+        inst_cd=inst_cd,
     )
-    return _to_read_current(row, include_yaml=True, include_rules=True)
+    return await _read_editor_bundle_after_write(
+        service, service_code, inst_cd=inst_cd, row=row
+    )
 
 
 @router.post(
@@ -329,15 +446,20 @@ async def update_draft(
 async def generate_draft_via_ai(
     service_code: str,
     payload: ServiceRuleGenerateDraftRequest,
-    service: ServiceRulesAiService = Depends(get_service_rules_ai_service),
+    inst_cd: str = Depends(require_active_inst_cd),
+    ai_service: ServiceRulesAiService = Depends(get_service_rules_ai_service),
+    rules_service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
-    row = await service.generate_draft(
+    row = await ai_service.generate_draft(
         service_code=service_code,
         objective=payload.objective,
         include_existing=payload.include_existing,
         created_by=payload.created_by,
+        inst_cd=inst_cd,
     )
-    return _to_read_current(row, include_yaml=True, include_rules=True)
+    return await _read_editor_bundle_after_write(
+        rules_service, service_code, inst_cd=inst_cd, row=row
+    )
 
 
 @router.post(
@@ -348,9 +470,11 @@ async def generate_draft_via_ai(
 async def generate_draft_from_source(
     service_code: str,
     payload: ServiceRuleGenerateFromSourceRequest,
-    service: ServiceRulesAiService = Depends(get_service_rules_ai_service),
+    inst_cd: str = Depends(require_active_inst_cd),
+    ai_service: ServiceRulesAiService = Depends(get_service_rules_ai_service),
+    rules_service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
-    row = await service.generate_draft_from_source(
+    row = await ai_service.generate_draft_from_source(
         service_code=service_code,
         source_code=payload.source_code,
         source_version=payload.source_version,
@@ -358,8 +482,11 @@ async def generate_draft_from_source(
         created_by=payload.created_by,
         use_data_pool=payload.use_data_pool,
         use_swagger=payload.use_swagger,
+        inst_cd=inst_cd,
     )
-    return _to_read_current(row, include_yaml=True, include_rules=True)
+    return await _read_editor_bundle_after_write(
+        rules_service, service_code, inst_cd=inst_cd, row=row
+    )
 
 
 @router.post(
@@ -370,11 +497,15 @@ async def generate_draft_from_source(
 async def activate_bundle(
     service_code: str,
     bundle_id: int,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
-    row = await service.activate(bundle_id)
+    row = await service.activate(bundle_id, inst_cd=inst_cd)
     if row.service_code != (service_code or "").strip():
         raise InvalidInputError("service_code mismatch")
+    bundle = await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
+    if bundle is not None:
+        return bundle
     return _to_read_current(row, prefer_draft=False)
 
 
@@ -386,10 +517,15 @@ async def activate_bundle(
 async def rollback(
     service_code: str,
     payload: ServiceRuleRollbackRequest,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
 ) -> ServiceRuleBundleRead:
-    # to_version carries history_id for compatibility.
     row = await service.rollback(
-        service_code=service_code, to_version=payload.to_version
+        service_code=service_code,
+        to_version=payload.to_version,
+        inst_cd=inst_cd,
     )
+    bundle = await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
+    if bundle is not None:
+        return bundle
     return _to_read_current(row, prefer_draft=False)

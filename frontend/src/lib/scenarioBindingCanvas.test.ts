@@ -108,8 +108,8 @@ describe("scenarioBindingCanvas", () => {
       responsePath: "txId",
       requestPath: "refTx",
     });
-    expect(next.a?.extracts[0]?.var).toBe("txId");
-    expect(next.b?.injects[0]?.var).toBe("txId");
+    expect(next.a?.extracts[0]?.var).toBe("txId_TC1");
+    expect(next.b?.injects[0]?.var).toBe("txId_TC1");
   });
 
   it("applyVarLink from Start only injects", () => {
@@ -135,9 +135,9 @@ describe("scenarioBindingCanvas", () => {
     bindings = removeVarLink(bindings, runSteps, {
       toStepIndex: 1,
       requestPath: "refTx",
-      varName: "txId",
+      varName: "txId_TC1",
     });
     expect(bindings.b?.injects ?? []).toHaveLength(0);
-    expect(bindings.a?.extracts[0]?.var).toBe("txId");
+    expect(bindings.a?.extracts[0]?.var).toBe("txId_TC1");
   });
 });

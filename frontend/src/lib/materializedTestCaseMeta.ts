@@ -60,13 +60,13 @@ export function testCaseMatchesQuery(
   if (!q) return true;
   const meta = parseMaterializedTestCaseName(test.name);
   const haystack = [
-    String(test.id),
+    test.rule_case_id,
+    test.svc_code,
     test.name,
     meta.caseId ?? "",
     meta.shortLabel,
     test.method ?? "",
     test.endpoint ?? "",
-    test.scenario_id != null ? String(test.scenario_id) : "",
     test.expected_status != null ? String(test.expected_status) : "",
   ]
     .join(" ")
@@ -74,7 +74,7 @@ export function testCaseMatchesQuery(
   return haystack.includes(q);
 }
 
-/** Order: Normal (N) then Error (E), then case_id ascending; finally id. */
+/** Order: Normal (N) then Error (E), then case_id ascending; finally rule_case_id. */
 export function compareTestCasesByCaseId(
   a: TestCaseReadDto,
   b: TestCaseReadDto,
@@ -96,5 +96,5 @@ export function compareTestCasesByCaseId(
     sensitivity: "base",
   });
   if (byCase !== 0) return byCase;
-  return a.id - b.id;
+  return a.rule_case_id.localeCompare(b.rule_case_id);
 }

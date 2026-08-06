@@ -201,11 +201,7 @@ function TestcasePickRow({
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
-                  {row.ruleId?.trim()
-                    ? row.ruleId
-                    : row.backendTestcaseId != null
-                      ? `#${row.backendTestcaseId}`
-                      : row.serviceCode}
+                  {row.ruleId?.trim() ? row.ruleId : row.serviceCode}
                   {showOccurrence ? (
                     <span className="text-muted-foreground">
                       {" "}

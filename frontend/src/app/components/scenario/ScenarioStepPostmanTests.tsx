@@ -4,11 +4,15 @@ import { getServiceCatalogDtoSkeletons } from "@/api/serviceCatalogApi";
 import type { ServiceCatalogDtoSkeletonsDto } from "@/api/types";
 import { ApiError } from "@/api/client";
 import {
+  setExtractVarAtPath,
   removeExtractByPath,
-  upsertExtract,
+  emptyStepBinding,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
-import { fieldVarNameFromPath } from "@/lib/scenarioConnectionUx";
+import {
+  allocateUniqueExtractVarName,
+  renameExtractVarInScenario,
+} from "@/lib/extractVarNaming";
 import { formatPostmanVar } from "@/lib/postmanBodyBindings";
 import type { ScenarioRunStep } from "@/lib/scenarioRunSequence";
 import { PathPickerChips } from "./PathPickerChips";
@@ -16,12 +20,16 @@ import { FinixLoading } from "../ui/finix-loading";
 
 type Props = {
   step: ScenarioRunStep;
+  stepIndex: number;
+  runSteps: ScenarioRunStep[];
   bindings: StepBindingsByStepKey;
   onBindingsChange: (next: StepBindingsByStepKey) => void;
 };
 
 export function ScenarioStepPostmanTests({
   step,
+  stepIndex,
+  runSteps,
   bindings,
   onBindingsChange,
 }: Props) {
@@ -31,8 +39,8 @@ export function ScenarioStepPostmanTests({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const cfg = bindings[step.stepKey];
-  const extracts = cfg?.extracts ?? [];
+  const cfg = bindings[step.stepKey] ?? emptyStepBinding();
+  const extracts = cfg.extracts;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +60,32 @@ export function ScenarioStepPostmanTests({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Migrate plain ``acctNbr`` (or wrong suffix) → ``acctNbr_TC{n}``; update injects too.
+  useEffect(() => {
+    let next = bindings;
+    let changed = false;
+    for (const row of extracts) {
+      const expected = allocateUniqueExtractVarName({
+        responsePath: row.json_path,
+        runSteps,
+        bindings: next,
+        sourceStepIndex: stepIndex,
+        exceptResponsePath: row.json_path,
+      });
+      if (expected === row.var.trim()) continue;
+      next = renameExtractVarInScenario(
+        runSteps,
+        next,
+        stepIndex,
+        row.json_path,
+        expected,
+      );
+      changed = true;
+    }
+    if (changed) onBindingsChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- migrate once per extract snapshot
+  }, [step.stepKey, stepIndex, extracts, runSteps, onBindingsChange]);
 
   const output =
     catalog?.output_skeleton && typeof catalog.output_skeleton === "object"
@@ -74,9 +108,15 @@ export function ScenarioStepPostmanTests({
   }, [extracts]);
 
   const addExtract = (dotPath: string) => {
-    const varName = fieldVarNameFromPath(dotPath);
+    const varName = allocateUniqueExtractVarName({
+      responsePath: dotPath,
+      runSteps,
+      bindings,
+      sourceStepIndex: stepIndex,
+      exceptResponsePath: dotPath,
+    });
     onBindingsChange(
-      upsertExtract(bindings, step.stepKey, varName, dotPath),
+      setExtractVarAtPath(bindings, step.stepKey, dotPath, varName),
     );
   };
 

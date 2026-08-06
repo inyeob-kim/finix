@@ -8,14 +8,18 @@ from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.domain.inst_scope import DEFAULT_INST_CD
 
 
 class ServiceRuleHistory(Base):
-    """Point-in-time snapshot of applied YAML (no version numbers)."""
+    """Point-in-time snapshot of applied YAML (façade history)."""
 
-    __tablename__ = "service_rule_history"
+    __tablename__ = "fnx_rule_doc_hist"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     service_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     service_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_version: Mapped[str | None] = mapped_column(String(128), nullable=True)

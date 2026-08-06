@@ -6,8 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.execution_run import ExecutionRun
-from app.models.execution_step_result import ExecutionStepResult
+from app.models.fnx_execution_run import ExecutionRun
+from app.models.fnx_execution_step_result import ExecutionStepResult
 
 
 class ExecutionRepository:
@@ -29,6 +29,7 @@ class ExecutionRepository:
         base_url: str,
         status: str,
         summary_json: str | None,
+        inst_cd: str,
     ) -> ExecutionRun:
         """
         Insert a new execution run row.
@@ -38,11 +39,15 @@ class ExecutionRepository:
             base_url: Target system base URL used for the run.
             status: Aggregate status label.
             summary_json: Optional JSON-encoded counters or metadata.
+            inst_cd: Tenant institution code.
 
         Returns:
             Persisted ExecutionRun.
         """
+        from app.domain.inst_scope import require_inst_cd
+
         row = ExecutionRun(
+            inst_cd=require_inst_cd(inst_cd),
             scenario_id=scenario_id,
             base_url=base_url,
             status=status,
@@ -59,11 +64,14 @@ class ExecutionRepository:
         execution_run_id: int,
         step_index: int,
         step_label: str,
-        testcase_id: int | None,
         status: str,
         expected_json: str | None,
         actual_json: str | None,
         error_message: str | None,
+        inst_cd: str,
+        svc_code: str | None = None,
+        rule_case_id: str | None = None,
+        tc_hist_version: int | None = None,
     ) -> ExecutionStepResult:
         """
         Insert one step outcome row for a run.
@@ -71,11 +79,16 @@ class ExecutionRepository:
         Returns:
             Persisted ExecutionStepResult.
         """
+        from app.domain.inst_scope import require_inst_cd
+
         row = ExecutionStepResult(
             execution_run_id=execution_run_id,
             step_index=step_index,
             step_label=step_label,
-            testcase_id=testcase_id,
+            inst_cd=require_inst_cd(inst_cd),
+            svc_code=(svc_code or "").strip() or None,
+            rule_case_id=(rule_case_id or "").strip() or None,
+            tc_hist_version=tc_hist_version,
             status=status,
             expected_json=expected_json,
             actual_json=actual_json,

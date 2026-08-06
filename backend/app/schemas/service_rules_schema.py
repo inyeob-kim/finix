@@ -38,6 +38,23 @@ class ServiceRuleRegistryListResponse(BaseModel):
     offset: int
 
 
+class ServiceRuleEditorCasesRead(BaseModel):
+    """Case-first editor payload (SoT: fnx_rule_case; yaml_text is assembled)."""
+
+    service_code: str
+    service_name: str | None = None
+    source_version: str | None = None
+    status: str
+    has_draft: bool = False
+    is_active: bool = False
+    bundle_id: int = 0
+    checksum: str = ""
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+    yaml_text: str = ""
+
+
 class ServiceRuleBundleRead(BaseModel):
     """Editor/history document DTO (kept name for API compatibility)."""
 
@@ -117,6 +134,7 @@ class ServiceRuleGenerateFromSourceRequest(BaseModel):
 class PostmanRulesImportRequest(BaseModel):
     """Postman Collection v2.1 or single Request JSON → draft YAML upsert."""
 
+    inst_cd: str = Field(min_length=1, description="기관코드 (instCd)")
     collection: Any = Field(
         description="Postman Collection object, single request export, or item list.",
     )

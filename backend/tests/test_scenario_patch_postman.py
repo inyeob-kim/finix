@@ -3,7 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from app.models.scenario import Scenario
+from app.models.fnx_scenario import Scenario
 from app.services.scenario_service import ScenarioService
 from app.utils.json_text import dumps_json, loads_json
 

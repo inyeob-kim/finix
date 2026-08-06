@@ -1,4 +1,4 @@
-"""Promote data-pool samples into HTTP testcase pool rows."""
+"""Promote data-pool samples into fnx_testcase pool rows."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ from typing import Any
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.core.logger import get_logger
-from app.models.pool_sample import PoolSample
-from app.models.testcase import TestCase
-from app.repositories.metadata_repo import MetadataRepository
+from app.domain.inst_scope import DEFAULT_INST_CD, require_inst_cd
+from app.models.fnx_testcase import FnxTestcase
+from app.models.fnx_pool_sample import PoolSample
+from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.repositories.pool_sample_repo import PoolSampleRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.utils.json_text import dumps_json, loads_json
@@ -41,46 +42,63 @@ def _expected_for_sample(sample: PoolSample) -> tuple[int | None, dict[str, Any]
     return status if status is not None else 200, expected_ok
 
 
+def _pool_rule_case_id(sample: PoolSample) -> str:
+    """Natural-key case id for a promoted pool sample (no fnx_rule_case linkage)."""
+    return f"POOL-{sample.id}"
+
+
 class PoolPromoteService:
-    """Create scenario-less testcases from pool_samples (SSOT → runnable TC)."""
+    """Create scenario-less fnx_testcase rows from pool_samples (SSOT → runnable TC)."""
 
     def __init__(
         self,
         *,
         pool_repo: PoolSampleRepository,
-        metadata_repo: MetadataRepository,
+        tc_repo: FnxTestcaseRepository,
         registry_repo: ServiceRegistryRepository,
     ) -> None:
         self._pool = pool_repo
-        self._metadata = metadata_repo
+        self._tc_repo = tc_repo
         self._registry = registry_repo
 
-    async def _find_existing_pool_tc(self, sample_id: int) -> TestCase | None:
-        return await self._metadata.find_pool_testcase_by_sample_id(sample_id)
+    async def _find_existing_pool_tc(
+        self, sample_id: int, *, inst_cd: str
+    ) -> FnxTestcase | None:
+        return await self._tc_repo.find_by_pool_sample_id(sample_id, inst_cd=inst_cd)
 
     async def promote_sample_with_meta(
         self,
         sample_id: int,
         *,
+        inst_cd: str = DEFAULT_INST_CD,
         replace_existing: bool = False,
-    ) -> tuple[TestCase, bool]:
-        existing = await self._find_existing_pool_tc(sample_id)
+    ) -> tuple[FnxTestcase, bool]:
+        inst = require_inst_cd(inst_cd)
+        existing = await self._find_existing_pool_tc(sample_id, inst_cd=inst)
         reused = existing is not None and not replace_existing
-        tc = await self.promote_sample(sample_id, replace_existing=replace_existing)
+        tc = await self.promote_sample(
+            sample_id, inst_cd=inst, replace_existing=replace_existing
+        )
         return tc, reused
 
     async def promote_sample(
         self,
         sample_id: int,
         *,
+        inst_cd: str = DEFAULT_INST_CD,
         replace_existing: bool = False,
-    ) -> TestCase:
+    ) -> FnxTestcase:
         await self._registry.ensure_default_runner_stub()
+        inst = require_inst_cd(inst_cd)
         sample = await self._pool.get_by_id(sample_id)
         if sample is None:
             raise EntityNotFoundError("PoolSample", sample_id)
 
-        existing = await self._find_existing_pool_tc(sample_id)
+        code = (sample.service_code or "").strip()
+        if not code:
+            raise InvalidInputError("샘플에 service_code가 없습니다.")
+
+        existing = await self._find_existing_pool_tc(sample_id, inst_cd=inst)
         if existing is not None and not replace_existing:
             return existing
 
@@ -90,38 +108,26 @@ class PoolPromoteService:
         exp_status, exp_body = _expected_for_sample(sample)
         name = _display_name(sample)
 
-        if existing is not None and replace_existing:
-            existing = await self._metadata.update_testcase_http_fields(
-                existing,
-                name=name,
-                http_method=sample.method,
-                endpoint=sample.endpoint,
-                request_body_json=dumps_json(req),
-                expected_status=exp_status,
-                expected_body_json=dumps_json(exp_body),
-            )
-            logger.info(
-                "Pool sample TC refreshed",
-                extra={"sample_id": sample_id, "testcase_id": existing.id},
-            )
-            return existing
-
-        tc = await self._metadata.create_testcase(
+        tc = await self._tc_repo.upsert(
+            inst_cd=inst,
+            svc_code=code,
+            rule_case_id=_pool_rule_case_id(sample),
             name=name,
-            steps=None,
-            scenario_id=None,
             http_method=sample.method,
             endpoint=sample.endpoint,
             request_body_json=dumps_json(req),
             expected_status=exp_status,
             expected_body_json=dumps_json(exp_body),
-            step_index=None,
-            rule_history_id=None,
             pool_sample_id=sample.id,
+            change_kind="pool_promote",
         )
         logger.info(
             "Pool sample promoted to testcase",
-            extra={"sample_id": sample_id, "testcase_id": tc.id},
+            extra={
+                "sample_id": sample_id,
+                "svc_code": tc.svc_code,
+                "rule_case_id": tc.rule_case_id,
+            },
         )
         return tc
 
@@ -129,9 +135,11 @@ class PoolPromoteService:
         self,
         service_code: str,
         *,
+        inst_cd: str = DEFAULT_INST_CD,
         path_kind: str | None = None,
         replace_existing: bool = False,
-    ) -> list[TestCase]:
+    ) -> list[FnxTestcase]:
+        inst = require_inst_cd(inst_cd)
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
@@ -143,11 +151,12 @@ class PoolPromoteService:
         )
         if not samples:
             raise InvalidInputError(f"서비스 {code}에 대한 Data Pool 샘플이 없습니다.")
-        out: list[TestCase] = []
+        out: list[FnxTestcase] = []
         for sample in samples:
             out.append(
                 await self.promote_sample(
                     sample.id,
+                    inst_cd=inst,
                     replace_existing=replace_existing,
                 ),
             )

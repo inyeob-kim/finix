@@ -1,7 +1,7 @@
 """Tests for scenario run resolver."""
 
 from app.domain.scenario_bindings import ExtractSpec, InjectSpec
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.services.scenario_run_resolver import resolve_scenario_run
 from app.utils.json_text import dumps_json
 
@@ -9,22 +9,19 @@ from app.utils.json_text import dumps_json
 def _tc(
     tid: int,
     *,
-    step_index: int,
     body: dict,
     status: int = 200,
-) -> TestCase:
-    return TestCase(
-        id=tid,
-        scenario_id=1,
+) -> FnxTestcase:
+    return FnxTestcase(
+        inst_cd="1001",
+        svc_code="SVC",
+        rule_case_id=f"C-{tid}",
         name=f"TC-{tid}",
-        steps=None,
         http_method="POST",
         endpoint="/api/x",
         request_body_json=dumps_json(body),
         expected_status=status,
         expected_body_json="{}",
-        step_index=step_index,
-        rule_history_id=None,
     )
 
 
@@ -47,11 +44,11 @@ def test_resolve_inject_from_prior_extract():
             },
         ],
     )
-    t1 = _tc(1, step_index=0, body={"x": 1})
-    t2 = _tc(2, step_index=1, body={"authToken": ""})
+    t1 = _tc(1, body={"x": 1})
+    t2 = _tc(2, body={"authToken": ""})
 
-    def sim(tc: TestCase, body: dict) -> tuple[int, dict]:
-        if tc.id == 1:
+    def sim(tc: FnxTestcase, body: dict) -> tuple[int, dict]:
+        if tc.rule_case_id == "C-1":
             return 200, {"token": "abc"}
         return 200, {"ok": True, "echo": body}
 
@@ -80,7 +77,7 @@ def test_override_on_first_step():
             },
         ],
     )
-    tc = _tc(1, step_index=0, body={"accountNo": "TEMPLATE"})
+    tc = _tc(1, body={"accountNo": "TEMPLATE"})
     preview = resolve_scenario_run([tc], steps_json=steps_json)
     assert preview.steps[0].resolved_request_body["accountNo"] == "RUN-OVERRIDE"
 
@@ -97,7 +94,7 @@ def test_missing_inject_var_warns():
             },
         ],
     )
-    tc = _tc(1, step_index=0, body={})
+    tc = _tc(1, body={})
     preview = resolve_scenario_run([tc], steps_json=steps_json)
     assert preview.steps[0].inject_warnings
 
@@ -105,7 +102,6 @@ def test_missing_inject_var_warns():
 def test_resolves_yaml_dynamic_macros():
     tc = _tc(
         1,
-        step_index=0,
         body={"pymntDt": "{{$date.today()}}", "traceId": "{{$generator.uuid()}}"},
     )
     preview = resolve_scenario_run([tc], steps_json="[]")

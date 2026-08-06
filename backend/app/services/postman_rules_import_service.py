@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -111,7 +110,11 @@ class PostmanRulesImportService:
         environment: Any | None = None,
         created_by: str | None = None,
         overwrite_draft: bool = False,
+        inst_cd: str,
     ) -> ImportResult:
+        from app.domain.inst_scope import require_inst_cd
+
+        inst = require_inst_cd(inst_cd)
         try:
             prepared = prepare_collection_for_import(collection, environment)
         except ValueError as exc:
@@ -152,8 +155,7 @@ class PostmanRulesImportService:
         work: list[_ServiceWork] = []
         blocked: list[str] = []
         for code, items in groups.items():
-            current = await self._rules.get_current(code)
-            if current is not None and current.has_draft and not overwrite_draft:
+            if await self._rules.has_working_draft(code, inst_cd=inst) and not overwrite_draft:
                 blocked.append(code)
                 continue
             row = catalog_by_code.get(code)
@@ -161,17 +163,11 @@ class PostmanRulesImportService:
                 (row.service_name if row and row.service_name else None) or code
             )
             skeleton = self._skeleton_for(row)
-            has_applied = bool(current and current.has_applied)
-            mode = "merge" if has_applied else "create"
-            base_rules: list[dict[str, Any]] = []
-            if current is not None and current.has_applied and current.rules_json:
-                try:
-                    parsed = json.loads(current.rules_json)
-                    rules = parsed.get("rules") if isinstance(parsed, dict) else None
-                    if isinstance(rules, list):
-                        base_rules = [r for r in rules if isinstance(r, dict)]
-                except Exception:  # noqa: BLE001
-                    base_rules = []
+            base_rules = await self._rules.get_editor_base_rules(code, inst_cd=inst)
+            has_applied = await self._rules.has_applied_rules(code, inst_cd=inst)
+            mode = "merge" if has_applied and base_rules else "create"
+            if mode == "create":
+                base_rules = []
             work.append(
                 _ServiceWork(
                     code=code,
@@ -226,6 +222,7 @@ class PostmanRulesImportService:
                 yaml_text=yaml_text,
                 source_version="postman_import",
                 created_by=created_by,
+                inst_cd=inst,
             )
             results.append(
                 ServiceImportResult(

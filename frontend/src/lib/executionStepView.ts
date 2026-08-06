@@ -34,7 +34,8 @@ export type ExecutionStepExpectedPayload = {
 export type ExecutionStepViewModel = {
   stepIndex: number;
   label: string;
-  testcaseId: number | null;
+  svcCode: string | null;
+  ruleCaseId: string | null;
   status: "passed" | "failed";
   errorMessage: string | null;
   method: string | null;
@@ -171,7 +172,8 @@ export function parseExecutionStep(step: ExecutionStepDto): ExecutionStepViewMod
   return {
     stepIndex: step.step_index,
     label: step.step_label,
-    testcaseId: step.testcase_id,
+    svcCode: step.svc_code ?? null,
+    ruleCaseId: step.rule_case_id ?? null,
     status: step.status,
     errorMessage: step.error_message,
     method: actual.method?.trim() || null,

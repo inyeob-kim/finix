@@ -8,9 +8,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.execution_run import ExecutionRun
-from app.models.execution_step_result import ExecutionStepResult
-from app.models.pool_sample import PoolSample
+from app.models.fnx_execution_run import ExecutionRun
+from app.models.fnx_execution_step_result import ExecutionStepResult
+from app.models.fnx_pool_sample import PoolSample
 from app.utils.json_text import loads_json
 
 

@@ -61,7 +61,7 @@ export function ScenarioBindingStepNode({
         onClick={onSelect}
       >
         <FinixFlowStepCard
-          order={(node.stepIndex ?? 0) + 1}
+          order={`TC${(node.stepIndex ?? 0) + 1}`}
           title={node.label}
           subtitle={node.subtitle}
           className="w-full min-w-0 max-w-none"

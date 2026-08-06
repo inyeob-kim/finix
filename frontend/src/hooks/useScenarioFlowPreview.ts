@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { resolveScenarioPreviewInline } from "@/api/scenarioApi";
 import { ApiError } from "@/api/client";
-import type { ScenarioResolvePreviewDto, ScenarioStepDto } from "@/api/types";
+import type {
+  ScenarioResolvePreviewDto,
+  ScenarioStepDto,
+  TestCaseRefDto,
+} from "@/api/types";
 
 export function useScenarioFlowPreview(
   steps: ScenarioStepDto[],
-  perStep: number[][],
+  perStep: TestCaseRefDto[][],
   enabled: boolean,
 ) {
   const [preview, setPreview] = useState<ScenarioResolvePreviewDto | null>(null);

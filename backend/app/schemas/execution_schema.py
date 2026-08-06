@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.execution_run import ExecutionRun
-from app.models.execution_step_result import ExecutionStepResult
+from app.models.fnx_execution_run import ExecutionRun
+from app.models.fnx_execution_step_result import ExecutionStepResult
 from app.utils.json_text import loads_json
 
 
@@ -53,7 +53,9 @@ class ExecutionStepReadV1(BaseModel):
 
     step_index: int
     step_label: str
-    testcase_id: int | None
+    inst_cd: str | None = None
+    svc_code: str | None = None
+    rule_case_id: str | None = None
     status: Literal["passed", "failed"]
     expected: dict[str, Any]
     actual: dict[str, Any]
@@ -99,7 +101,9 @@ def _step_to_read(row: ExecutionStepResult) -> ExecutionStepReadV1:
     return ExecutionStepReadV1(
         step_index=row.step_index,
         step_label=row.step_label,
-        testcase_id=row.testcase_id,
+        inst_cd=row.inst_cd,
+        svc_code=row.svc_code,
+        rule_case_id=row.rule_case_id,
         status=st,
         expected=loads_json(row.expected_json, {}),
         actual=loads_json(row.actual_json, {}),

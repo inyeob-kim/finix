@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ScenarioRunStep } from "@/lib/scenarioRunSequence";
 import {
+  allocateUniqueExtractVarName,
   collectTakenVarNames,
   injectVarDisplayLabel,
   isVarNameTaken,
@@ -72,9 +73,35 @@ describe("extractVarNaming", () => {
     expect(next.b?.injects).toHaveLength(0);
   });
 
-  it("injectVarDisplayLabel includes step reference", () => {
-    const label = injectVarDisplayLabel("acctNo", 0, runSteps);
-    expect(label).toContain("acctNo");
-    expect(label).toContain("TC-1");
+  it("allocateUniqueExtractVarName always scopes by step index", () => {
+    expect(
+      allocateUniqueExtractVarName({
+        responsePath: "custId",
+        runSteps,
+        bindings: {},
+        sourceStepIndex: 0,
+      }),
+    ).toBe("custId_TC1");
+    expect(
+      allocateUniqueExtractVarName({
+        responsePath: "acctNbr",
+        runSteps,
+        bindings: {},
+        sourceStepIndex: 2,
+        startVarKeys: ["acctNbr"],
+      }),
+    ).toBe("acctNbr_TC3");
+  });
+
+  it("allocateUniqueExtractVarName keeps TC2 when TC1 already extracted same leaf", () => {
+    let bindings: StepBindingsByStepKey = {};
+    bindings = upsertExtract(bindings, "a", "custId_TC1", "custId");
+    const name = allocateUniqueExtractVarName({
+      responsePath: "custId",
+      runSteps,
+      bindings,
+      sourceStepIndex: 1,
+    });
+    expect(name).toBe("custId_TC2");
   });
 });

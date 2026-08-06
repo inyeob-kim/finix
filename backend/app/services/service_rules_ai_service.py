@@ -175,6 +175,7 @@ class ServiceRulesAiService:
         objective: str | None,
         include_existing: bool,
         created_by: str | None,
+        inst_cd: str,
     ):
         code = (service_code or "").strip()
         if not code:
@@ -196,9 +197,15 @@ class ServiceRulesAiService:
 
         existing_yaml = None
         if include_existing:
-            active = await self._rules.get_active(code)
-            if active is not None:
-                existing_yaml = active.yaml_text
+            base_rules = await self._rules.get_editor_base_rules(code, inst_cd=inst_cd)
+            if base_rules:
+                from app.domain.rule_case_codec import assemble_yaml_from_rules
+
+                existing_yaml, _ = assemble_yaml_from_rules(
+                    svc_code=code,
+                    service_name=svc.service_name or code,
+                    rules=base_rules,
+                )
 
         system_prompt = build_yaml_ai_cached_system_prompt()
         user_prompt = build_user_prompt(
@@ -223,23 +230,8 @@ class ServiceRulesAiService:
             yaml_text=yaml_text,
             source_version="ai-draft",
             created_by=created_by,
+            inst_cd=inst_cd,
         )
-
-    @staticmethod
-    def _editor_base_rules(row: Any) -> list[dict[str, Any]]:
-        """Prefer working draft rules, else applied — same view as the YAML editor."""
-        raw: str | None = None
-        if getattr(row, "has_draft", False):
-            raw = getattr(row, "draft_rules_json", None)
-        if not (raw or "").strip() and getattr(row, "has_applied", False):
-            raw = getattr(row, "rules_json", None)
-        if not (raw or "").strip():
-            return []
-        try:
-            parsed = json.loads(raw)
-        except Exception:  # noqa: BLE001
-            return []
-        return extract_rules_list(parsed)
 
     async def _merge_generated_into_base(
         self,
@@ -319,6 +311,7 @@ class ServiceRulesAiService:
         created_by: str | None,
         use_data_pool: bool = False,
         use_swagger: bool = False,
+        inst_cd: str,
     ):
         """
         LLM reads pasted source, emits template-shaped YAML.
@@ -361,14 +354,17 @@ class ServiceRulesAiService:
             out_dto=out_dto,
         )
 
-        current = await self._rules.get_current(code)
-        base_rules = self._editor_base_rules(current) if current is not None else []
+        current = await self._rules.get_editor_base_rules(code, inst_cd=inst_cd)
+        base_rules = list(current)
         existing_yaml = None
-        if current is not None:
-            if current.has_draft and (current.draft_yaml_text or "").strip():
-                existing_yaml = current.draft_yaml_text
-            elif current.has_applied and (current.yaml_text or "").strip():
-                existing_yaml = current.yaml_text
+        if base_rules:
+            from app.domain.rule_case_codec import assemble_yaml_from_rules
+
+            existing_yaml, _ = assemble_yaml_from_rules(
+                svc_code=code,
+                service_name=svc.service_name or code,
+                rules=base_rules,
+            )
 
         skeleton = build_input_skeleton_for_generation(
             in_dto=in_dto,
@@ -408,4 +404,5 @@ class ServiceRulesAiService:
             yaml_text=yaml_text,
             source_version=label,
             created_by=created_by,
+            inst_cd=inst_cd,
         )

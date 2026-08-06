@@ -31,7 +31,6 @@ describe("poolCaseLiveRef", () => {
       serviceCode: "CU008",
       ruleId: "CU008-N-001",
       title: "[N] CU008-N-001 · ok",
-      backendTestcaseId: 11,
       pinnedFingerprint: fpA,
     }),
   ];
@@ -57,7 +56,6 @@ describe("poolCaseLiveRef", () => {
         serviceCode: "CU008",
         ruleId: "CU008-N-001",
         title: "[N] CU008-N-001",
-        backendTestcaseId: 12,
         pinnedFingerprint: fpEmpty,
       }),
     ];
@@ -88,7 +86,6 @@ describe("poolCaseLiveRef", () => {
         serviceCode: "CU008",
         ruleId: "CU008-N-001",
         title: "[N] CU008-N-001 · ok",
-        backendTestcaseId: 11,
         pinnedFingerprint: fpB,
       }),
     ];

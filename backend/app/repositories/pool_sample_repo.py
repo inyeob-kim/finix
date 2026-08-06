@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.pool_sample import PoolSample
+from app.models.fnx_pool_sample import PoolSample
 
 
 class PoolSampleRepository:

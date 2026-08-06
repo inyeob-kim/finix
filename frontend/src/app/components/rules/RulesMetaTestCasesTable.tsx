@@ -34,9 +34,9 @@ type RulesMetaTestCasesTableProps = {
   rows: TestCaseReadDto[];
   listLoading: boolean;
   emptyMessage: string;
-  expandedId: number | null;
-  onToggleExpand: (id: number) => void;
-  runningId?: number | null;
+  expandedId: string | null;
+  onToggleExpand: (id: string) => void;
+  runningId?: string | null;
   onRun: (test: TestCaseReadDto) => void;
 };
 
@@ -103,11 +103,11 @@ export function RulesMetaTestCasesTable({
               ) : (
                 rows.map((r) => (
                   <TestCaseRow
-                    key={r.id}
+                    key={r.rule_case_id}
                     test={r}
-                    open={expandedId === r.id}
-                    running={runningId === r.id}
-                    onToggle={() => onToggleExpand(r.id)}
+                    open={expandedId === r.rule_case_id}
+                    running={runningId === r.rule_case_id}
+                    onToggle={() => onToggleExpand(r.rule_case_id)}
                     onRun={() => onRun(r)}
                   />
                 ))
@@ -205,7 +205,12 @@ function TestCaseRow({
               className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
               title="Postman 내보내기"
               aria-label="Postman 내보내기"
-              onClick={() => void downloadPostmanCollection(test.id)}
+              onClick={() =>
+                void downloadPostmanCollection(
+                  test.svc_code,
+                  test.rule_case_id,
+                )
+              }
             >
               <Download className="w-3.5 h-3.5" />
             </button>

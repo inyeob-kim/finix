@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from app.models.service_rule_current import ServiceRuleCurrent
+from app.models.fnx_rule_doc_current import ServiceRuleCurrent
 from app.services.service_rules_service import ServiceRulesService
 from tests.test_service_rules_validation import _case_rule
 

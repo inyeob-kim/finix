@@ -1,3 +1,4 @@
+import { Play } from "lucide-react";
 import { getCaseId, type YamlRuleRecord } from "@/lib/yamlRulesDocument";
 import { cn } from "../ui/utils";
 import { CaseTypeBadge, ruleListLabel } from "./yamlCaseListUi";
@@ -7,22 +8,26 @@ type Props = {
   /** Document indices in display order (N then E). Defaults to 0..n-1. */
   displayIndices?: number[];
   disabled?: boolean;
+  runningCaseId?: string | null;
   editingDocument: boolean;
   selectedRuleIndex: number;
   caseHasLocalError: boolean;
   onSelectDocument: () => void;
   onSelectRule: (index: number) => void;
+  onRunCase?: (caseId: string, ruleIndex: number) => void;
 };
 
 export function YamlRulesCaseSidebar({
   rules,
   displayIndices,
   disabled = false,
+  runningCaseId = null,
   editingDocument,
   selectedRuleIndex,
   caseHasLocalError,
   onSelectDocument,
   onSelectRule,
+  onRunCase,
 }: Props) {
   const indices =
     displayIndices && displayIndices.length === rules.length
@@ -35,21 +40,6 @@ export function YamlRulesCaseSidebar({
         케이스 {rules.length}건
       </p>
       <ul className="flex-1 min-h-0 overflow-y-auto">
-        <li>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={onSelectDocument}
-            className={cn(
-              "w-full text-left px-2.5 py-2 text-xs border-b border-border transition-colors",
-              editingDocument
-                ? "bg-primary/10 text-foreground font-medium"
-                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-            )}
-          >
-            전체 문서
-          </button>
-        </li>
         {indices.map((index) => {
           const rule = rules[index];
           if (!rule || typeof rule !== "object") {
@@ -65,56 +55,97 @@ export function YamlRulesCaseSidebar({
               </li>
             );
           }
-          const active = selectedRuleIndex === index;
+          const active = !editingDocument && selectedRuleIndex === index;
           const caseId = getCaseId(rule);
           const tags = Array.isArray(rule.tags)
             ? rule.tags.map((t) => String(t)).filter(Boolean).slice(0, 2)
             : [];
+          const isRunning = Boolean(caseId && runningCaseId === caseId);
           return (
             <li key={`${caseId || "rule"}-${index}`}>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onSelectRule(index)}
+              <div
                 className={cn(
-                  "w-full text-left px-2.5 py-2 border-b border-border transition-colors",
-                  active ? "bg-primary/10 text-foreground" : "hover:bg-muted/40",
+                  "flex items-stretch border-b border-border",
+                  active ? "bg-primary/10" : "hover:bg-muted/40",
                 )}
               >
-                <div className="flex items-start gap-1.5">
-                  <CaseTypeBadge ruleType={String(rule.rule_type ?? "")} />
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={cn(
-                        "text-xs truncate flex items-center gap-1",
-                        active ? "font-medium" : "text-foreground",
-                      )}
-                    >
-                      {caseHasLocalError && active ? (
-                        <span
-                          className="size-1.5 rounded-full bg-destructive shrink-0"
-                          aria-hidden
-                        />
-                      ) : null}
-                      {ruleListLabel(rule, index)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
-                      {caseId || `#${index + 1}`}
-                      {tags.length > 0 ? ` · ${tags.join(", ")}` : ""}
-                    </p>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onSelectRule(index)}
+                  className={cn(
+                    "min-w-0 flex-1 text-left px-2.5 py-2 transition-colors",
+                    active ? "text-foreground" : "",
+                  )}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <CaseTypeBadge ruleType={String(rule.rule_type ?? "")} />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          "text-xs truncate flex items-center gap-1",
+                          active ? "font-medium" : "text-foreground",
+                        )}
+                      >
+                        {caseHasLocalError && active ? (
+                          <span
+                            className="size-1.5 rounded-full bg-destructive shrink-0"
+                            aria-hidden
+                          />
+                        ) : null}
+                        {ruleListLabel(rule, index)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                        {caseId || `#${index + 1}`}
+                        {tags.length > 0 ? ` · ${tags.join(", ")}` : ""}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {onRunCase && caseId ? (
+                  <button
+                    type="button"
+                    disabled={disabled || isRunning}
+                    title="이 케이스 테스트 실행"
+                    aria-label={`${caseId} 실행`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRunCase(caseId, index);
+                    }}
+                    className={cn(
+                      "shrink-0 px-2 text-muted-foreground hover:text-primary disabled:opacity-40",
+                      isRunning && "text-primary",
+                    )}
+                  >
+                    <Play
+                      className={cn("size-3.5", isRunning && "animate-pulse")}
+                      fill="currentColor"
+                    />
+                  </button>
+                ) : null}
+              </div>
             </li>
           );
         })}
         {rules.length === 0 ? (
           <li className="px-2.5 py-3 text-[11px] text-muted-foreground">
-            rules가 비어 있습니다. 전체 문서에서 작성하거나 입력/기대값 탭에서
-            추가하세요.
+            케이스가 없습니다. 필드 탭에서 추가하거나 소스에서 생성하세요.
           </li>
         ) : null}
       </ul>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onSelectDocument}
+        className={cn(
+          "w-full text-left px-2.5 py-1.5 text-[10px] border-t border-border transition-colors",
+          editingDocument
+            ? "bg-muted/50 text-foreground font-medium"
+            : "text-muted-foreground hover:bg-muted/30",
+        )}
+      >
+        원문 YAML (고급)
+      </button>
     </aside>
   );
 }

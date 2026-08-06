@@ -5,18 +5,23 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.config.testcase_templates import template_for_step_action
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.core.logger import get_logger
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
+from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
+from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.rules_yaml.loader import load_service_rules
-from app.utils.helpers import build_placeholder_body
+from app.schemas.testcase_schema import TestCaseRefV1
 from app.utils.json_text import dumps_json, loads_json
-from app.utils.scenario_steps_document import parse_steps_list
+from app.utils.scenario_steps_document import (
+    dump_steps_document,
+    parse_steps_document,
+    parse_steps_list,
+)
 from app.utils.testcase_display_name import build_materialized_testcase_name
 from app.domain.yaml_rules_order import sort_rules_normal_then_error
 
@@ -24,7 +29,7 @@ logger = get_logger(__name__)
 
 
 class TestCaseService:
-    """Coordinates test case generation and validation."""
+    """Coordinates test case generation and validation (fnx_testcase only)."""
 
     def __init__(
         self,
@@ -33,12 +38,22 @@ class TestCaseService:
         registry_repo: ServiceRegistryRepository,
         cbs_catalog_repo: CbsServiceCatalogRepository,
         service_rules_repo: ServiceRulesRepository | None = None,
+        case_repo: FnxRuleCaseRepository | None = None,
+        tc_repo: FnxTestcaseRepository | None = None,
     ) -> None:
         """Construct the service with its data dependencies."""
         self._metadata = metadata_repo
         self._registry = registry_repo
         self._cbs_catalog = cbs_catalog_repo
         self._service_rules_repo = service_rules_repo
+        self._case_repo = case_repo
+        self._tc_repo = tc_repo
+
+    def _require_tc_repo(self) -> FnxTestcaseRepository:
+        """Return the natural-key testcase repository or raise if not wired."""
+        if self._tc_repo is None:
+            raise InvalidInputError("FnxTestcaseRepository가 설정되지 않았습니다.")
+        return self._tc_repo
 
     @staticmethod
     def _extract_service_code(row: dict[str, Any]) -> str | None:
@@ -199,81 +214,113 @@ class TestCaseService:
         bundle = load_service_rules(code)
         return (bundle, None)
 
+    @staticmethod
+    def _fields_from_rule(rule: dict[str, Any]) -> tuple[dict[str, Any], int | None, dict[str, Any]]:
+        """Return (rule_input, expected_status, expected_body) for one YAML rule."""
+        expect = rule.get("expect") or {}
+        if not isinstance(expect, dict):
+            expect = {}
+        rule_input = rule.get("input") or rule.get("minimal_input") or {}
+        if not isinstance(rule_input, dict):
+            rule_input = {}
+
+        raw_status = expect.get("http_status")
+        expected_status = None if raw_status is None or raw_status == "" else int(raw_status)
+        expected_body: dict[str, Any] = {"outcome": expect.get("outcome")}
+        if "error_code" in expect:
+            expected_body["error_code"] = expect.get("error_code")
+        if "error_args" in expect:
+            expected_body["error_args"] = expect.get("error_args")
+        if "validation_target" in expect:
+            expected_body["validation_target"] = expect.get("validation_target")
+        return rule_input, expected_status, expected_body
+
     async def _append_cases_for_service(
         self,
         *,
         service_code: str,
-        scenario_id: int | None,
         instruction: str | None,
-        step_index_start: int,
         bundle_id: int | None = None,
         yaml_text: str | None = None,
-    ) -> tuple[list[TestCase], int]:
-        """Create one row per rule for ``service_code``. Returns (created, next_index)."""
+        inst_cd: str,
+    ) -> list[FnxTestcase]:
+        """Upsert one fnx_testcase pool row per rule case for ``service_code``."""
+        from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         if not code:
-            return [], step_index_start
-        bundle, rule_history_id = await self._load_rule_bundle(
+            return []
+        bundle, _rule_history_id = await self._load_rule_bundle(
             code,
             bundle_id=bundle_id,
             yaml_text=yaml_text,
         )
         if bundle is None or not getattr(bundle, "rules", None):
-            return [], step_index_start
+            return []
         svc_meta = await self._cbs_catalog.get_by_service_code(code)
         method = svc_meta.http_method if svc_meta else "POST"
         endpoint = svc_meta.uri if svc_meta else f"/services/{code}"
-        created: list[TestCase] = []
-        step_index = step_index_start
         ordered_rules = sort_rules_normal_then_error(
             {"rules": [r for r in bundle.rules if isinstance(r, dict)]}
         )["rules"]
+        case_map: dict[str, tuple[Any, Any]] = {}
+        if self._case_repo is not None:
+            try:
+                case_map = await self._case_repo.map_case_ids_to_latest_hist(
+                    code, inst_cd=inst
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load fnx_rule_case map for %s inst=%s",
+                    code,
+                    inst,
+                    exc_info=True,
+                )
+                case_map = {}
+
+        created: list[FnxTestcase] = []
         for rule_idx, rule in enumerate(ordered_rules):
             case_id = str(
                 rule.get("case_id")
                 or rule.get("rule_id")
                 or f"{code}-CASE-{rule_idx + 1:03d}"
             )
-            expect = rule.get("expect") or {}
-            if not isinstance(expect, dict):
-                expect = {}
-            rule_input = rule.get("input") or rule.get("minimal_input") or {}
-            if not isinstance(rule_input, dict):
-                rule_input = {}
+            mapped = case_map.get(case_id)
+            if mapped is None:
+                logger.warning(
+                    "Skipping rule case without fnx_rule_case mapping",
+                    extra={"service_code": code, "case_id": case_id, "inst_cd": inst},
+                )
+                continue
+            case_row, hist_row = mapped
+            rule_svc_code = getattr(case_row, "svc_code", None) or code
+            rule_case_id = getattr(case_row, "rule_case_id", None) or case_id
+            rule_case_hist_version = (
+                getattr(hist_row, "version", None) if hist_row else None
+            )
 
-            raw_status = expect.get("http_status")
-            if raw_status is None or raw_status == "":
-                expected_status = None
-            else:
-                expected_status = int(raw_status)
-            expected_body: dict[str, Any] = {"outcome": expect.get("outcome")}
-            if "error_code" in expect:
-                expected_body["error_code"] = expect.get("error_code")
-            if "error_args" in expect:
-                expected_body["error_args"] = expect.get("error_args")
-            if "validation_target" in expect:
-                expected_body["validation_target"] = expect.get("validation_target")
-
+            rule_input, expected_status, expected_body = self._fields_from_rule(rule)
             name = build_materialized_testcase_name(
                 case_id=case_id,
                 rule=rule,
                 instruction=instruction,
             )
-            tc = await self._metadata.create_testcase(
+            row = await tc_repo.upsert(
+                inst_cd=inst,
+                svc_code=rule_svc_code,
+                rule_case_id=rule_case_id,
                 name=name,
-                steps=None,
-                scenario_id=scenario_id,
                 http_method=method,
                 endpoint=endpoint,
                 request_body_json=dumps_json(rule_input),
                 expected_status=expected_status,
                 expected_body_json=dumps_json(expected_body),
-                step_index=step_index,
-                rule_history_id=rule_history_id,
+                rule_case_hist_version=rule_case_hist_version,
             )
-            created.append(tc)
-            step_index += 1
-        return created, step_index
+            created.append(row)
+        return created
 
     async def materialize_pool_for_service(
         self,
@@ -283,149 +330,237 @@ class TestCaseService:
         replace_existing: bool = True,
         bundle_id: int | None = None,
         yaml_text: str | None = None,
-    ) -> list[TestCase]:
+        inst_cd: str,
+    ) -> list[FnxTestcase]:
         """
         Create HTTP test cases for one service (no scenario), from YAML rules.
 
         Prefer ``yaml_text`` (editor contents), else ``bundle_id`` working draft /
         applied document, else active DB bundle / file YAML.
         """
+        from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
         await self._registry.ensure_default_runner_stub()
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
         if replace_existing:
-            await self._metadata.delete_testcases_pool_for_service(code)
-        created, _ = await self._append_cases_for_service(
+            await tc_repo.delete_for_service(code, inst_cd=inst)
+        created = await self._append_cases_for_service(
             service_code=code,
-            scenario_id=None,
             instruction=instruction,
-            step_index_start=0,
             bundle_id=bundle_id,
             yaml_text=yaml_text,
+            inst_cd=inst,
         )
         if not created:
             raise InvalidInputError(await self._materialize_failure_message(code))
         logger.info(
             "Test case pool materialized",
-            extra={"service_code": code, "count": len(created)},
+            extra={"service_code": code, "inst_cd": inst, "count": len(created)},
         )
         return created
 
-    async def _resolve_attach_source_testcase(
+    async def materialize_one_case(
         self,
-        testcase_id: int,
+        service_code: str,
+        case_id: str,
         *,
-        scenario_id: int,
-        service_code: str | None = None,
-    ) -> TestCase:
-        """
-        Resolve which row to clone from when attaching to a scenario.
-
-        Prefers the live pool twin matched by ``service_code`` + ``case_id`` so
-        rematerialized bodies are picked up even when numeric ids changed.
-        """
-        from app.utils.testcase_case_id import parse_case_id_from_testcase_name
-
-        row = await self._metadata.get_testcase_by_id(testcase_id)
-        if row is None:
-            raise EntityNotFoundError("TestCase", testcase_id)
-
-        case_id = parse_case_id_from_testcase_name(
-            row.name or "",
-            service_code=service_code,
+        instruction: str | None = None,
+        bundle_id: int | None = None,
+        yaml_text: str | None = None,
+        inst_cd: str,
+        require_applied: bool = False,
+    ) -> FnxTestcase:
+        """Upsert one pool test case for a single rule case_id (other TCs untouched)."""
+        from app.domain.inst_scope import require_inst_cd
+        from app.domain.rule_case_codec import (
+            applied_rule_dict_from_row,
+            draft_rule_dict_from_row,
         )
-        if case_id and service_code:
-            live = await self._metadata.find_pool_testcase_by_service_and_case_id(
-                service_code,
-                case_id,
+
+        tc_repo = self._require_tc_repo()
+        await self._registry.ensure_default_runner_stub()
+        code = (service_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code:
+            raise InvalidInputError("service_code가 필요합니다.")
+        if not cid:
+            raise InvalidInputError("case_id가 필요합니다.")
+
+        rule: dict[str, Any] | None = None
+        if require_applied:
+            if self._case_repo is None:
+                raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
+            case_row = await self._case_repo.get_case_by_case_id(
+                code, cid, inst_cd=inst
             )
-            if live is not None:
-                return live
+            if case_row is None or not self._case_repo.is_case_applied(case_row):
+                raise InvalidInputError(
+                    f"{code}/{cid}: 확정(활성)된 케이스만 시나리오에 사용할 수 있습니다. "
+                    "규칙 편집에서 확정한 뒤 다시 시도하세요."
+                )
+            rule = applied_rule_dict_from_row(case_row)
+        else:
+            bundle, _rule_history_id = await self._load_rule_bundle(
+                code,
+                bundle_id=bundle_id,
+                yaml_text=yaml_text,
+            )
+            if bundle is not None and getattr(bundle, "rules", None):
+                for candidate in bundle.rules:
+                    if not isinstance(candidate, dict):
+                        continue
+                    rid = str(
+                        candidate.get("case_id") or candidate.get("rule_id") or ""
+                    ).strip()
+                    if rid == cid:
+                        rule = candidate
+                        break
 
-        if row.scenario_id is None:
-            return row
-        pool = await self._metadata.find_pool_testcase_twin(
-            name=row.name,
-            rule_history_id=row.rule_history_id,
+            if rule is None and self._case_repo is not None:
+                case_row = await self._case_repo.get_case_by_case_id(
+                    code, cid, inst_cd=inst
+                )
+                if case_row is not None:
+                    rule = draft_rule_dict_from_row(
+                        case_row
+                    ) or applied_rule_dict_from_row(case_row)
+
+        if rule is None:
+            raise EntityNotFoundError("RuleCase", f"{code}/{cid}")
+
+        svc_meta = await self._cbs_catalog.get_by_service_code(code)
+        method = svc_meta.http_method if svc_meta else "POST"
+        endpoint = svc_meta.uri if svc_meta else f"/services/{code}"
+
+        rule_input, expected_status, expected_body = self._fields_from_rule(rule)
+        name = build_materialized_testcase_name(
+            case_id=cid,
+            rule=rule,
+            instruction=instruction,
         )
-        if pool is not None:
-            return pool
-        if row.scenario_id != scenario_id:
-            return row
-        raise InvalidInputError(
-            f"테스트 케이스 #{testcase_id}는 시나리오 전용 복사본입니다. "
-            "규칙/메타에서 서비스별 풀을 생성한 뒤 풀 템플릿을 선택하세요.",
+
+        rule_svc_code = code
+        rule_case_id = cid
+        rule_case_hist_version: int | None = None
+        if self._case_repo is not None:
+            try:
+                case_map = await self._case_repo.map_case_ids_to_latest_hist(
+                    code, inst_cd=inst
+                )
+                mapped = case_map.get(cid)
+                if mapped is not None:
+                    case_row, hist_row = mapped
+                    rule_svc_code = getattr(case_row, "svc_code", None) or code
+                    rule_case_id = getattr(case_row, "rule_case_id", None) or cid
+                    rule_case_hist_version = (
+                        getattr(hist_row, "version", None) if hist_row else None
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to stamp hist for %s/%s inst=%s",
+                    code,
+                    cid,
+                    inst,
+                    exc_info=True,
+                )
+
+        row = await tc_repo.upsert(
+            inst_cd=inst,
+            svc_code=rule_svc_code,
+            rule_case_id=rule_case_id,
+            name=name,
+            http_method=method,
+            endpoint=endpoint,
+            request_body_json=dumps_json(rule_input),
+            expected_status=expected_status,
+            expected_body_json=dumps_json(expected_body),
+            rule_case_hist_version=rule_case_hist_version,
         )
+        logger.info(
+            "Test case upserted",
+            extra={"service_code": code, "case_id": cid, "rule_case_id": row.rule_case_id},
+        )
+        return row
 
     async def attach_pool_to_scenario(
         self,
         scenario_id: int,
         *,
-        per_step: list[list[int]],
-    ) -> list[TestCase]:
+        per_step: list[list[TestCaseRefV1]],
+        inst_cd: str,
+    ) -> list[FnxTestcase]:
         """
-        Assign existing testcase rows to a scenario in order.
+        Write natural-key refs onto scenario steps (no clones) in scenario order.
 
-        ``per_step[i]`` aligns with the i-th step in ``scenario.steps_json``; each inner
-        list is testcase ids attached in global execution order for that step.
+        ``per_step[i]`` aligns with the i-th step in ``scenario.steps_json``; when a
+        step has multiple refs, the first ref wins for that step's persisted link
+        (every ref is still validated so the UI can surface bad selections).
         """
+        from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
+        inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        raw_steps = parse_steps_list(loads_json(scenario.steps_json, []))
+        raw_steps, postman_cfg = parse_steps_document(scenario.steps_json)
         if len(per_step) != len(raw_steps):
             raise InvalidInputError(
                 f"per_step 길이({len(per_step)})가 시나리오 스텝 수({len(raw_steps)})와 같아야 합니다.",
             )
-        attach_plan: list[tuple[int, TestCase]] = []
-        for step_i, ids in enumerate(per_step):
-            service_code = None
-            if step_i < len(raw_steps) and isinstance(raw_steps[step_i], dict):
-                service_code = self._extract_service_code(raw_steps[step_i])
-            for tid in ids:
-                source = await self._resolve_attach_source_testcase(
-                    int(tid),
-                    scenario_id=scenario_id,
-                    service_code=service_code,
+
+        resolved: list[FnxTestcase] = []
+        updated_steps: list[Any] = []
+        for step_i, step in enumerate(raw_steps):
+            refs = per_step[step_i]
+            row = dict(step) if isinstance(step, dict) else {}
+            chosen: FnxTestcase | None = None
+            for ref in refs:
+                tc = await self.materialize_one_case(
+                    ref.svc_code,
+                    ref.rule_case_id,
+                    inst_cd=inst,
+                    require_applied=True,
                 )
-                body = loads_json(source.request_body_json, {})
+                body = loads_json(tc.request_body_json, {})
                 if not isinstance(body, dict) or len(body) == 0:
                     raise InvalidInputError(
                         f"원본 Input이 비어 있습니다 (스텝 {step_i + 1}, "
-                        f"testcase #{source.id}). YAML을 채운 뒤 풀을 다시 생성하세요.",
+                        f"{tc.svc_code}/{tc.rule_case_id}). YAML을 채운 뒤 확정하세요.",
                     )
-                attach_plan.append((step_i, source))
-        await self._metadata.delete_testcases_for_scenario(scenario_id)
-        touched: list[TestCase] = []
-        for step_i, source_tc in attach_plan:
-            cloned = await self._metadata.create_testcase(
-                name=source_tc.name,
-                steps=source_tc.steps,
-                scenario_id=scenario_id,
-                http_method=source_tc.http_method,
-                endpoint=source_tc.endpoint,
-                request_body_json=source_tc.request_body_json,
-                expected_status=source_tc.expected_status,
-                expected_body_json=source_tc.expected_body_json,
-                step_index=step_i,
-                rule_history_id=source_tc.rule_history_id,
-            )
-            touched.append(cloned)
+                if chosen is None:
+                    chosen = tc
+            if chosen is not None:
+                row["service_code"] = chosen.svc_code
+                row["rule_case_id"] = chosen.rule_case_id
+                resolved.append(chosen)
+            updated_steps.append(row)
+
+        steps_json = dump_steps_document(updated_steps, postman_cfg)
+        await self._metadata.update_scenario_fields(scenario_id, steps_json=steps_json)
         logger.info(
             "Test cases attached to scenario",
-            extra={"scenario_id": scenario_id, "count": len(touched)},
+            extra={"scenario_id": scenario_id, "count": len(resolved)},
         )
-        return touched
+        return resolved
 
     async def _generate_from_yaml_for_scenario(
-        self, scenario_id: int, *, instruction: str | None
-    ) -> list[TestCase]:
+        self, scenario_id: int, *, instruction: str | None, inst_cd: str
+    ) -> list[FnxTestcase]:
+        from app.domain.inst_scope import require_inst_cd
+
+        self._require_tc_repo()
+        inst = require_inst_cd(inst_cd)
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        raw_steps = parse_steps_list(loads_json(scenario.steps_json, []))
+        raw_steps, postman_cfg = parse_steps_document(scenario.steps_json)
         if not raw_steps:
             raise InvalidInputError("시나리오에 단계(서비스)가 없습니다.")
 
@@ -440,26 +575,49 @@ class TestCaseService:
         if not service_codes:
             raise InvalidInputError("서비스 코드 시퀀스를 찾을 수 없습니다.")
 
-        await self._metadata.delete_testcases_for_scenario(scenario_id)
-        created: list[TestCase] = []
-        step_index = 0
-        for code in service_codes:
-            batch, step_index = await self._append_cases_for_service(
-                service_code=code,
-                scenario_id=scenario_id,
-                instruction=instruction,
-                step_index_start=step_index,
-            )
-            created.extend(batch)
+        pool_by_service: dict[str, list[FnxTestcase]] = {}
+        for code in dict.fromkeys(service_codes):
+            try:
+                pool_by_service[code] = await self.materialize_pool_for_service(
+                    code,
+                    instruction=instruction,
+                    replace_existing=True,
+                    inst_cd=inst,
+                )
+            except InvalidInputError:
+                pool_by_service[code] = []
 
+        updated_steps: list[Any] = []
+        for row in raw_steps:
+            if not isinstance(row, dict):
+                updated_steps.append(row)
+                continue
+            step = dict(row)
+            code = self._extract_service_code(step)
+            if code:
+                step["service_code"] = code
+                existing = step.get("rule_case_id")
+                if not (isinstance(existing, str) and existing.strip()):
+                    pool = pool_by_service.get(code) or []
+                    if pool:
+                        step["rule_case_id"] = pool[0].rule_case_id
+            updated_steps.append(step)
+
+        steps_json = dump_steps_document(updated_steps, postman_cfg)
+        await self._metadata.update_scenario_fields(scenario_id, steps_json=steps_json)
+
+        created = await self.list_for_scenario(scenario_id, inst_cd=inst)
         if not created:
             raise InvalidInputError("YAML 규칙을 읽지 못해 테스트 케이스를 만들 수 없습니다.")
         return created
 
     async def generate_all_for_scenario(
-        self, scenario_id: int, *, instruction: str | None = None
-    ) -> list[TestCase]:
-        """Replace and recreate HTTP test cases from scenario steps (template-based)."""
+        self, scenario_id: int, *, instruction: str | None = None, inst_cd: str
+    ) -> list[FnxTestcase]:
+        """Replace and (re)link pool test cases from scenario steps (template-based)."""
+        from app.domain.inst_scope import require_inst_cd
+
+        inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
@@ -468,67 +626,89 @@ class TestCaseService:
         if not raw_steps:
             raise InvalidInputError("시나리오에 단계가 없습니다. 먼저 시나리오를 생성하세요.")
 
-        if any(
-            isinstance(r, dict) and self._extract_service_code(r)
-            for r in raw_steps
+        if not any(
+            isinstance(r, dict) and self._extract_service_code(r) for r in raw_steps
         ):
-            return await self._generate_from_yaml_for_scenario(
-                scenario_id, instruction=instruction
+            raise InvalidInputError(
+                "서비스 코드가 없는 시나리오 단계는 테스트 케이스를 생성할 수 없습니다. "
+                "단계에 service_code를 지정하세요.",
             )
-
-        await self._metadata.delete_testcases_for_scenario(scenario_id)
-        created: list[TestCase] = []
-        for idx, row in enumerate(raw_steps):
-            if not isinstance(row, dict):
-                continue
-            action = str(row.get("action", f"Step {idx + 1}"))
-            result = str(row.get("result", "success"))
-            tpl = template_for_step_action(action, result)
-            tc = await self._metadata.create_testcase(
-                name=tpl["name"],
-                steps=None,
-                scenario_id=scenario_id,
-                http_method=tpl["method"],
-                endpoint=tpl["endpoint"],
-                request_body_json=dumps_json(tpl["request_body"]),
-                expected_status=tpl["expected_status"],
-                expected_body_json=dumps_json(tpl["expected_body"]),
-                step_index=idx,
-            )
-            created.append(tc)
-        if not created:
-            raise InvalidInputError("유효한 시나리오 단계가 없어 테스트 케이스를 만들 수 없습니다.")
-        logger.info(
-            "Test cases materialized",
-            extra={"scenario_id": scenario_id, "count": len(created)},
+        return await self._generate_from_yaml_for_scenario(
+            scenario_id, instruction=instruction, inst_cd=inst
         )
-        return created
 
-    async def list_for_scenario(self, scenario_id: int) -> list[TestCase]:
-        """Return ordered test cases for a scenario."""
-        if await self._metadata.get_scenario_by_id(scenario_id) is None:
+    async def list_for_scenario(
+        self, scenario_id: int, *, inst_cd: str
+    ) -> list[FnxTestcase]:
+        """Return ordered test cases for a scenario (one per step with a link)."""
+        from app.domain.inst_scope import require_inst_cd
+        from app.services.scenario_testcase_loader import list_testcases_for_steps
+
+        tc_repo = self._require_tc_repo()
+        inst = require_inst_cd(inst_cd)
+        scenario = await self._metadata.get_scenario_by_id(scenario_id)
+        if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        return await self._metadata.list_testcases_for_scenario(scenario_id)
+        return await list_testcases_for_steps(
+            steps_json=scenario.steps_json, tc_repo=tc_repo, inst_cd=inst
+        )
 
     async def list_by_service_code(
-        self, service_code: str, *, limit: int = 200
-    ) -> list[TestCase]:
-        """List pool test cases for one CBS service (excludes scenario-attached clones)."""
+        self,
+        service_code: str,
+        *,
+        inst_cd: str,
+        limit: int = 200,
+        scenario_eligible: bool = False,
+    ) -> list[FnxTestcase]:
+        """List pool test cases for one CBS service."""
+        from app.domain.inst_scope import require_inst_cd
+
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
-        return await self._metadata.list_testcases_for_service_code(code, limit=limit)
+        if scenario_eligible:
+            if self._case_repo is None:
+                raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
+            rows: list[FnxTestcase] = []
+            for case_row in await self._case_repo.list_applied_cases(
+                code, inst_cd=inst
+            ):
+                rows.append(
+                    await self.materialize_one_case(
+                        code,
+                        case_row.rule_case_id,
+                        inst_cd=inst,
+                        require_applied=True,
+                    )
+                )
+            return rows[:limit] if limit is not None else rows
 
-    async def get_testcase(self, testcase_id: int) -> TestCase:
-        """Load one test case."""
-        entity = await self._metadata.get_testcase_by_id(testcase_id)
+        tc_repo = self._require_tc_repo()
+        rows = await tc_repo.list_for_service(code, inst_cd=inst)
+        return rows[:limit] if limit is not None else rows
+
+    async def get_testcase(
+        self, inst_cd: str, svc_code: str, rule_case_id: str
+    ) -> FnxTestcase:
+        """Load one test case by natural key."""
+        from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
+        inst = require_inst_cd(inst_cd)
+        entity = await tc_repo.get(
+            inst_cd=inst, svc_code=svc_code, rule_case_id=rule_case_id
+        )
         if entity is None:
-            raise EntityNotFoundError("TestCase", testcase_id)
+            raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
         return entity
 
     async def patch_testcase(
         self,
-        testcase_id: int,
+        inst_cd: str,
+        svc_code: str,
+        rule_case_id: str,
         *,
         name: str | None,
         method: str | None,
@@ -536,27 +716,53 @@ class TestCaseService:
         request_body: dict[str, Any] | None,
         expected_status: int | None,
         expected_body: dict[str, Any] | None,
-        step_index: int | None,
-    ) -> TestCase:
-        """Apply partial updates."""
-        entity = await self._metadata.update_testcase_fields(
-            testcase_id,
-            name=name,
-            http_method=method,
-            endpoint=endpoint,
-            request_body_json=dumps_json(request_body) if request_body is not None else None,
-            expected_status=expected_status,
-            expected_body_json=dumps_json(expected_body) if expected_body is not None else None,
-            step_index=step_index,
+    ) -> FnxTestcase:
+        """Apply partial updates by natural key."""
+        from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
+        inst = require_inst_cd(inst_cd)
+        existing = await tc_repo.get(
+            inst_cd=inst, svc_code=svc_code, rule_case_id=rule_case_id
         )
-        if entity is None:
-            raise EntityNotFoundError("TestCase", testcase_id)
-        logger.info("Test case updated", extra={"testcase_id": testcase_id})
-        return entity
+        if existing is None:
+            raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
+
+        updated = await tc_repo.upsert(
+            inst_cd=inst,
+            svc_code=svc_code,
+            rule_case_id=rule_case_id,
+            name=name if name is not None else existing.name,
+            http_method=method if method is not None else existing.http_method,
+            endpoint=endpoint if endpoint is not None else existing.endpoint,
+            request_body_json=(
+                dumps_json(request_body)
+                if request_body is not None
+                else existing.request_body_json
+            ),
+            expected_status=(
+                expected_status if expected_status is not None else existing.expected_status
+            ),
+            expected_body_json=(
+                dumps_json(expected_body)
+                if expected_body is not None
+                else existing.expected_body_json
+            ),
+            assertions_json=existing.assertions_json,
+            rule_case_hist_version=existing.rule_case_hist_version,
+            pool_sample_id=existing.pool_sample_id,
+            updated_by=existing.updated_by,
+            change_kind="patch",
+        )
+        logger.info(
+            "Test case updated",
+            extra={"svc_code": svc_code, "rule_case_id": rule_case_id},
+        )
+        return updated
 
     def build_postman_collection(
         self,
-        testcase: TestCase,
+        testcase: FnxTestcase,
         *,
         request_body: dict[str, Any] | None = None,
         event_scripts: list[dict[str, Any]] | None = None,
@@ -603,23 +809,24 @@ class TestCaseService:
 
     def build_postman_for_pool_testcases(
         self,
-        testcases: list[TestCase],
+        testcases: list[FnxTestcase],
         *,
         collection_title: str,
         service_code_hint: str | None = None,
         postman_config: Any | None = None,
-        request_bodies: dict[int, dict[str, Any]] | None = None,
+        request_bodies: dict[str, dict[str, Any]] | None = None,
         description: str | None = None,
     ) -> dict[str, Any]:
         """
         Export pool/standalone test cases with the same BXM header script,
         collection variables, and response tests as scenario Postman export.
+
+        ``request_bodies`` (when given) is keyed by ``rule_case_id``.
         """
         from app.domain.postman_bxm_system_header import (
             bxm_item_srvc_cd_prerequest,
             bxm_prerequest_collection_event,
             build_postman_export_request_headers,
-            extract_service_code_from_testcase_name,
             service_code_for_testcase,
         )
         from app.domain.postman_chaining import merge_postman_events
@@ -656,7 +863,7 @@ class TestCaseService:
         macro_specs: list[FinixMacroExportSpec] = []
 
         for tc in testcases:
-            override = (request_bodies or {}).get(tc.id)
+            override = (request_bodies or {}).get(tc.rule_case_id)
             if override is not None:
                 body_src = override if isinstance(override, dict) else {}
             else:
@@ -676,11 +883,7 @@ class TestCaseService:
                 expected_body=exp_body,
                 testcase_name=tc.name or "",
             )
-            svc_code = (
-                service_code_for_testcase(tc)
-                or extract_service_code_from_testcase_name(tc.name or "")
-                or hint
-            )
+            svc_code = service_code_for_testcase(tc) or hint
             svc_pre = bxm_item_srvc_cd_prerequest(svc_code) if svc_code else None
             if svc_pre:
                 events = [svc_pre, *events]
@@ -747,32 +950,30 @@ class TestCaseService:
 
     async def build_postman_for_testcase_export(
         self,
-        testcase_id: int,
+        inst_cd: str,
+        svc_code: str,
+        rule_case_id: str,
         *,
         mode: str = "template",
         scenario_id: int | None = None,
     ) -> dict[str, Any]:
         """Full Postman export for one pool/scenario test case."""
-        from app.domain.postman_bxm_system_header import (
-            extract_service_code_from_testcase_name,
-        )
-
-        entity = await self.get_testcase(testcase_id)
-        request_bodies: dict[int, dict[str, Any]] | None = None
+        entity = await self.get_testcase(inst_cd, svc_code, rule_case_id)
+        request_bodies: dict[str, dict[str, Any]] | None = None
         if mode == "resolved" and scenario_id is not None:
             body = await self.get_resolved_request_body(
-                testcase_id,
                 scenario_id=scenario_id,
+                svc_code=entity.svc_code,
+                rule_case_id=entity.rule_case_id,
+                inst_cd=inst_cd,
             )
             if isinstance(body, dict):
-                request_bodies = {entity.id: body}
+                request_bodies = {entity.rule_case_id: body}
 
         return self.build_postman_for_pool_testcases(
             [entity],
             collection_title=f"FinTest — {entity.name}",
-            service_code_hint=extract_service_code_from_testcase_name(
-                entity.name or "",
-            ),
+            service_code_hint=entity.svc_code,
             request_bodies=request_bodies,
         )
 
@@ -780,18 +981,19 @@ class TestCaseService:
         self,
         service_code: str,
         *,
+        inst_cd: str,
         limit: int = 500,
     ) -> dict[str, Any]:
         """Full Postman export for every pool test case under a service."""
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
-        rows = await self.list_by_service_code(code, limit=limit)
+        rows = await self.list_by_service_code(code, inst_cd=inst_cd, limit=limit)
         if not rows:
             raise InvalidInputError(
                 "이 서비스에 적재된 테스트케이스가 없습니다.",
             )
-        rows = sorted(rows, key=lambda row: row.id)
+        rows = sorted(rows, key=lambda row: row.rule_case_id)
         return self.build_postman_for_pool_testcases(
             rows,
             collection_title=f"FinTest Service — {code}",
@@ -806,12 +1008,14 @@ class TestCaseService:
         self,
         scenario_id: int,
         *,
+        inst_cd: str,
         resolved: bool = True,
         native: bool = True,
         steps_json_override: str | None = None,
         generator_catalog: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Export all scenario test cases as one Postman collection."""
+        from app.domain.inst_scope import require_inst_cd
         from app.domain.postman_bxm_system_header import (
             bxm_item_srvc_cd_prerequest,
             bxm_prerequest_collection_event,
@@ -844,12 +1048,12 @@ class TestCaseService:
             bindings_by_logical_step,
             resolve_scenario_run,
         )
-        from app.utils.scenario_steps_document import parse_steps_document
 
+        inst = require_inst_cd(inst_cd)
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        testcases = await self._metadata.list_testcases_for_scenario(scenario_id)
+        testcases = await self.list_for_scenario(scenario_id, inst_cd=inst)
         if not testcases:
             raise InvalidInputError("시나리오에 연결된 테스트 케이스가 없습니다.")
 
@@ -885,7 +1089,7 @@ class TestCaseService:
         items: list[dict[str, Any]] = []
         macro_specs: list[FinixMacroExportSpec] = []
         for enum_idx, tc in enumerate(testcases):
-            logical_step = tc.step_index if tc.step_index is not None else enum_idx
+            logical_step = enum_idx
             injects, extracts, overrides = binding_map.get(logical_step, ([], [], []))
             raw_body = loads_json(tc.request_body_json, {})
             template = raw_body if isinstance(raw_body, dict) else {}
@@ -897,7 +1101,14 @@ class TestCaseService:
                     overrides=overrides,
                 )
             elif resolved and preview is not None:
-                row = next((r for r in preview.steps if r.testcase_id == tc.id), None)
+                row = next(
+                    (
+                        r
+                        for r in preview.steps
+                        if r.svc_code == tc.svc_code and r.rule_case_id == tc.rule_case_id
+                    ),
+                    None,
+                )
                 body = (
                     row.resolved_request_body
                     if row is not None
@@ -927,7 +1138,7 @@ class TestCaseService:
                 if use_native
                 else None
             )
-            svc_code = step_service_codes.get(logical_step)
+            svc_code = step_service_codes.get(logical_step) or tc.svc_code
             svc_pre = bxm_item_srvc_cd_prerequest(svc_code) if svc_code else None
             if svc_pre:
                 events = [svc_pre, *(events or [])]
@@ -994,8 +1205,6 @@ class TestCaseService:
 
     @staticmethod
     def _ordered_service_codes_from_steps(steps_json: str | None) -> list[str]:
-        from app.utils.scenario_steps_document import parse_steps_list
-
         raw = parse_steps_list(loads_json(steps_json, []))
         rows: list[tuple[int, str]] = []
         for item in raw:
@@ -1023,9 +1232,11 @@ class TestCaseService:
 
     async def get_resolved_request_body(
         self,
-        testcase_id: int,
         *,
         scenario_id: int,
+        svc_code: str,
+        rule_case_id: str,
+        inst_cd: str,
     ) -> dict[str, Any]:
         """Resolve one testcase body in scenario order (for Postman export)."""
         from app.services.scenario_run_resolver import resolve_scenario_run
@@ -1033,11 +1244,18 @@ class TestCaseService:
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        testcases = await self._metadata.list_testcases_for_scenario(scenario_id)
+        testcases = await self.list_for_scenario(scenario_id, inst_cd=inst_cd)
         preview = resolve_scenario_run(testcases, steps_json=scenario.steps_json)
-        row = next((r for r in preview.steps if r.testcase_id == testcase_id), None)
+        row = next(
+            (
+                r
+                for r in preview.steps
+                if r.svc_code == svc_code and r.rule_case_id == rule_case_id
+            ),
+            None,
+        )
         if row is None:
-            tc = await self.get_testcase(testcase_id)
+            tc = await self.get_testcase(inst_cd, svc_code, rule_case_id)
             raw = loads_json(tc.request_body_json, {})
             if isinstance(raw, dict):
                 from app.domain.dynamic_macro_resolver import resolve_mapping

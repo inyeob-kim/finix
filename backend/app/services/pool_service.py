@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.exceptions import EntityNotFoundError
-from app.models.pool_sample import PoolSample
+from app.models.fnx_pool_sample import PoolSample
 from app.repositories.pool_sample_repo import PoolSampleRepository
 from app.utils.json_text import loads_json
 

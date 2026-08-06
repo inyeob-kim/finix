@@ -14,14 +14,14 @@ export type ScenarioRuleTestcaseRef = {
   id: string;
   serviceCode: string;
   serviceName: string;
-  /** Parsed from materialized name when present; legacy YAML-only rows use this. */
+  /**
+   * Natural-key case_id (e.g. ``CU008-N-001``); source of truth for pool identity
+   * (paired with serviceCode). Parsed from materialized name when unset.
+   */
   ruleId?: string;
   title: string;
   description?: string;
   ruleType?: string;
-  /** When set, row came from GET /api/v1/test-cases (DB). */
-  backendTestcaseId?: number;
-  scenarioId?: number | null;
   /**
    * Fingerprint of pool request_body when this pick was added or last acknowledged.
    * Used to detect live pool changes (not a body snapshot).

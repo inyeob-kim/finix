@@ -15,9 +15,11 @@ from app.domain.execution_step_evaluator import (
     evaluate_live_step_result,
     evaluate_simulate_step_result,
 )
-from app.models.execution_log import ExecutionLog
-from app.models.execution_run import ExecutionRun
+from app.models.fnx_execution_log import ExecutionLog
+from app.models.fnx_execution_run import ExecutionRun
+from app.models.fnx_testcase import FnxTestcase
 from app.repositories.execution_repo import ExecutionRepository
+from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.repositories.metadata_repo import MetadataRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.services.collection_var_generator_service import CollectionVarGeneratorService
@@ -40,25 +42,34 @@ class ExecutionService:
         metadata_repo: MetadataRepository,
         registry_repo: ServiceRegistryRepository,
         execution_repo: ExecutionRepository,
+        fnx_tc_repo: FnxTestcaseRepository,
         generator_service: CollectionVarGeneratorService | None = None,
     ) -> None:
         """Construct the service with its data dependencies."""
         self._metadata = metadata_repo
         self._registry = registry_repo
         self._execution = execution_repo
+        self._fnx_tc_repo = fnx_tc_repo
         self._generators = generator_service
 
     async def run_testcase(
         self,
         *,
-        testcase_id: int,
+        inst_cd: str,
+        svc_code: str,
+        rule_case_id: str,
         runner_name: str | None,
     ) -> ExecutionLog:
-        """Legacy single-testcase stub execution."""
+        """Legacy single-testcase stub execution (natural-key lookup)."""
+        from app.domain.inst_scope import require_inst_cd
+
+        inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
-        testcase = await self._metadata.get_testcase_by_id(testcase_id)
+        testcase = await self._fnx_tc_repo.get(
+            inst_cd=inst, svc_code=svc_code, rule_case_id=rule_case_id
+        )
         if testcase is None:
-            raise EntityNotFoundError("TestCase", testcase_id)
+            raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
 
         services = await self._registry.list_services()
         if not services:
@@ -74,18 +85,21 @@ class ExecutionService:
 
         detail = (
             f"Stub run against runner={runner.name!r} url={runner.base_url!r}; "
-            f"steps_length={len(testcase.steps or '')}"
+            f"endpoint={testcase.endpoint!r}"
         )
         log = await self._metadata.create_execution_log(
-            testcase_id=testcase.id,
             status="completed",
             detail=detail,
+            inst_cd=inst,
+            svc_code=testcase.svc_code,
+            rule_case_id=testcase.rule_case_id,
         )
         logger.info(
             "Execution finished",
             extra={
                 "execution_id": log.id,
-                "testcase_id": testcase.id,
+                "svc_code": testcase.svc_code,
+                "rule_case_id": testcase.rule_case_id,
                 "runner": runner.name,
             },
         )
@@ -97,12 +111,14 @@ class ExecutionService:
         scenario_id: int,
         base_url: str,
         mode: str = "simulate",
+        inst_cd: str,
     ) -> ExecutionRun:
         """Execute all test cases for a scenario and persist structured results."""
         prepared = await self._prepare_scenario_run(
             scenario_id=scenario_id,
             base_url=base_url,
             mode=mode,
+            inst_cd=inst_cd,
         )
         return await self._create_run_for_testcases(**prepared)
 
@@ -112,12 +128,14 @@ class ExecutionService:
         scenario_id: int,
         base_url: str,
         mode: str = "simulate",
+        inst_cd: str,
     ) -> AsyncIterator[dict[str, Any]]:
         """Execute a scenario and yield progress events (for SSE)."""
         prepared = await self._prepare_scenario_run(
             scenario_id=scenario_id,
             base_url=base_url,
             mode=mode,
+            inst_cd=inst_cd,
         )
         async for event in self._iter_run_for_testcases(**prepared):
             yield event
@@ -128,24 +146,28 @@ class ExecutionService:
         scenario_id: int,
         base_url: str,
         mode: str,
+        inst_cd: str,
     ) -> dict[str, Any]:
+        from app.domain.inst_scope import require_inst_cd
+        from app.services.scenario_testcase_loader import list_testcases_for_steps
         from app.utils.scenario_steps_document import parse_steps_document
 
+        inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
-        testcases = await self._metadata.list_testcases_for_scenario(scenario_id)
+        if scenario.inst_cd != inst:
+            raise EntityNotFoundError("Scenario", scenario_id)
+        testcases = await list_testcases_for_steps(
+            steps_json=scenario.steps_json, tc_repo=self._fnx_tc_repo, inst_cd=inst
+        )
         if not testcases:
             raise InvalidInputError("시나리오에 생성된 테스트 케이스가 없습니다.")
 
         from app.services.live_pool_body import apply_live_pool_bodies_to_testcases
 
-        await apply_live_pool_bodies_to_testcases(
-            self._metadata,
-            testcases,
-            steps_json=scenario.steps_json,
-        )
+        await apply_live_pool_bodies_to_testcases(self._fnx_tc_repo, testcases)
 
         _raw_steps, postman_config = parse_steps_document(scenario.steps_json)
         effective_base = base_url.strip() or (
@@ -161,24 +183,31 @@ class ExecutionService:
             "base_url": effective_base,
             "mode": mode,
             "postman_config": postman_config,
+            "inst_cd": inst,
         }
 
     async def create_run_for_testcase(
         self,
         *,
-        testcase_id: int,
+        inst_cd: str,
+        svc_code: str,
+        rule_case_id: str,
         base_url: str = "",
         mode: str = "simulate",
         postman_config: object | None = None,
     ) -> ExecutionRun:
         """Execute one pool/standalone test case (no scenario required)."""
+        from app.domain.inst_scope import require_inst_cd
         from app.domain.postman_collection_config import PostmanCollectionConfig
         from app.utils.scenario_steps_document import parse_postman_config
 
         await self._registry.ensure_default_runner_stub()
-        testcase = await self._metadata.get_testcase_by_id(testcase_id)
+        inst = require_inst_cd(inst_cd)
+        testcase = await self._fnx_tc_repo.get(
+            inst_cd=inst, svc_code=svc_code, rule_case_id=rule_case_id
+        )
         if testcase is None:
-            raise EntityNotFoundError("TestCase", testcase_id)
+            raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
 
         parsed: PostmanCollectionConfig | None = None
         if isinstance(postman_config, PostmanCollectionConfig):
@@ -202,6 +231,7 @@ class ExecutionService:
             base_url=effective_base,
             mode=mode,
             postman_config=parsed,
+            inst_cd=inst,
         )
 
     async def create_run_for_service_testcases(
@@ -212,6 +242,7 @@ class ExecutionService:
         mode: str = "simulate",
         postman_config: object | None = None,
         limit: int = 500,
+        inst_cd: str,
     ) -> ExecutionRun:
         """Execute all materialized pool test cases for one CBS service code."""
         prepared = await self._prepare_service_testcases_run(
@@ -220,6 +251,7 @@ class ExecutionService:
             mode=mode,
             postman_config=postman_config,
             limit=limit,
+            inst_cd=inst_cd,
         )
         return await self._create_run_for_testcases(**prepared)
 
@@ -231,6 +263,7 @@ class ExecutionService:
         mode: str = "simulate",
         postman_config: object | None = None,
         limit: int = 500,
+        inst_cd: str,
     ) -> AsyncIterator[dict[str, Any]]:
         """Execute a service test case pool and yield progress events (for SSE)."""
         prepared = await self._prepare_service_testcases_run(
@@ -239,6 +272,7 @@ class ExecutionService:
             mode=mode,
             postman_config=postman_config,
             limit=limit,
+            inst_cd=inst_cd,
         )
         async for event in self._iter_run_for_testcases(**prepared):
             yield event
@@ -251,25 +285,24 @@ class ExecutionService:
         mode: str,
         postman_config: object | None,
         limit: int,
+        inst_cd: str,
     ) -> dict[str, Any]:
+        from app.domain.inst_scope import require_inst_cd
         from app.domain.postman_collection_config import PostmanCollectionConfig
         from app.utils.scenario_steps_document import parse_postman_config
 
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
 
         await self._registry.ensure_default_runner_stub()
-        testcases = await self._metadata.list_testcases_for_service_code(
-            code,
-            limit=limit,
-        )
+        testcases = await self._fnx_tc_repo.list_for_service(code, inst_cd=inst)
         if not testcases:
             raise InvalidInputError(
                 "이 서비스에 적재된 테스트케이스가 없습니다.",
             )
-        # Ascending id ≈ case order; list API returns newest-first.
-        testcases = sorted(testcases, key=lambda row: row.id)
+        testcases = sorted(testcases, key=lambda row: row.rule_case_id)[:limit]
 
         parsed: PostmanCollectionConfig | None = None
         if isinstance(postman_config, PostmanCollectionConfig):
@@ -293,17 +326,19 @@ class ExecutionService:
             "base_url": effective_base,
             "mode": mode,
             "postman_config": parsed,
+            "inst_cd": inst,
         }
 
     async def _create_run_for_testcases(
         self,
         *,
         scenario_id: int | None,
-        testcases: list,
+        testcases: list[FnxTestcase],
         steps_json: str | None,
         base_url: str,
         mode: str,
         postman_config: object | None,
+        inst_cd: str,
     ) -> ExecutionRun:
         """Shared multi-step execution for scenario or single testcase runs."""
         execution_id: int | None = None
@@ -314,6 +349,7 @@ class ExecutionService:
             base_url=base_url,
             mode=mode,
             postman_config=postman_config,
+            inst_cd=inst_cd,
         ):
             if event.get("type") == "done":
                 execution_id = int(event["execution_id"])
@@ -327,13 +363,15 @@ class ExecutionService:
         self,
         *,
         scenario_id: int | None,
-        testcases: list,
+        testcases: list[FnxTestcase],
         steps_json: str | None,
         base_url: str,
         mode: str,
         postman_config: object | None,
+        inst_cd: str,
     ) -> AsyncIterator[dict[str, Any]]:
         """Execute testcases one-by-one and yield progress events."""
+        from app.domain.inst_scope import require_inst_cd
         from app.domain.postman_bxm_system_header import (
             step_service_codes_from_steps,
         )
@@ -343,6 +381,7 @@ class ExecutionService:
             make_live_response_callback,
         )
 
+        inst = require_inst_cd(inst_cd)
         step_service_codes = step_service_codes_from_steps(steps_json)
         catalog = (
             await self._generators.build_catalog_map()
@@ -359,6 +398,7 @@ class ExecutionService:
             base_url=base_url,
             status="running",
             summary_json=None,
+            inst_cd=inst,
         )
         run_started = time.perf_counter()
         total = len(testcases)
@@ -394,7 +434,8 @@ class ExecutionService:
                 "step_index": idx,
                 "total": total,
                 "step_label": step_label,
-                "testcase_id": tc.id,
+                "svc_code": tc.svc_code,
+                "rule_case_id": tc.rule_case_id,
             }
 
             row, context, _warnings = resolve_one_testcase_step(
@@ -489,11 +530,14 @@ class ExecutionService:
                 execution_run_id=run.id,
                 step_index=row.step_index,
                 step_label=step_label,
-                testcase_id=tc.id,
                 status=status,
                 expected_json=dumps_json(expected_payload),
                 actual_json=dumps_json(actual_payload),
                 error_message=err,
+                inst_cd=tc.inst_cd or inst,
+                svc_code=tc.svc_code,
+                rule_case_id=tc.rule_case_id,
+                tc_hist_version=tc.rule_case_hist_version,
             )
             yield {
                 "type": "step_finished",
@@ -501,7 +545,8 @@ class ExecutionService:
                 "step_index": idx,
                 "total": total,
                 "step_label": step_label,
-                "testcase_id": tc.id,
+                "svc_code": tc.svc_code,
+                "rule_case_id": tc.rule_case_id,
                 "status": status,
                 "error_message": err,
             }
@@ -562,4 +607,3 @@ class ExecutionService:
             created_to=created_to,
             scenario_id=scenario_id,
         )
-

@@ -1,10 +1,13 @@
 import { apiRequest, fetchBlob } from "./client";
+import { getRequiredInstCd, withInstCdQuery } from "@/lib/instScope";
 import type {
   PostmanCollectionConfigDto,
   ScenarioBindingsSuggestDto,
   ScenarioReadDto,
   ScenarioResolvePreviewDto,
   ScenarioStepDto,
+  TestCaseReadDto,
+  TestCaseRefDto,
 } from "./types";
 
 const PREFIX = "/api/v1/scenarios";
@@ -13,7 +16,7 @@ export async function createScenario(body: {
   prompt: string;
   title?: string | null;
 }): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(PREFIX, {
+  return apiRequest<ScenarioReadDto>(withInstCdQuery(PREFIX), {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -25,7 +28,7 @@ export async function createScenarioShell(body: {
   prompt?: string | null;
   is_saved?: boolean;
 }): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(`${PREFIX}/shell`, {
+  return apiRequest<ScenarioReadDto>(withInstCdQuery(`${PREFIX}/shell`), {
     method: "POST",
     body: JSON.stringify({
       title: body.title,
@@ -57,8 +60,8 @@ export async function patchScenario(
 
 export async function attachTestCasesToScenario(
   scenarioId: number,
-  perStep: number[][],
-): Promise<import("./types").TestCaseReadDto[]> {
+  perStep: TestCaseRefDto[][],
+): Promise<TestCaseReadDto[]> {
   return apiRequest(`${PREFIX}/${scenarioId}/attach-test-cases`, {
     method: "POST",
     body: JSON.stringify({ per_step: perStep }),
@@ -72,7 +75,7 @@ export async function saveScenarioDefinition(
     prompt?: string | null;
     steps?: ScenarioStepDto[];
     postman?: PostmanCollectionConfigDto | null;
-    per_step?: number[][];
+    per_step?: TestCaseRefDto[][];
     mark_saved?: boolean;
   },
 ): Promise<ScenarioReadDto> {
@@ -106,8 +109,9 @@ export async function suggestScenarioBindings(
 
 export async function resolveScenarioPreviewInline(body: {
   steps: ScenarioStepDto[];
-  per_step: number[][];
+  per_step: TestCaseRefDto[][];
   simulate_responses?: boolean;
+  instCd?: string | null;
 }): Promise<ScenarioResolvePreviewDto> {
   return apiRequest<ScenarioResolvePreviewDto>(`${PREFIX}/resolve-preview`, {
     method: "POST",
@@ -115,6 +119,7 @@ export async function resolveScenarioPreviewInline(body: {
       steps: body.steps,
       per_step: body.per_step,
       simulate_responses: body.simulate_responses ?? true,
+      inst_cd: getRequiredInstCd(body.instCd),
     }),
   });
 }

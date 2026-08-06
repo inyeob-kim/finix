@@ -5,8 +5,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.service_rule_current import ServiceRuleCurrent
-from app.models.service_rule_history import ServiceRuleHistory
+from app.domain.inst_scope import DEFAULT_INST_CD, require_inst_cd
+from app.models.fnx_rule_doc_current import ServiceRuleCurrent
+from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 
 
 class ServiceRulesRepository:
@@ -15,12 +16,18 @@ class ServiceRulesRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_current(self, service_code: str) -> ServiceRuleCurrent | None:
+    async def get_current(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> ServiceRuleCurrent | None:
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
         if not code:
             return None
         res = await self._session.execute(
-            select(ServiceRuleCurrent).where(ServiceRuleCurrent.service_code == code)
+            select(ServiceRuleCurrent).where(
+                ServiceRuleCurrent.inst_cd == inst,
+                ServiceRuleCurrent.service_code == code,
+            )
         )
         return res.scalar_one_or_none()
 
@@ -31,22 +38,28 @@ class ServiceRulesRepository:
         return res.scalar_one_or_none()
 
     async def list_all_current(
-        self, *, limit: int = 5000, offset: int = 0
+        self, *, limit: int = 5000, offset: int = 0, inst_cd: str | None = None
     ) -> list[ServiceRuleCurrent]:
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
         stmt = (
             select(ServiceRuleCurrent)
+            .where(ServiceRuleCurrent.inst_cd == inst)
             .order_by(ServiceRuleCurrent.service_code.asc())
             .offset(offset)
             .limit(limit)
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
-    async def ensure_current(self, service_code: str) -> ServiceRuleCurrent:
+    async def ensure_current(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> ServiceRuleCurrent:
         code = (service_code or "").strip()
-        row = await self.get_current(code)
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
+        row = await self.get_current(code, inst_cd=inst)
         if row is not None:
             return row
         row = ServiceRuleCurrent(
+            inst_cd=inst,
             service_code=code,
             yaml_text="",
             checksum="",
@@ -77,25 +90,37 @@ class ServiceRulesRepository:
         )
         return res.scalar_one_or_none()
 
-    async def list_history(self, service_code: str) -> list[ServiceRuleHistory]:
+    async def list_history(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> list[ServiceRuleHistory]:
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
         if not code:
             return []
         stmt = (
             select(ServiceRuleHistory)
-            .where(ServiceRuleHistory.service_code == code)
+            .where(
+                ServiceRuleHistory.inst_cd == inst,
+                ServiceRuleHistory.service_code == code,
+            )
             .order_by(ServiceRuleHistory.created_at.desc(), ServiceRuleHistory.id.desc())
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
-    async def count_history(self, service_code: str) -> int:
+    async def count_history(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> int:
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
         if not code:
             return 0
         res = await self._session.execute(
             select(func.count())
             .select_from(ServiceRuleHistory)
-            .where(ServiceRuleHistory.service_code == code)
+            .where(
+                ServiceRuleHistory.inst_cd == inst,
+                ServiceRuleHistory.service_code == code,
+            )
         )
         return int(res.scalar_one() or 0)
 
@@ -108,15 +133,21 @@ class ServiceRulesRepository:
         return True
 
     async def find_history_by_checksum(
-        self, *, service_code: str, checksum: str
+        self,
+        *,
+        service_code: str,
+        checksum: str,
+        inst_cd: str | None = None,
     ) -> ServiceRuleHistory | None:
         code = (service_code or "").strip()
         cs = (checksum or "").strip()
+        inst = require_inst_cd(inst_cd or DEFAULT_INST_CD)
         if not code or not cs:
             return None
         stmt = (
             select(ServiceRuleHistory)
             .where(
+                ServiceRuleHistory.inst_cd == inst,
                 ServiceRuleHistory.service_code == code,
                 ServiceRuleHistory.checksum == cs,
             )
@@ -127,12 +158,16 @@ class ServiceRulesRepository:
 
     # --- Compatibility aliases used during transition ---
 
-    async def get_active_bundle(self, service_code: str) -> ServiceRuleCurrent | None:
+    async def get_active_bundle(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> ServiceRuleCurrent | None:
         """Return current row only when applied YAML is present."""
-        row = await self.get_current(service_code)
+        row = await self.get_current(service_code, inst_cd=inst_cd)
         if row is None or not row.has_applied:
             return None
         return row
 
-    async def list_versions(self, service_code: str) -> list[ServiceRuleHistory]:
-        return await self.list_history(service_code)
+    async def list_versions(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> list[ServiceRuleHistory]:
+        return await self.list_history(service_code, inst_cd=inst_cd)

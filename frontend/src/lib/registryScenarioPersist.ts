@@ -63,6 +63,7 @@ export async function persistRegistryScenarioToDb(input: {
         code: s.serviceCode,
         name: s.serviceName,
         title: s.title,
+        ruleId: s.ruleId,
       })),
       input.stepBindingsByStepKey,
     ),

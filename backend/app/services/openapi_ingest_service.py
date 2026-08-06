@@ -9,7 +9,7 @@ from typing import Any
 from app.core.exceptions import InvalidInputError
 from app.core.logger import get_logger
 from app.domain.service_uri_match import extract_service_path, match_service_code
-from app.models.openapi_document import ApiOperation, OpenApiDocument
+from app.models.fnx_openapi_document import ApiOperation, OpenApiDocument
 from app.repositories.openapi_repo import OpenApiRepository
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.utils.json_text import dumps_json

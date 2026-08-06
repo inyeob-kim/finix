@@ -9,7 +9,7 @@ from typing import Any
 
 from app.domain.postman_collection_config import PostmanCollectionConfig, PostmanStartVarSpec
 from app.domain.postman_default_headers import fcc_tx_date_today
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 
 BXM_HEADER_NAME = "x-bxm-systemheader"
 LEGACY_STAFF_ID_DEFAULT = "1000013"
@@ -263,15 +263,15 @@ def extract_service_code_from_testcase_name(name: str) -> str | None:
 
 
 def service_code_for_testcase(
-    testcase: TestCase,
+    testcase: FnxTestcase,
     *,
     step_service_codes: dict[int, str] | None = None,
 ) -> str | None:
-    """Resolve service code for a testcase row."""
-    step_idx = testcase.step_index if testcase.step_index is not None else 0
-    if step_service_codes and step_idx in step_service_codes:
-        return step_service_codes[step_idx]
-    return extract_service_code_from_testcase_name(testcase.name)
+    """Resolve service code for a testcase row (natural-key svc_code first)."""
+    code = getattr(testcase, "svc_code", None)
+    if isinstance(code, str) and code.strip():
+        return code.strip()
+    return extract_service_code_from_testcase_name(testcase.name or "")
 
 
 def step_service_codes_from_steps(steps_json: str | None) -> dict[int, str]:

@@ -2,13 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { resolveScenarioPreviewInline } from "@/api/scenarioApi";
 import { ApiError } from "@/api/client";
-import type { ScenarioResolvePreviewDto, ScenarioStepDto } from "@/api/types";
+import type {
+  ScenarioResolvePreviewDto,
+  ScenarioStepDto,
+  TestCaseRefDto,
+} from "@/api/types";
 import type { ServiceCatalogItem } from "../scenarioRegistry/types";
 import { FinixLoading } from "../ui/finix-loading";
 
 type Props = {
   steps: ScenarioStepDto[];
-  perStep: number[][];
+  perStep: TestCaseRefDto[][];
   serviceSequence: ServiceCatalogItem[];
   activeStepIndex: number;
   onActiveStepChange: (index: number) => void;
@@ -189,7 +193,7 @@ export function ScenarioResolvePreviewPanel({
             );
             return (
               <div
-                key={row.testcase_id}
+                key={`${row.svc_code}/${row.rule_case_id}`}
                 className="rounded-sm border border-border bg-background overflow-hidden"
               >
                 <div className="px-3 py-2 border-b border-border bg-muted/30">

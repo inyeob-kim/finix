@@ -13,7 +13,7 @@ from app.db.base import Base
 class ManualIndexMeta(Base):
     """Tracks indexed manual source checksum."""
 
-    __tablename__ = "manual_index_meta"
+    __tablename__ = "fnx_manual_index_meta"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     source_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -28,7 +28,7 @@ class ManualIndexMeta(Base):
 class ManualChunk(Base):
     """Embedded manual section for retrieval."""
 
-    __tablename__ = "manual_chunks"
+    __tablename__ = "fnx_manual_chunk"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     source_checksum: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

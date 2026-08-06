@@ -11,7 +11,6 @@ export type PoolCaseLiveStatus =
 export type PoolCaseLiveHealth = {
   status: PoolCaseLiveStatus;
   message: string;
-  liveTestcaseId?: number;
   liveFingerprint?: string;
   caseId?: string;
 };
@@ -83,7 +82,7 @@ export function evaluatePickLiveHealth(
     };
   }
   const live = findLivePoolRow(pick, poolRows);
-  if (!live || live.backendTestcaseId == null) {
+  if (!live) {
     return {
       status: "missing",
       message: poolCaseLiveMessage("missing"),
@@ -95,7 +94,6 @@ export function evaluatePickLiveHealth(
     return {
       status: "ok",
       message: "",
-      liveTestcaseId: live.backendTestcaseId,
       caseId,
     };
   }
@@ -103,7 +101,6 @@ export function evaluatePickLiveHealth(
     return {
       status: "empty",
       message: poolCaseLiveMessage("empty"),
-      liveTestcaseId: live.backendTestcaseId,
       liveFingerprint: fingerprint,
       caseId,
     };
@@ -113,7 +110,6 @@ export function evaluatePickLiveHealth(
     return {
       status: "changed",
       message: poolCaseLiveMessage("changed"),
-      liveTestcaseId: live.backendTestcaseId,
       liveFingerprint: fingerprint,
       caseId,
     };
@@ -121,23 +117,21 @@ export function evaluatePickLiveHealth(
   return {
     status: "ok",
     message: "",
-    liveTestcaseId: live.backendTestcaseId,
     liveFingerprint: fingerprint,
     caseId,
   };
 }
 
-/** Rebind pick numeric ids to current pool twins; refresh title from pool. */
+/** Rebind pick refs to current pool twins; refresh title from pool. */
 export function rebindPicksToLivePool(
   picks: ScenarioRuleTestcaseRef[],
   poolRows: ScenarioRuleTestcaseRef[],
 ): ScenarioRuleTestcaseRef[] {
   return picks.map((pick) => {
     const live = findLivePoolRow(pick, poolRows);
-    if (!live?.backendTestcaseId) return pick;
+    if (!live) return pick;
     return {
       ...pick,
-      backendTestcaseId: live.backendTestcaseId,
       title: live.title,
       description: live.description ?? pick.description,
       ruleType: live.ruleType ?? pick.ruleType,
@@ -174,7 +168,6 @@ export function acknowledgePickFingerprint(
   return {
     ...pick,
     pinnedFingerprint: health.liveFingerprint,
-    backendTestcaseId: health.liveTestcaseId ?? pick.backendTestcaseId,
   };
 }
 

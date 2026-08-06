@@ -9,6 +9,12 @@ import {
 } from "./ui/finix-form";
 import { FinixPrimaryButton } from "./ui/finix-button";
 import { LoginScenarioFlow } from "./LoginScenarioFlow";
+import {
+  listInstitutions,
+  loginWithInstitution,
+  type InstitutionDto,
+} from "@/api/institutionApi";
+import { ApiError } from "@/api/client";
 
 const PRESETS: Array<{ role: UserRole; label: string; description: string }> = [
   {
@@ -31,8 +37,12 @@ export function Login() {
   const [username, setUsername] = useState("qa.editor");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [branchId, setBranchId] = useState("1001");
+  const [institutions, setInstitutions] = useState<InstitutionDto[]>([]);
+  const [instCd, setInstCd] = useState("");
   const [language, setLanguage] = useState("ko");
+  const [loadingInst, setLoadingInst] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,13 +53,69 @@ export function Login() {
     return preset?.description ?? "";
   }, [role]);
 
-  const doLogin = () => {
-    const u: AuthUser = {
-      username: username.trim() || role,
-      role,
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingInst(true);
+      setError(null);
+      try {
+        const res = await listInstitutions(true);
+        if (cancelled) return;
+        setInstitutions(res.items);
+        if (res.items.length > 0) {
+          setInstCd((prev) => prev || res.items[0].inst_cd);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        const msg =
+          e instanceof ApiError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : "기관 목록을 불러오지 못했습니다.";
+        setError(msg);
+      } finally {
+        if (!cancelled) setLoadingInst(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    login(u);
-    navigate(from, { replace: true });
+  }, []);
+
+  const doLogin = async () => {
+    setError(null);
+    if (!instCd.trim()) {
+      setError("기관을 선택하세요.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await loginWithInstitution({
+        username: username.trim() || role,
+        role,
+        inst_cd: instCd.trim(),
+        password,
+      });
+      const u: AuthUser = {
+        username: res.username,
+        role: res.role as UserRole,
+        inst_cd: res.inst_cd,
+        inst_nm: res.inst_nm,
+      };
+      login(u);
+      navigate(from, { replace: true });
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "로그인에 실패했습니다.";
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -162,14 +228,23 @@ export function Login() {
               </FinixField>
 
               <div className="grid grid-cols-2 gap-6">
-                <FinixField label="센터 ID">
+                <FinixField label="기관">
                   <FinixUnderlineSelect
-                    value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
+                    value={instCd}
+                    onChange={(e) => setInstCd(e.target.value)}
+                    disabled={loadingInst || institutions.length === 0}
                   >
-                    <option value="1001">1001</option>
-                    <option value="1002">1002</option>
-                    <option value="1003">1003</option>
+                    {institutions.length === 0 ? (
+                      <option value="">
+                        {loadingInst ? "불러오는 중…" : "기관 없음"}
+                      </option>
+                    ) : (
+                      institutions.map((inst) => (
+                        <option key={inst.inst_cd} value={inst.inst_cd}>
+                          {inst.inst_cd} · {inst.inst_nm}
+                        </option>
+                      ))
+                    )}
                   </FinixUnderlineSelect>
                 </FinixField>
 
@@ -184,13 +259,23 @@ export function Login() {
                 </FinixField>
               </div>
 
-              <FinixPrimaryButton onClick={doLogin} className="mt-2 w-full">
-                로그인
+              {error ? (
+                <div className="text-[12px] text-destructive leading-relaxed">
+                  {error}
+                </div>
+              ) : null}
+
+              <FinixPrimaryButton
+                onClick={() => void doLogin()}
+                className="mt-2 w-full"
+                disabled={submitting || loadingInst || !instCd}
+              >
+                {submitting ? "로그인 중…" : "로그인"}
               </FinixPrimaryButton>
 
               <div className="text-[11px] text-muted-foreground leading-relaxed">
-                현재는 데모용 Mock 로그인입니다. 비밀번호/센터/언어는 UI만
-                반영되고, 실제 인증(SSO/JWT)은 추후 연동 가능합니다.
+                기관은 세션에 바인딩되며 API 호출에 사용됩니다. 비밀번호는 데모용
+                UI이며 서버에서 검증하지 않습니다.
               </div>
             </div>
           </div>

@@ -6,14 +6,14 @@ from typing import Any
 
 from app.domain.postman_bxm_system_header import collection_start_vars
 from app.domain.postman_collection_config import PostmanCollectionConfig
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 
 
 def _step_title(
     *,
     display_index: int,
     service_code: str | None,
-    testcase: TestCase,
+    testcase: FnxTestcase,
 ) -> str:
     code = (service_code or "").strip()
     name = (testcase.name or "").strip() or f"Step {display_index}"
@@ -72,7 +72,7 @@ def build_postman_collection_description(
     *,
     title: str,
     prompt: str | None,
-    testcases: list[TestCase],
+    testcases: list[FnxTestcase],
     binding_map: dict[int, tuple[list, list, list]],
     step_service_codes: dict[int, str],
     postman_config: PostmanCollectionConfig | None,
@@ -97,7 +97,7 @@ def build_postman_collection_description(
         lines.append("")
     else:
         for enum_idx, tc in enumerate(testcases):
-            logical = tc.step_index if tc.step_index is not None else enum_idx
+            logical = enum_idx
             display = enum_idx + 1
             svc = step_service_codes.get(logical)
             lines.append(

@@ -9,15 +9,24 @@ from sqlalchemy import engine_from_config, pool
 # Ensure models are imported so Base.metadata is populated.
 from app.db.base import Base  # noqa: E402
 from app.models import (  # noqa: F401,E402
-    execution_log,
-    execution_run,
-    execution_step_result,
-    registered_service,
-    scenario,
-    service_catalog_item,
-    service_rule_current,
-    service_rule_history,
-    testcase,
+    fnx_collection_var_generator,
+    fnx_execution_log,
+    fnx_execution_run,
+    fnx_execution_step_result,
+    fnx_inst,
+    fnx_manual_chunk,
+    fnx_openapi_document,
+    fnx_pool_sample,
+    fnx_registered_service,
+    fnx_rule_case,
+    fnx_rule_case_hist,
+    fnx_rule_doc_current,
+    fnx_rule_doc_hist,
+    fnx_rule_svc,
+    fnx_scenario,
+    fnx_service_catalog,
+    fnx_testcase,
+    fnx_testcase_hist,
 )
 
 config = context.config
@@ -96,4 +105,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

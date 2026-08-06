@@ -105,7 +105,11 @@ export function Root() {
               </div>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8}>
-              {isAuthenticated ? `${user?.username} · ${user?.role}` : "게스트"}
+              {isAuthenticated
+                ? `${user?.username} · ${user?.role} · ${user?.inst_cd}${
+                    user?.inst_nm ? ` (${user.inst_nm})` : ""
+                  }`
+                : "게스트"}
             </TooltipContent>
           </Tooltip>
 

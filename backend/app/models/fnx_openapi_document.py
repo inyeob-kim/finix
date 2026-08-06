@@ -8,14 +8,18 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstr
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.domain.inst_scope import DEFAULT_INST_CD
 
 
 class OpenApiDocument(Base):
     """One imported OpenAPI / Swagger document."""
 
-    __tablename__ = "openapi_documents"
+    __tablename__ = "fnx_openapi_document"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
     version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_json: Mapped[str] = mapped_column(Text, nullable=False)
@@ -29,14 +33,17 @@ class OpenApiDocument(Base):
 class ApiOperation(Base):
     """Normalized HTTP operation from OpenAPI, optionally linked to CBS service_code."""
 
-    __tablename__ = "api_operations"
+    __tablename__ = "fnx_api_operation"
     __table_args__ = (
-        UniqueConstraint("method", "path", name="uq_api_operations_method_path"),
+        UniqueConstraint("method", "path", name="uq_fnx_api_operation_method_path"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     openapi_document_id: Mapped[int | None] = mapped_column(
-        ForeignKey("openapi_documents.id", ondelete="SET NULL"),
+        ForeignKey("fnx_openapi_document.id", ondelete="SET NULL"),
         nullable=True,
     )
     service_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

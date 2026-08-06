@@ -74,6 +74,8 @@ function toCoverageGaps(
 
 export function Dashboard() {
   const username = useAuthStore((state) => state.user?.username ?? "guest");
+  const instCd = useAuthStore((state) => state.user?.inst_cd ?? "");
+  const instNm = useAuthStore((state) => state.user?.inst_nm ?? "");
   const [preset, setPreset] = useState<DashboardPreset>("7d");
   const [refreshKey, setRefreshKey] = useState(0);
   const [kpi, setKpi] = useState<DashboardOverviewDto | null>(null);
@@ -220,6 +222,21 @@ export function Dashboard() {
                 <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
               </span>
               실행 중 {runningCount}
+            </span>
+          ) : null}
+          {instCd ? (
+            <span
+              className="max-w-[16rem] truncate text-xs text-muted-foreground"
+              title={instNm ? `${instNm} (${instCd})` : instCd}
+            >
+              {instNm ? (
+                <>
+                  <span className="font-medium text-foreground">{instNm}</span>
+                  <span className="ml-1">({instCd})</span>
+                </>
+              ) : (
+                <span className="font-medium text-foreground">{instCd}</span>
+              )}
             </span>
           ) : null}
           <div className="inline-flex rounded-md border border-border bg-card p-0.5">

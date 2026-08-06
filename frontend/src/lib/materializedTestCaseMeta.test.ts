@@ -9,15 +9,16 @@ import type { TestCaseReadDto } from "@/api/types";
 
 function sample(partial: Partial<TestCaseReadDto>): TestCaseReadDto {
   return {
-    id: 1,
-    scenario_id: null,
+    inst_cd: "FNX",
+    svc_code: "PY027",
+    rule_case_id: "PY027-E-001",
     name: "[E] PY027-E-001 · AAPCME0006 · pymntDt 누락",
+    case_id: "PY027-E-001",
     method: "POST",
     endpoint: "/api/x",
     request_body: {},
     expected_status: 400,
     expected_body: {},
-    step_index: 0,
     created_at: "2026-07-13T00:00:00Z",
     ...partial,
   };
@@ -76,10 +77,10 @@ describe("testCaseMatchesQuery", () => {
 describe("compareTestCasesByCaseId", () => {
   it("orders Normal before Error, then case_id ascending", () => {
     const rows = [
-      sample({ id: 1, name: "[E] PY027-E-002 · b" }),
-      sample({ id: 2, name: "[N] PY027-N-002 · n2" }),
-      sample({ id: 3, name: "[E] PY027-E-001 · a" }),
-      sample({ id: 4, name: "[N] PY027-N-001 · n1" }),
+      sample({ rule_case_id: "PY027-E-002", name: "[E] PY027-E-002 · b" }),
+      sample({ rule_case_id: "PY027-N-002", name: "[N] PY027-N-002 · n2" }),
+      sample({ rule_case_id: "PY027-E-001", name: "[E] PY027-E-001 · a" }),
+      sample({ rule_case_id: "PY027-N-001", name: "[N] PY027-N-001 · n1" }),
     ];
     const ordered = [...rows].sort(compareTestCasesByCaseId).map((r) => r.name);
     expect(ordered).toEqual([

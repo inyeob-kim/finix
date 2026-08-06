@@ -20,7 +20,7 @@ from app.domain.scenario_intent import (
     TestType,
 )
 from app.integrations.llm_client import LlmClient
-from app.models.scenario import Scenario
+from app.models.fnx_scenario import Scenario
 from app.repositories.cbs_service_catalog_repo import (
     CbsServiceCatalogRepository,
     CbsServiceRecord,
@@ -65,13 +65,17 @@ class ScenarioService:
         t = (title or p or "시나리오")[:255]
         return await self._generate_and_store(prompt=p, title=t)
 
-    async def create_from_prompt_v1(self, *, prompt: str, title: str | None) -> Scenario:
+    async def create_from_prompt_v1(
+        self, *, prompt: str, title: str | None, inst_cd: str
+    ) -> Scenario:
         """Create scenario from prompt via typed intent pipeline."""
         p = prompt.strip()
         t = (title or p or "시나리오")[:255]
-        return await self._generate_and_store(prompt=p, title=t)
+        return await self._generate_and_store(prompt=p, title=t, inst_cd=inst_cd)
 
-    async def _generate_and_store(self, *, prompt: str, title: str) -> Scenario:
+    async def _generate_and_store(
+        self, *, prompt: str, title: str, inst_cd: str
+    ) -> Scenario:
         await self._registry.ensure_default_runner_stub()
         logger.info(
             "[pipeline:start] prompt=%r title=%r",
@@ -113,6 +117,7 @@ class ScenarioService:
             prompt=prompt,
             steps_json=dumps_json(final_steps),
             is_saved=False,
+            inst_cd=inst_cd,
         )
         logger.info(
             "Scenario created (typed pipeline)",
@@ -370,11 +375,13 @@ class ScenarioService:
         saved_only: bool | None,
         limit: int,
         offset: int,
+        inst_cd: str,
     ) -> tuple[list[Scenario], int]:
         return await self._metadata.list_scenarios(
             saved_only=saved_only,
             limit=limit,
             offset=offset,
+            inst_cd=inst_cd,
         )
 
     async def patch_scenario(
@@ -429,6 +436,7 @@ class ScenarioService:
         title: str,
         prompt: str | None = None,
         is_saved: bool = False,
+        inst_cd: str,
     ) -> Scenario:
         """Insert an empty scenario shell (no LLM). Used by registry persist."""
         await self._registry.ensure_default_runner_stub()
@@ -440,6 +448,7 @@ class ScenarioService:
             prompt=(prompt or t).strip() or t,
             steps_json="[]",
             is_saved=is_saved,
+            inst_cd=inst_cd,
         )
         logger.info(
             "Scenario shell created",

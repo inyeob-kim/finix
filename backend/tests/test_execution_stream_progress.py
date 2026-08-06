@@ -12,9 +12,11 @@ from app.services.execution_service import ExecutionService
 
 def test_iter_run_emits_step_progress_events():
     tc = SimpleNamespace(
-        id=11,
+        inst_cd="1001",
+        svc_code="CU008",
+        rule_case_id="CU008-N-001",
+        rule_case_hist_version=None,
         name="CU008-N-001 sample",
-        step_index=0,
         http_method="POST",
         endpoint="/api/customer",
         request_body_json="{}",
@@ -33,6 +35,7 @@ def test_iter_run_emits_step_progress_events():
         metadata_repo=AsyncMock(),
         registry_repo=AsyncMock(),
         execution_repo=execution_repo,
+        fnx_tc_repo=AsyncMock(),
         generator_service=None,
     )
 
@@ -45,6 +48,7 @@ def test_iter_run_emits_step_progress_events():
             base_url="",
             mode="simulate",
             postman_config=None,
+            inst_cd="1001",
         ):
             events.append(event)
         return events

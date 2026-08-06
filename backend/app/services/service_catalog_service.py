@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import InvalidInputError
-from app.models.service_catalog_item import ServiceCatalogItem
+from app.models.fnx_service_catalog import ServiceCatalogItem
 from app.repositories.cbs_service_catalog_repo import (
     CbsServiceRecord,
     extract_raw_catalog_dicts,

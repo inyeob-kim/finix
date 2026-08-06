@@ -122,10 +122,11 @@ export function DataPool() {
     setError(null);
     try {
       const res = await promotePoolSample(selectedId, false);
+      const ref = `${res.svc_code}/${res.rule_case_id}`;
       setPromoteMsg(
         res.reused
-          ? `이미 승격된 TC #${res.testcase_id} · ${res.name}`
-          : `TC 승격 완료 #${res.testcase_id} · ${res.name}`,
+          ? `이미 승격된 TC ${ref} · ${res.name}`
+          : `TC 승격 완료 ${ref} · ${res.name}`,
       );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "승격에 실패했습니다.");

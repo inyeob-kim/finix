@@ -31,7 +31,6 @@ import {
 } from "@/lib/executionPostmanDefaults";
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioCollectionVarsDialog } from "./scenario/ScenarioCollectionVarsDialog";
-import type { ScenarioRunMode } from "@/lib/registryScenarioRun";
 import { consumeScenarioExecutionStream } from "@/lib/registryScenarioRun";
 import type {
   ScenarioRunFocusStatus,
@@ -98,8 +97,6 @@ export function TestCase() {
   const [scenarioRunOpen, setScenarioRunOpen] = useState(false);
   const [scenarioRunDraft, setScenarioRunDraft] =
     useState<ScenarioPostmanConfig>(emptyPostmanConfig);
-  const [scenarioRunMode, setScenarioRunMode] =
-    useState<ScenarioRunMode>("simulate");
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
   const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
   const [scenarioRunFocus, setScenarioRunFocus] = useState<{
@@ -218,8 +215,11 @@ export function TestCase() {
   const resolvedRowForCurrent = useMemo(() => {
     if (!currentTest || !resolvePreview) return null;
     return (
-      resolvePreview.steps.find((s) => s.testcase_id === currentTest.id) ??
-      null
+      resolvePreview.steps.find(
+        (s) =>
+          s.svc_code === currentTest.svc_code &&
+          s.rule_case_id === currentTest.rule_case_id,
+      ) ?? null
     );
   }, [currentTest, resolvePreview]);
 
@@ -277,7 +277,6 @@ export function TestCase() {
     if (!Number.isFinite(scenarioId)) return;
     setScenarioRunError(null);
     setScenarioRunHeaderOpen(false);
-    setScenarioRunMode("simulate");
     try {
       const scenario = await getScenario(scenarioId);
       setScenarioTitle(scenario.title ?? "");
@@ -297,15 +296,15 @@ export function TestCase() {
   const confirmScenarioRun = async () => {
     if (!Number.isFinite(scenarioId)) return;
     const baseUrl = scenarioRunDraft.baseUrl?.trim() ?? "";
-    if (scenarioRunMode === "live" && !baseUrl) {
-      setScenarioRunError("Live 실행에는 baseUrl이 필요합니다.");
+    if (!baseUrl) {
+      setScenarioRunError("실행 API에는 baseUrl이 필요합니다.");
       return;
     }
     setRunning(true);
     setScenarioRunError(null);
     setError(null);
     const seedSteps: ScenarioRunFocusStep[] = testCases.map((tc, idx) => ({
-      key: String(tc.id ?? idx),
+      key: `${tc.svc_code}-${tc.rule_case_id ?? idx}`,
       label: tc.name?.trim() || `Step ${idx + 1}`,
     }));
     setScenarioRunFocus({
@@ -320,7 +319,7 @@ export function TestCase() {
         {
           scenario_id: scenarioId,
           base_url: baseUrl,
-          mode: scenarioRunMode,
+          mode: "live",
         },
         seedSteps,
         setScenarioRunFocus,
@@ -345,12 +344,17 @@ export function TestCase() {
     }
     try {
       if (Number.isFinite(scenarioId)) {
-        await downloadPostmanCollection(currentTest.id, {
-          mode: "resolved",
-          scenarioId,
-        });
+        await downloadPostmanCollection(
+          currentTest.svc_code,
+          currentTest.rule_case_id,
+          { mode: "resolved", scenarioId },
+        );
       } else {
-        await downloadPostmanCollection(currentTest.id, { mode: "template" });
+        await downloadPostmanCollection(
+          currentTest.svc_code,
+          currentTest.rule_case_id,
+          { mode: "template" },
+        );
       }
     } catch (e) {
       setError(
@@ -448,7 +452,7 @@ export function TestCase() {
           {testCases.map((tc, index) => (
             <button
               type="button"
-              key={tc.id}
+              key={`${tc.svc_code}-${tc.rule_case_id}`}
               onClick={() => setSelectedStep(index)}
               className={`w-full flex items-center justify-between px-4 py-3 rounded-sm transition-colors shadow-sm ${
                 safeIndex === index
@@ -740,8 +744,6 @@ export function TestCase() {
                 <ScenarioRunDialogForm
                   postmanConfig={scenarioRunDraft}
                   onPostmanConfigChange={setScenarioRunDraft}
-                  mode={scenarioRunMode}
-                  onModeChange={setScenarioRunMode}
                   onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
                 />
               ) : null}

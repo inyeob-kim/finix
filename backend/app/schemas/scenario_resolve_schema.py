@@ -8,13 +8,16 @@ from pydantic import BaseModel, Field
 
 from app.domain.scenario_bindings import ExtractSpec, InjectSpec
 from app.schemas.scenario_schema import ScenarioStepRead
+from app.schemas.testcase_schema import TestCaseRefV1
 from app.services.scenario_run_resolver import ResolvedTestCaseStep, ScenarioResolvePreview
 
 
 class ResolvedTestCaseStepRead(BaseModel):
     """One testcase in resolve order with template vs resolved bodies."""
 
-    testcase_id: int
+    inst_cd: str
+    svc_code: str
+    rule_case_id: str
     step_index: int
     name: str
     method: str | None
@@ -42,10 +45,11 @@ class ScenarioResolvePreviewInlineRequest(BaseModel):
     """Resolve before a scenario is saved (registry wizard)."""
 
     steps: list[ScenarioStepRead] = Field(default_factory=list)
-    per_step: list[list[int]] = Field(
+    per_step: list[list[TestCaseRefV1]] = Field(
         ...,
-        description="Testcase ids per logical step, in run order within each step.",
+        description="Natural-key testcase refs per logical step, in run order within each step.",
     )
+    inst_cd: str = Field(..., min_length=1, description="기관코드 (instCd)")
     simulate_responses: bool = Field(
         default=True,
         description="Use stub simulator to propagate extracts through the chain.",
@@ -54,7 +58,9 @@ class ScenarioResolvePreviewInlineRequest(BaseModel):
 
 def _step_to_read(row: ResolvedTestCaseStep) -> ResolvedTestCaseStepRead:
     return ResolvedTestCaseStepRead(
-        testcase_id=row.testcase_id,
+        inst_cd=row.inst_cd,
+        svc_code=row.svc_code,
+        rule_case_id=row.rule_case_id,
         step_index=row.step_index,
         name=row.name,
         method=row.method,

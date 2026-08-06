@@ -1,6 +1,6 @@
 """Promote naming / expected mapping for pool samples."""
 
-from app.models.pool_sample import PoolSample
+from app.models.fnx_pool_sample import PoolSample
 from app.services.pool_promote_service import _display_name, _expected_for_sample
 
 

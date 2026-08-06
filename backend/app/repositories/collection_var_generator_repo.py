@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.collection_var_generator import CollectionVarGenerator
+from app.models.fnx_collection_var_generator import CollectionVarGenerator
 
 
 class CollectionVarGeneratorRepository:

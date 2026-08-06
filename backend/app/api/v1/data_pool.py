@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import get_pool_promote_service, get_pool_service
+from app.core.deps import (
+    get_pool_promote_service,
+    get_pool_service,
+    require_active_inst_cd,
+)
 from app.schemas.dashboard_schema import PoolCoverageResponse, PoolServiceCoverageRead
 from app.schemas.data_pool_schema import (
     PoolSampleListResponse,
@@ -89,15 +93,19 @@ async def get_pool_sample(
 async def promote_pool_sample(
     sample_id: int,
     payload: PromoteSampleRequest | None = None,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: PoolPromoteService = Depends(get_pool_promote_service),
 ) -> PromoteResult:
     body = payload or PromoteSampleRequest()
     tc, reused = await service.promote_sample_with_meta(
         sample_id,
+        inst_cd=inst_cd,
         replace_existing=body.replace_existing,
     )
     return PromoteResult(
-        testcase_id=tc.id,
+        inst_cd=tc.inst_cd,
+        svc_code=tc.svc_code,
+        rule_case_id=tc.rule_case_id,
         pool_sample_id=tc.pool_sample_id,
         name=tc.name,
         reused=reused,
@@ -111,17 +119,21 @@ async def promote_pool_sample(
 )
 async def promote_pool_by_service(
     payload: PromoteByServiceRequest,
+    inst_cd: str = Depends(require_active_inst_cd),
     service: PoolPromoteService = Depends(get_pool_promote_service),
 ) -> PromoteBatchResult:
     rows = await service.promote_for_service(
         payload.service_code,
+        inst_cd=inst_cd,
         path_kind=payload.path_kind,
         replace_existing=payload.replace_existing,
     )
     return PromoteBatchResult(
         items=[
             PromoteResult(
-                testcase_id=tc.id,
+                inst_cd=tc.inst_cd,
+                svc_code=tc.svc_code,
+                rule_case_id=tc.rule_case_id,
                 pool_sample_id=tc.pool_sample_id,
                 name=tc.name,
                 reused=False,

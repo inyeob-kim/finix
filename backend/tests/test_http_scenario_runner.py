@@ -6,7 +6,7 @@ from app.domain.postman_collection_config import (
     PostmanCollectionConfig,
     PostmanStartVarSpec,
 )
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.domain.step_http_result import StepHttpResult
 from app.services.http_scenario_runner import (
     execute_http_testcase,
@@ -16,19 +16,17 @@ from app.services.http_scenario_runner import (
 )
 
 
-def _tc(tid: int, *, method: str = "POST", endpoint: str = "/v1/x") -> TestCase:
-    return TestCase(
-        id=tid,
-        scenario_id=1,
+def _tc(tid: int, *, method: str = "POST", endpoint: str = "/v1/x") -> FnxTestcase:
+    return FnxTestcase(
+        inst_cd="1001",
+        svc_code="SVC",
+        rule_case_id=f"C-{tid}",
         name=f"TC-{tid}",
-        steps=None,
         http_method=method,
         endpoint=endpoint,
         request_body_json="{}",
         expected_status=200,
         expected_body_json="{}",
-        step_index=0,
-        rule_history_id=None,
     )
 
 

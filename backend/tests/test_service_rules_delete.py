@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
-from app.models.service_rule_history import ServiceRuleHistory
+from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.services.service_rules_service import ServiceRulesService
 
 

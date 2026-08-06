@@ -59,6 +59,10 @@ import { RulesDomainNav } from "./rules/RulesDomainNav";
 import { RulesMetaHistoryDialog } from "./rules/RulesMetaHistoryDialog";
 import { RulesMetaHintButton } from "./rules/RulesMetaHintButton";
 import { RulesMetaTestCasesPanel } from "./rules/RulesMetaTestCasesPanel";
+import {
+  RulesMetaTestCaseRunDialog,
+  type RulesMetaRunSession,
+} from "./rules/RulesMetaTestCaseRunDialog";
 import { YamlAiJobBanner } from "./rules/YamlAiJobBanner";
 import { YamlRulesEditPanel } from "./rules/YamlRulesEditPanel";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
@@ -67,10 +71,12 @@ import {
   activateServiceRulesBundle,
   createServiceRulesDraft,
   getServiceRulesBundle,
+  listServiceRuleCases,
   updateServiceRulesDraft,
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
-import type { ServiceRuleBundleReadDto } from "@/api/types";
+import type { ServiceRuleBundleReadDto, TestCaseReadDto } from "@/api/types";
+import { toast } from "sonner";
 import { useYamlAiJobStore, type YamlAiJob } from "@/app/stores/yamlAiJobStore";
 import {
   mergeSelectedWithBundle,
@@ -205,6 +211,10 @@ export function RulesMeta() {
   const [yamlRuleFocusEdit, setYamlRuleFocusEdit] = useState(false);
   const [yamlMacroPanelOpen, setYamlMacroPanelOpen] = useState(false);
   const [historyItem, setHistoryItem] = useState<RuleRegistryItem | null>(null);
+  const [runningCaseId, setRunningCaseId] = useState<string | null>(null);
+  const [poolRows, setPoolRows] = useState<TestCaseReadDto[]>([]);
+  const [runSession, setRunSession] = useState<RulesMetaRunSession | null>(null);
+  const poolRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     setStatusFilter(statusFilterFromSearch(searchParams.get("status")));
@@ -331,33 +341,57 @@ export function RulesMeta() {
     return registry.find((r) => r.serviceCode === historyItem.serviceCode) ?? historyItem;
   }, [historyItem, registry]);
 
-  const loadBundleYaml = async (serviceCode: string, bundleId: number) => {
+  const loadEditor = async (
+    serviceCode: string,
+    bundleId: number,
+    currentBundleId: number,
+  ) => {
     setEditLoading(true);
     setEditError(null);
     try {
-      const bundle = await getServiceRulesBundle(serviceCode, bundleId);
-      const nextYaml = bundle.yaml_text ?? "";
+      if (bundleId !== currentBundleId) {
+        const bundle = await getServiceRulesBundle(serviceCode, bundleId);
+        const nextYaml = bundle.yaml_text ?? "";
+        setYamlText(nextYaml);
+        setBaselineYamlText(nextYaml);
+        const rulesArr =
+          bundle.rules && Array.isArray((bundle.rules as { rules?: unknown }).rules)
+            ? (bundle.rules as { rules: unknown[] }).rules
+            : null;
+        setSelected((prev) =>
+          prev && prev.serviceCode === serviceCode
+            ? {
+                ...prev,
+                bundleId: bundle.id,
+                bundleVersion: bundle.version,
+                status: bundle.status,
+                rules: rulesArr?.length ?? prev.rules,
+                sourceVersion: bundle.source_version ?? "—",
+              }
+            : prev,
+        );
+        return;
+      }
+
+      const editor = await listServiceRuleCases(serviceCode);
+      const nextYaml = editor?.yaml_text ?? "";
       setYamlText(nextYaml);
       setBaselineYamlText(nextYaml);
-      const rulesArr =
-        bundle.rules && Array.isArray((bundle.rules as { rules?: unknown }).rules)
-          ? (bundle.rules as { rules: unknown[] }).rules
-          : null;
       setSelected((prev) =>
         prev && prev.serviceCode === serviceCode
           ? {
               ...prev,
-              bundleId: bundle.id,
-              bundleVersion: bundle.version,
-              status: bundle.status,
-              rules: rulesArr?.length ?? prev.rules,
-              sourceVersion: bundle.source_version ?? "—",
+              bundleId: editor?.bundle_id ?? prev.bundleId,
+              bundleVersion: editor?.is_active ? 1 : 0,
+              status: editor?.status ?? prev.status,
+              rules: editor?.rules.length ?? prev.rules,
+              sourceVersion: editor?.source_version ?? "—",
             }
           : prev,
       );
     } catch (e) {
       setEditError(
-        e instanceof ApiError ? e.message : "YAML을 불러오지 못했습니다.",
+        e instanceof ApiError ? e.message : "편집 데이터를 불러오지 못했습니다.",
       );
     } finally {
       setEditLoading(false);
@@ -380,7 +414,7 @@ export function RulesMeta() {
     setEditError(null);
     setEditNotice(null);
     setYamlCopyDone(false);
-    await loadBundleYaml(row.serviceCode, bundleId ?? row.bundleId);
+    await loadEditor(row.serviceCode, bundleId ?? row.bundleId, row.bundleId);
   };
 
   useEffect(() => {
@@ -411,7 +445,7 @@ export function RulesMeta() {
       navigate("/rules", { replace: true });
     }
     void openEdit(item, resume.bundleId, resume.activeTab);
-    // Resume once when registry is ready; openEdit closes over latest loadBundleYaml.
+    // Resume once when registry is ready; openEdit closes over latest loadEditor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registryLoading, registry, searchParams, navigate]);
 
@@ -423,6 +457,26 @@ export function RulesMeta() {
     setHistoryItem(null);
     await reloadRegistry();
   };
+
+  const handleRunRunningChange = useCallback(
+    (loading: boolean, caseId: string | null) => {
+      setRunningCaseId(loading ? caseId : null);
+    },
+    [],
+  );
+
+  const refreshPoolRows = useCallback(async () => {
+    await poolRefreshRef.current?.();
+  }, []);
+
+  const registerPoolRefresh = useCallback((refresh: () => Promise<void>) => {
+    poolRefreshRef.current = refresh;
+  }, []);
+
+  const openEditorCaseRun = useCallback((caseId: string) => {
+    if (!caseId.trim()) return;
+    setRunSession({ kind: "editor", caseId: caseId.trim() });
+  }, []);
 
   const closePanel = () => {
     clearRulesMetaResume();
@@ -436,6 +490,8 @@ export function RulesMeta() {
     setCloseConfirmOpen(false);
     setYamlCopyDone(false);
     setYamlRuleFocusEdit(false);
+    setRunSession(null);
+    setRunningCaseId(null);
   };
 
   const hasUnsavedChanges =
@@ -545,7 +601,7 @@ export function RulesMeta() {
       const items = await reloadRegistry();
       applySavedBundle(
         bundle,
-        "적용되었습니다. 테스트 케이스 생성에 사용됩니다.",
+        "버전이 확정되었습니다. (일상 실행은 케이스 ▶ 로 바로 가능합니다)",
         items,
       );
     } catch (e) {
@@ -1004,8 +1060,8 @@ export function RulesMeta() {
                 <div className="flex gap-1 border-b border-border">
                   {(
                     [
-                      { id: "yaml" as const, label: "YAML 편집" },
-                      { id: "testcases" as const, label: "테스트케이스" },
+                      { id: "yaml" as const, label: "케이스 편집" },
+                      { id: "testcases" as const, label: "TC 풀·실행" },
                     ] as const
                   ).map((t) => (
                     <button
@@ -1047,6 +1103,10 @@ export function RulesMeta() {
                     }
                     active={activeTab === "testcases"}
                     disabled={editLoading}
+                    runningSingleId={runningCaseId}
+                    onRowsChange={setPoolRows}
+                    registerRefresh={registerPoolRefresh}
+                    onRunSessionChange={setRunSession}
                   />
                 ) : (
                   <YamlRulesEditPanel
@@ -1061,9 +1121,24 @@ export function RulesMeta() {
                     onError={setEditError}
                     onFocusEditChange={setYamlRuleFocusEdit}
                     onMacroPanelOpenChange={setYamlMacroPanelOpen}
+                    runningCaseId={runningCaseId}
+                    onRunCase={openEditorCaseRun}
                   />
                 )}
               </div>
+
+              {selected ? (
+                <RulesMetaTestCaseRunDialog
+                  serviceCode={selected.serviceCode}
+                  resumeBundleId={selected.bundleId}
+                  yamlText={yamlText}
+                  poolRows={poolRows}
+                  session={runSession}
+                  onSessionChange={setRunSession}
+                  onRunningChange={handleRunRunningChange}
+                  onPoolRowsRefresh={refreshPoolRows}
+                />
+              ) : null}
 
               {!yamlRuleFocusEdit ? (
               <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-wrap justify-end gap-2">
@@ -1097,7 +1172,7 @@ export function RulesMeta() {
                       <RulesMetaHintButton
                         hint={
                           saveDisabledReason ??
-                          "편집 내용을 작업본으로 저장합니다. 적용 전까지 테스트케이스 생성에는 반영되지 않습니다."
+                          "작업본으로 저장합니다. 일상 실행은 케이스 ▶ 로 바로 가능합니다."
                         }
                       >
                         <button
@@ -1111,14 +1186,16 @@ export function RulesMeta() {
                       </RulesMetaHintButton>
 
                       {hasWorkingDraft ? (
-                        <FinixPrimaryButton
-                          type="button"
-                          className="h-9 px-3 w-auto text-sm"
-                          disabled={applyDisabled}
-                          onClick={() => setActivateConfirmOpen(true)}
-                        >
-                          적용
-                        </FinixPrimaryButton>
+                        <RulesMetaHintButton hint="버전을 확정합니다. 일상 실행에 필수는 아닙니다.">
+                          <button
+                            type="button"
+                            className={SECONDARY_BTN_CLASS}
+                            disabled={applyDisabled}
+                            onClick={() => setActivateConfirmOpen(true)}
+                          >
+                            버전 확정
+                          </button>
+                        </RulesMetaHintButton>
                       ) : null}
                     </>
                   );
@@ -1183,7 +1260,7 @@ export function RulesMeta() {
       >
         <AlertDialogContent className="z-[100] sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>작업본을 적용할까요?</AlertDialogTitle>
+            <AlertDialogTitle>작업본을 버전 확정할까요?</AlertDialogTitle>
             <AlertDialogDescription className="text-left space-y-2">
               {selected ? (
                 <>
@@ -1193,8 +1270,8 @@ export function RulesMeta() {
                     </span>
                   </span>
                   <span className="block text-xs">
-                    적용하면 작업본이 현재 규칙이 되며, 변경 이력에 스냅샷이
-                    쌓입니다. 이후 「테스트케이스 생성」에 사용됩니다.
+                    확정하면 작업본이 현재 규칙이 되며 변경 이력에 스냅샷이
+                    쌓입니다. 케이스 ▶ 실행에는 필수가 아닙니다.
                   </span>
                 </>
               ) : null}
@@ -1214,7 +1291,7 @@ export function RulesMeta() {
                 void runActivate();
               }}
             >
-              적용
+              버전 확정
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

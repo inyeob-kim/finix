@@ -27,6 +27,7 @@ type YamlRulesEditPanelProps = {
   yamlText: string;
   onYamlChange: (text: string) => void;
   disabled?: boolean;
+  runningCaseId?: string | null;
   yamlCopyDone: boolean;
   onCopy: () => void;
   onExport: () => void;
@@ -35,6 +36,7 @@ type YamlRulesEditPanelProps = {
   onFocusEditChange?: (focused: boolean) => void;
   /** 동적값 패널 열림 — 부모가 모달 폭을 넓힐 때 사용 */
   onMacroPanelOpenChange?: (open: boolean) => void;
+  onRunCase?: (caseId: string, ruleIndex: number) => void;
 };
 
 export function YamlRulesEditPanel({
@@ -42,6 +44,7 @@ export function YamlRulesEditPanel({
   yamlText,
   onYamlChange,
   disabled = false,
+  runningCaseId = null,
   yamlCopyDone,
   onCopy,
   onExport,
@@ -49,6 +52,7 @@ export function YamlRulesEditPanel({
   onError,
   onFocusEditChange,
   onMacroPanelOpenChange,
+  onRunCase,
 }: YamlRulesEditPanelProps) {
   const [subTab, setSubTab] = useState<YamlEditSubTab>("source");
   const [validating, setValidating] = useState(false);
@@ -332,8 +336,10 @@ export function YamlRulesEditPanel({
                 onYamlChange(text);
               }}
               disabled={disabled}
+              runningCaseId={runningCaseId}
               externalDiagnostic={sourceDiagnostic}
               onClearExternalDiagnostic={() => setSourceDiagnostic(null)}
+              onRunCase={onRunCase}
             />
           ) : (
             <YamlRulesFieldsForm

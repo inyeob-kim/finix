@@ -452,6 +452,8 @@ export function buildScenarioStepsWithBindings(
     code: string;
     name: string;
     title?: string;
+    /** Natural-key rule_case_id link to the pool testcase for this step. */
+    ruleId?: string;
   }>,
   bindings: StepBindingsByStepKey | StepBindingsByServiceCode | undefined,
 ): Array<{
@@ -461,6 +463,7 @@ export function buildScenarioStepsWithBindings(
   result: "success";
   reason: string;
   service_code: string;
+  rule_case_id: string | null;
   extracts: BindingExtractSpec[];
   injects: BindingInjectSpec[];
   overrides: BindingOverrideSpec[];
@@ -475,6 +478,7 @@ export function buildScenarioStepsWithBindings(
       result: "success" as const,
       reason: `code=${s.code}`,
       service_code: s.code,
+      rule_case_id: s.ruleId?.trim() || null,
       extracts: cleanRows(cfg.extracts),
       injects: cleanRows(cfg.injects),
       overrides: cleanOverrideRows(cfg.overrides ?? []),

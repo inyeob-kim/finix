@@ -12,7 +12,7 @@ from app.core.exceptions import InvalidInputError
 from app.core.logger import get_logger
 from app.integrations.llm_client import LlmClient
 from app.manual.loader import load_manual_chunks
-from app.models.manual_chunk import ManualChunk
+from app.models.fnx_manual_chunk import ManualChunk
 from app.prompts.manual_chat_prompt import (
     build_manual_system_prompt,
     build_manual_user_prompt,

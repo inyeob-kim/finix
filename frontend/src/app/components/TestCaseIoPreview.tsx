@@ -1,6 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router";
-import { ExternalLink } from "lucide-react";
 import type { TestCaseReadDto } from "@/api/types";
 import {
   Table,
@@ -84,25 +82,12 @@ export function TestCaseIoPreview({ test }: TestCaseIoPreviewProps) {
         <div className="rounded-sm border border-border bg-card overflow-hidden">
           <Table>
             <TableBody>
-              <DetailTableRow label="ID" value={test.id} mono />
-              <DetailTableRow label="이름" value={test.name} />
               <DetailTableRow
-                label="시나리오"
-                value={
-                  test.scenario_id != null ? (
-                    <Link
-                      to={`/test-case/${test.scenario_id}`}
-                      className="inline-flex items-center gap-1 text-primary hover:underline"
-                    >
-                      #{test.scenario_id}
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </Link>
-                  ) : (
-                    "—"
-                  )
-                }
+                label="자연키"
+                value={`${test.svc_code}/${test.rule_case_id}`}
                 mono
               />
+              <DetailTableRow label="이름" value={test.name} />
               <DetailTableRow label="메서드" value={test.method} mono />
               <DetailTableRow
                 label="엔드포인트"

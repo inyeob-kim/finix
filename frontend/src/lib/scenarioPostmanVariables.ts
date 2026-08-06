@@ -488,7 +488,7 @@ export function appendStartVarIfMissing(
   ]);
 }
 
-/** Collect unique extract variables from bindings (step order). */
+/** Collect extract variables from bindings (step order; one row per step extract). */
 export function collectExtractVarPreviews(
   runSteps: ScenarioRunStep[],
   bindings: StepBindingsByStepKey,
@@ -499,7 +499,9 @@ export function collectExtractVarPreviews(
     const cfg = bindings[step.stepKey];
     for (const ex of cfg?.extracts ?? []) {
       const v = ex.var.trim();
-      if (!v || seen.has(v)) continue;
+      if (!v) continue;
+      // Unique by runtime name — same leaf from two steps must use distinct vars.
+      if (seen.has(v)) continue;
       seen.add(v);
       out.push({
         var: v,

@@ -85,11 +85,14 @@ export function suggestAlternateVarNames(
   const svc = (step?.serviceCode ?? "step")
     .replace(/[^A-Za-z0-9]+/g, "")
     .slice(0, 12);
+  const tc = `TC${sourceStepIndex + 1}`;
   const candidates = [
-    `from${capitalizeLeaf(leaf)}`,
-    `to${capitalizeLeaf(leaf)}`,
+    `${leaf}_${tc}`,
+    `${tc}_${leaf}`,
     `${leaf}Step${sourceStepIndex + 1}`,
     `${svc}_${leaf}`,
+    `from${capitalizeLeaf(leaf)}`,
+    `to${capitalizeLeaf(leaf)}`,
     `${leaf}_${sourceStepIndex + 1}`,
     `src${capitalizeLeaf(leaf)}`,
   ];
@@ -100,6 +103,54 @@ export function suggestAlternateVarNames(
     if (out.length >= 4) break;
   }
   return out;
+}
+
+/**
+ * Always scope extract vars by step: ``acctNbr_TC1``, ``acctNbr_TC2``, …
+ * So TC1/TC2 can both expose the same response field without collisions.
+ */
+export function allocateUniqueExtractVarName(input: {
+  responsePath: string;
+  preferredName?: string;
+  runSteps: ScenarioRunStep[];
+  bindings: StepBindingsByStepKey;
+  sourceStepIndex: number;
+  /** @deprecated Ignored — names are always step-scoped. */
+  startVarKeys?: readonly string[];
+  exceptResponsePath?: string;
+}): string {
+  const leaf =
+    defaultExtractVarName(input.responsePath).replace(/_TC\d+$/i, "") ||
+    "value";
+  const scoped = `${leaf}_TC${input.sourceStepIndex + 1}`;
+  const sourceStep = input.runSteps[input.sourceStepIndex];
+  const taken = collectTakenVarNames(
+    input.runSteps,
+    input.bindings,
+    [],
+    {
+      exceptStepKey: sourceStep?.stepKey,
+      exceptResponsePath:
+        input.exceptResponsePath ?? input.responsePath,
+    },
+  );
+  if (!isVarNameTaken(scoped, taken)) return scoped;
+
+  const alts = suggestAlternateVarNames(
+    leaf,
+    taken,
+    input.sourceStepIndex,
+    input.runSteps,
+  );
+  if (alts[0]) return alts[0];
+
+  let n = 2;
+  while (n < 100) {
+    const candidate = `${scoped}_${n}`;
+    if (!isVarNameTaken(candidate, taken)) return candidate;
+    n += 1;
+  }
+  return `${scoped}_${Date.now()}`;
 }
 
 export function defaultExtractVarName(responsePath: string): string {

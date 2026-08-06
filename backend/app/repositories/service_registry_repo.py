@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.registered_service import RegisteredService
+from app.models.fnx_registered_service import RegisteredService
 
 
 class ServiceRegistryRepository:

@@ -1,60 +1,25 @@
 import { ApiError } from "@/api/client";
-import { getExecution } from "@/api/executionApi";
 import {
   listTestCasesByServiceCode,
   materializeTestCasesForService,
   downloadServicePostmanCollection,
-  runTestCaseExecution,
-  streamServiceTestCasesExecution,
 } from "@/api/testcaseApi";
-import type { ExecutionDetailDto, TestCaseReadDto } from "@/api/types";
-import {
-  consumeExecutionProgressStream,
-  type ExecutionRunProgressState,
-} from "@/lib/executionProgressStream";
-import { focusStepsFromPoolTestCases } from "@/lib/poolTestCaseRun";
+import type { TestCaseReadDto } from "@/api/types";
 import {
   compareTestCasesByCaseId,
   inferPathKindFromTestCase,
-  parseMaterializedTestCaseName,
   testCaseMatchesQuery,
 } from "@/lib/materializedTestCaseMeta";
-import {
-  loadExecutionPostmanDefaults,
-  saveExecutionPostmanDefaults,
-} from "@/lib/executionPostmanDefaults";
-import type { ScenarioRunMode } from "@/lib/registryScenarioRun";
-import { saveRulesMetaResume } from "@/lib/rulesMetaResume";
-import {
-  postmanConfigToApi,
-  type ScenarioPostmanConfig,
-} from "@/lib/scenarioPostmanVariables";
-import { Download, ExternalLink, Play, RefreshCw, Search } from "lucide-react";
+import type { RulesMetaRunSession } from "./RulesMetaTestCaseRunDialog";
+import { Download, Play, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ConfirmPopover } from "../scenarioRegistry/components/ConfirmPopover";
-import { ScenarioCollectionVarsDialog } from "../scenario/ScenarioCollectionVarsDialog";
-import { ScenarioRunDialogForm } from "../scenario/ScenarioRunDialogForm";
-import { ScenarioRunFocusProgress } from "../scenario/ScenarioRunFocusProgress";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
 import { FinixPrimaryButton } from "../ui/finix-button";
 import { FinixUnderlineInput } from "../ui/finix-form";
 import { FinixLoading } from "../ui/finix-loading";
 import { cn } from "../ui/utils";
-import {
-  FINIX_TC_RUN_CONFIG_MODAL_CONTENT,
-  FINIX_TC_RUN_RESULT_MODAL_CONTENT,
-} from "@/lib/finixModalLayout";
 import { RulesMetaTestCasesTable } from "./RulesMetaTestCasesTable";
-import { TestCaseRunResultSummary } from "./TestCaseRunResultSummary";
 
 const ICON_BTN =
   "h-9 w-9 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50";
@@ -63,10 +28,6 @@ const SECONDARY_BTN =
   "h-9 px-3 text-xs rounded-sm border border-border font-medium hover:bg-muted disabled:opacity-50 inline-flex items-center gap-1.5";
 
 type PathFilter = "" | "N" | "E";
-
-type RunSession =
-  | { kind: "single"; test: TestCaseReadDto }
-  | { kind: "all" };
 
 type RulesMetaTestCasesPanelProps = {
   serviceCode: string;
@@ -80,6 +41,10 @@ type RulesMetaTestCasesPanelProps = {
   editingDraft?: boolean;
   active?: boolean;
   disabled?: boolean;
+  runningSingleId?: string | null;
+  onRowsChange?: (rows: TestCaseReadDto[]) => void;
+  registerRefresh?: (refresh: () => Promise<void>) => void;
+  onRunSessionChange: (session: RulesMetaRunSession) => void;
 };
 
 export function RulesMetaTestCasesPanel({
@@ -90,27 +55,18 @@ export function RulesMetaTestCasesPanel({
   editingDraft = false,
   active = true,
   disabled = false,
+  runningSingleId = null,
+  onRowsChange,
+  registerRefresh,
+  onRunSessionChange,
 }: RulesMetaTestCasesPanelProps) {
-  const navigate = useNavigate();
   const [rows, setRows] = useState<TestCaseReadDto[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [generateLoading, setGenerateLoading] = useState(false);
   const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [pathFilter, setPathFilter] = useState<PathFilter>("");
-  const [runSession, setRunSession] = useState<RunSession | null>(null);
-  const [runMode, setRunMode] = useState<ScenarioRunMode>("live");
-  const [runDraft, setRunDraft] = useState<ScenarioPostmanConfig>(() =>
-    loadExecutionPostmanDefaults(),
-  );
-  const [runLoading, setRunLoading] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [runHeaderOpen, setRunHeaderOpen] = useState(false);
-  const [runResult, setRunResult] = useState<ExecutionDetailDto | null>(null);
-  const [runFocus, setRunFocus] = useState<ExecutionRunProgressState | null>(
-    null,
-  );
   const [exportAllLoading, setExportAllLoading] = useState(false);
 
   const code = serviceCode.trim();
@@ -119,13 +75,17 @@ export function RulesMetaTestCasesPanel({
   const loadTestCases = useCallback(async () => {
     if (!code) {
       setRows([]);
+      onRowsChange?.([]);
       return;
     }
     setListLoading(true);
     try {
-      setRows(await listTestCasesByServiceCode(code, 500));
+      const listed = await listTestCasesByServiceCode(code, 500);
+      setRows(listed);
+      onRowsChange?.(listed);
     } catch (e) {
       setRows([]);
+      onRowsChange?.([]);
       toast.error(
         e instanceof ApiError
           ? e.message
@@ -134,7 +94,11 @@ export function RulesMetaTestCasesPanel({
     } finally {
       setListLoading(false);
     }
-  }, [code]);
+  }, [code, onRowsChange]);
+
+  useEffect(() => {
+    registerRefresh?.(loadTestCases);
+  }, [registerRefresh, loadTestCases]);
 
   useEffect(() => {
     if (!active || !code) return;
@@ -153,10 +117,10 @@ export function RulesMetaTestCasesPanel({
   const generateDisabledReason = (() => {
     if (!code) return "서비스를 선택하세요.";
     if (!yamlText.trim() && !hasActiveYaml) {
-      return "YAML이 없습니다. YAML 탭에서 작성·저장한 뒤 생성하세요.";
+      return "YAML이 없습니다. 케이스 편집 탭에서 작성·저장한 뒤 생성하세요.";
     }
     if (disabled) return "다른 작업이 진행 중입니다.";
-    if (generateLoading) return "생성 중입니다.";
+    if (generateLoading) return "일괄 생성 중입니다.";
     return null;
   })();
 
@@ -170,12 +134,14 @@ export function RulesMetaTestCasesPanel({
         bundle_id: resumeBundleId,
         yaml_text: yamlText.trim() ? yamlText : null,
       });
-      toast.success(`${created.length}건의 테스트 케이스를 생성했습니다.`);
+      toast.success(`풀에 ${created.length}건을 일괄 생성했습니다.`);
       setRows(created);
+      onRowsChange?.(created);
       try {
         const listed = await listTestCasesByServiceCode(code, 500);
         if (listed.length > 0) {
           setRows(listed);
+          onRowsChange?.(listed);
         }
       } catch {
         // Keep `created` rows if refresh fails.
@@ -200,23 +166,13 @@ export function RulesMetaTestCasesPanel({
     void runGenerate();
   };
 
-  const beginRunSession = (session: RunSession) => {
-    setRunError(null);
-    setRunResult(null);
-    setRunFocus(null);
-    setRunMode("live");
-    setRunHeaderOpen(false);
-    setRunDraft(loadExecutionPostmanDefaults());
-    setRunSession(session);
-  };
-
   const openRunDialog = (test: TestCaseReadDto) => {
-    beginRunSession({ kind: "single", test });
+    onRunSessionChange({ kind: "single", test });
   };
 
   const openRunAllDialog = () => {
-    if (rows.length === 0 || disabled || runLoading) return;
-    beginRunSession({ kind: "all" });
+    if (rows.length === 0 || disabled) return;
+    onRunSessionChange({ kind: "all" });
   };
 
   const exportAllPostman = async () => {
@@ -236,101 +192,11 @@ export function RulesMetaTestCasesPanel({
     }
   };
 
-  const closeRunDialog = () => {
-    if (runLoading) return;
-    setRunHeaderOpen(false);
-    setRunSession(null);
-    setRunError(null);
-    setRunResult(null);
-    setRunFocus(null);
-  };
-
-  const runAllWithProgress = async (payload: {
-    base_url: string;
-    mode: ScenarioRunMode;
-    postman: ReturnType<typeof postmanConfigToApi>;
-  }): Promise<ExecutionDetailDto> => {
-    const done = await consumeExecutionProgressStream(
-      (onEvent, signal) =>
-        streamServiceTestCasesExecution(code, payload, onEvent, signal),
-      focusStepsFromPoolTestCases(rows),
-      setRunFocus,
-    );
-    return getExecution(done.execution_id);
-  };
-
-  const confirmRun = async () => {
-    if (!runSession) return;
-    const baseUrl = runDraft.baseUrl.trim();
-    if (runMode === "live" && !baseUrl) {
-      setRunError("실행 API에는 baseUrl이 필요합니다.");
-      return;
-    }
-    setRunLoading(true);
-    setRunError(null);
-    setRunResult(null);
-    setRunFocus(null);
-    try {
-      saveExecutionPostmanDefaults(runDraft);
-      const payload = {
-        base_url: baseUrl,
-        mode: runMode,
-        postman: postmanConfigToApi(runDraft),
-      };
-      const exec =
-        runSession.kind === "all"
-          ? await runAllWithProgress(payload)
-          : await runTestCaseExecution(runSession.test.id, payload);
-      setRunResult(exec);
-    } catch (e) {
-      setRunError(
-        e instanceof ApiError || e instanceof Error
-          ? e.message
-          : "테스트 실행에 실패했습니다.",
-      );
-    } finally {
-      setRunLoading(false);
-      setRunFocus(null);
-    }
-  };
-
-  const openExecutionDetail = () => {
-    if (!runResult) return;
-    const params = new URLSearchParams({
-      openService: code,
-      openBundle: String(resumeBundleId),
-      openTab: "testcases",
-    });
-    saveRulesMetaResume({
-      serviceCode: code,
-      bundleId: resumeBundleId,
-      activeTab: "testcases",
-    });
-    navigate(`/execution-result/${runResult.id}`, {
-      state: { from: `/rules?${params.toString()}` },
-    });
-  };
-
   const emptyMessage = !yamlText.trim() && !hasActiveYaml
-    ? "YAML이 없어 테스트케이스를 생성할 수 없습니다. YAML 탭에서 작성하세요."
+    ? "YAML이 없어 일괄 생성할 수 없습니다. 케이스 편집 탭에서 작성하세요."
     : rows.length === 0
-      ? "이 서비스에 적재된 테스트케이스가 없습니다. 「테스트케이스 생성」을 눌러 현재 YAML로 만들어 주세요."
+      ? "풀에 적재된 테스트케이스가 없습니다. 케이스 편집 ▶ 로 생성·실행하거나, 여기서 「풀 일괄 생성」을 하세요."
       : "검색 조건에 맞는 테스트케이스가 없습니다.";
-
-  const runTitle =
-    runSession?.kind === "all"
-      ? `${code} · 전체 ${rows.length}건`
-      : runSession?.kind === "single"
-        ? parseMaterializedTestCaseName(runSession.test.name).shortLabel ||
-          runSession.test.name
-        : "";
-  const runDialogTitle = runResult
-    ? "실행 결과"
-    : runSession?.kind === "all"
-      ? "테스트케이스 전체 실행"
-      : "테스트케이스 실행";
-  const runningSingleId =
-    runLoading && runSession?.kind === "single" ? runSession.test.id : null;
 
   return (
     <div className="flex flex-col gap-3 min-h-0 h-full">
@@ -353,7 +219,7 @@ export function RulesMetaTestCasesPanel({
               {editingDraft && yamlText.trim() ? (
                 <span>
                   {" "}
-                  · 저장·적용 전이어도 에디터 내용으로 생성합니다
+                  · 에디터 YAML로 일괄 생성합니다 (케이스 ▶ 가 기본 경로)
                 </span>
               ) : null}
             </p>
@@ -364,7 +230,7 @@ export function RulesMetaTestCasesPanel({
               type="button"
               className={SECONDARY_BTN}
               disabled={
-                rows.length === 0 || disabled || listLoading || runLoading
+                rows.length === 0 || disabled || listLoading
               }
               title={
                 rows.length === 0
@@ -409,9 +275,9 @@ export function RulesMetaTestCasesPanel({
               onOpenChange={setReplaceConfirmOpen}
               align="end"
               title="기존 테스트케이스를 교체할까요?"
-              description={`현재 풀 ${rows.length}건을 삭제한 뒤 지금 편집 중인 YAML로 다시 생성합니다.`}
+              description={`현재 풀 ${rows.length}건을 삭제한 뒤 지금 편집 중인 YAML로 다시 일괄 생성합니다. 일상 실행은 케이스 ▶ 를 권장합니다.`}
               cancelLabel="취소"
-              confirmLabel="교체 생성"
+              confirmLabel="풀 교체 생성"
               confirmClassName="h-8 px-3 rounded-sm bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90"
               onCancel={() => setReplaceConfirmOpen(false)}
               onConfirm={() => void runGenerate()}
@@ -427,7 +293,7 @@ export function RulesMetaTestCasesPanel({
                     {generateLoading ? (
                       <FinixLoading size="sm" inline />
                     ) : null}
-                    테스트케이스 생성
+                    풀 일괄 생성
                   </FinixPrimaryButton>
                 </span>
               }
@@ -500,142 +366,6 @@ export function RulesMetaTestCasesPanel({
         }
         runningId={runningSingleId}
         onRun={openRunDialog}
-      />
-
-      <Dialog
-        open={runSession !== null}
-        onOpenChange={(open) => {
-          if (!open) closeRunDialog();
-        }}
-      >
-        <DialogContent
-          className={
-            runResult && !runLoading
-              ? FINIX_TC_RUN_RESULT_MODAL_CONTENT
-              : FINIX_TC_RUN_CONFIG_MODAL_CONTENT
-          }
-        >          <DialogHeader className="shrink-0 px-5 pt-5 pb-2">
-            <DialogTitle className="pr-10">{runDialogTitle}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="space-y-1">
-                <span className="block truncate">{runTitle}</span>
-                {!runResult ? (
-                  <span className="block text-[11px] text-muted-foreground">
-                    {runSession?.kind === "all"
-                      ? "풀에 적재된 테스트케이스를 한 번에 실행합니다."
-                      : "공용 baseUrl·헤더 변수로 단건 실행합니다."}
-                  </span>
-                ) : null}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div
-            className={cn(
-              "flex-1 min-h-0 px-5 py-2",
-              runResult && !runLoading
-                ? "flex flex-col overflow-hidden"
-                : "overflow-y-auto overscroll-contain",
-            )}
-          >
-            {runLoading && runFocus ? (
-              <ScenarioRunFocusProgress
-                steps={runFocus.steps}
-                currentIndex={runFocus.currentIndex}
-                status={runFocus.status}
-                total={runFocus.total}
-              />
-            ) : runLoading ? (
-              <div className="flex h-full min-h-[12rem] items-center justify-center py-8">
-                <FinixLoading
-                  size="md"
-                  center
-                  label={
-                    runSession?.kind === "all"
-                      ? `전체 ${rows.length}건 실행 중…`
-                      : "실행 중…"
-                  }
-                />
-              </div>
-            ) : runResult ? (
-              <TestCaseRunResultSummary result={runResult} />
-            ) : (
-              <ScenarioRunDialogForm
-                postmanConfig={runDraft}
-                onPostmanConfigChange={setRunDraft}
-                mode={runMode}
-                onModeChange={setRunMode}
-                onOpenHeaderSettings={() => setRunHeaderOpen(true)}
-                baseUrlHint="값은 브라우저에 공용 기본으로 저장되어 시나리오 실행과 공유됩니다."
-              />
-            )}
-
-            {!runLoading && runError ? (
-              <p className="mt-3 text-sm text-destructive">{runError}</p>
-            ) : null}
-          </div>
-
-          <DialogFooter className="shrink-0 gap-2 sm:gap-2 px-5 pb-5 pt-2 border-t border-border">
-            <button
-              type="button"
-              className="h-9 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-              onClick={closeRunDialog}
-              disabled={runLoading}
-            >
-              {runResult ? "닫기" : "취소"}
-            </button>
-            {runResult ? (
-              <>
-                <button
-                  type="button"
-                  className="h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted inline-flex items-center gap-1.5 disabled:opacity-50"
-                  onClick={() => void confirmRun()}
-                  disabled={runLoading}
-                >
-                  <Play className="w-3.5 h-3.5" />
-                  다시 실행
-                </button>
-                <FinixPrimaryButton
-                  onClick={openExecutionDetail}
-                  className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  상세 결과
-                </FinixPrimaryButton>
-              </>
-            ) : (
-              <FinixPrimaryButton
-                onClick={() => void confirmRun()}
-                disabled={runLoading || runSession === null}
-                className="h-9 px-4 w-auto rounded-sm inline-flex items-center gap-2"
-              >
-                {runLoading ? (
-                  <>
-                    <FinixLoading size="sm" inline />
-                    실행 중…
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    실행
-                  </>
-                )}
-              </FinixPrimaryButton>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <ScenarioCollectionVarsDialog
-        open={runSession !== null && runHeaderOpen && !runResult}
-        onOpenChange={(open) => {
-          setRunHeaderOpen(open);
-          if (!open) saveExecutionPostmanDefaults(runDraft);
-        }}
-        config={runDraft}
-        onChange={setRunDraft}
-        contentClassName="z-[130]"
-        description="단건·시나리오 실행에 공통으로 쓰는 채널 헤더입니다. 닫으면 브라우저에 저장됩니다."
       />
     </div>
   );

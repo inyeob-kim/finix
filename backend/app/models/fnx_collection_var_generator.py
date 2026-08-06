@@ -8,14 +8,18 @@ from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.domain.inst_scope import DEFAULT_INST_CD
 
 
 class CollectionVarGenerator(Base):
     """Team-shared dynamic value generator for scenario collection vars."""
 
-    __tablename__ = "collection_var_generators"
+    __tablename__ = "fnx_collection_var_generator"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     # Stable id referenced by start_vars.generator
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     label: Mapped[str] = mapped_column(String(128), nullable=False)

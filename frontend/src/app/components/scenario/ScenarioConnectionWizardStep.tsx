@@ -4,11 +4,7 @@ import {
   buildScenarioStepsWithBindings,
   type StepBindingsByStepKey,
 } from "@/lib/scenarioBindings";
-import {
-  applyVarLink,
-  removeVarLink,
-  type BindingCanvasEdge,
-} from "@/lib/scenarioBindingCanvas";
+import type { BindingCanvasEdge } from "@/lib/scenarioBindingCanvas";
 import {
   buildPerStepFromRunSteps,
   buildRunStepsFromPicks,
@@ -23,12 +19,10 @@ import {
   upsertCustomStartVar,
 } from "@/lib/scenarioPostmanVariables";
 import { ScenarioBindingCanvas } from "./bindingCanvas/ScenarioBindingCanvas";
-import { ScenarioBindingLinkDrawer } from "./bindingCanvas/ScenarioBindingLinkDrawer";
 import {
   ScenarioStepPostmanPanel,
   type ScenarioStepPostmanPanelHandle,
 } from "./ScenarioStepPostmanPanel";
-import { cn } from "../ui/utils";
 
 type Props = {
   selectedRuleTestcases: ScenarioRuleTestcaseRef[];
@@ -51,8 +45,6 @@ export function ScenarioConnectionWizardStep({
   onOpenCollectionVars,
   bodyFlushRef,
 }: Props) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingEdge, setEditingEdge] = useState<BindingCanvasEdge | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
 
@@ -94,6 +86,7 @@ export function ScenarioConnectionWizardStep({
           code: s.serviceCode,
           name: s.serviceName,
           title: s.title,
+          ruleId: s.ruleId,
         })),
         bindings,
       ),
@@ -106,66 +99,25 @@ export function ScenarioConnectionWizardStep({
     runSteps.length >= 1,
   );
 
-  const openEditEdge = (edge: BindingCanvasEdge) => {
-    if (edge.kind !== "var") {
-      if (edge.toStepIndex >= 0) setSelectedStepIndex(edge.toStepIndex);
-      setDrawerOpen(false);
-      return;
+  const selectStep = (idx: number) => {
+    setSelectedStepIndex(idx);
+    setSelectedEdgeId(null);
+  };
+
+  const openEdgeTarget = (edge: BindingCanvasEdge) => {
+    if (edge.toStepIndex >= 0) {
+      setSelectedStepIndex(edge.toStepIndex);
+      setSelectedEdgeId(edge.kind === "var" ? edge.id : null);
     }
-    setEditingEdge(edge);
-    setSelectedEdgeId(edge.id);
-    setSelectedStepIndex(edge.toStepIndex);
-    setDrawerOpen(true);
-  };
-
-  const handleApplyLink = (draft: {
-    fromStepIndex: number;
-    toStepIndex: number;
-    varName: string;
-    responsePath: string;
-    requestPath: string;
-  }) => {
-    onBindingsChange((prev) => {
-      let next = prev;
-      if (editingEdge) {
-        next = removeVarLink(next, runSteps, editingEdge);
-      }
-      return applyVarLink(next, runSteps, {
-        fromStepIndex: draft.fromStepIndex,
-        toStepIndex: draft.toStepIndex,
-        varName: draft.varName,
-        responsePath: draft.responsePath,
-        requestPath: draft.requestPath,
-      });
-    });
-    setDrawerOpen(false);
-    setEditingEdge(null);
-    setSelectedEdgeId(null);
-    setSelectedStepIndex(draft.toStepIndex);
-  };
-
-  const handleDeleteLink = () => {
-    if (!editingEdge) return;
-    onBindingsChange((prev) => removeVarLink(prev, runSteps, editingEdge));
-    setDrawerOpen(false);
-    setEditingEdge(null);
-    setSelectedEdgeId(null);
   };
 
   if (runSteps.length === 0) {
     return null;
   }
 
-  const showRight = drawerOpen || selectedStepIndex >= 0;
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 overflow-hidden rounded-md border border-border",
-          showRight ? "flex-col lg:flex-row" : "flex-col",
-        )}
-      >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border lg:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ScenarioBindingCanvas
             runSteps={runSteps}
@@ -173,61 +125,33 @@ export function ScenarioConnectionWizardStep({
             startVarKeys={startVarKeys}
             selectedEdgeId={selectedEdgeId}
             selectedStepIndex={selectedStepIndex}
-            onSelectEdge={openEditEdge}
+            onSelectEdge={openEdgeTarget}
             onOpenCollectionVars={onOpenCollectionVars}
-            onSelectStep={(idx) => {
-              setSelectedStepIndex(idx);
-              setDrawerOpen(false);
-              setEditingEdge(null);
-              setSelectedEdgeId(null);
-            }}
+            onSelectStep={selectStep}
           />
         </div>
-        {drawerOpen && editingEdge ? (
-          <ScenarioBindingLinkDrawer
-            open={drawerOpen}
-            runSteps={runSteps}
-            startVarKeys={startVarKeys}
-            initial={{
-              fromStepIndex: editingEdge.fromStepIndex,
-              toStepIndex: editingEdge.toStepIndex,
-              varName: editingEdge.varName,
-              responsePath: editingEdge.responsePath,
-              requestPath: editingEdge.requestPath,
-            }}
-            editingEdge={editingEdge}
-            onClose={() => {
-              setDrawerOpen(false);
-              setEditingEdge(null);
-              setSelectedEdgeId(null);
-            }}
-            onApply={handleApplyLink}
-            onDelete={handleDeleteLink}
-          />
-        ) : (
-          <ScenarioStepPostmanPanel
-            ref={bodyFlushRef}
-            runSteps={runSteps}
-            stepIndex={selectedStepIndex}
-            bindings={bindings}
-            onBindingsChange={onBindingsChange}
-            startVarKeys={bodyStartVarKeys}
-            collectionVars={postmanConfig.startVars}
-            preview={preview}
-            previewLoading={previewLoading}
-            onAddCustomVar={(payload) => {
-              onPostmanConfigChange(
-                upsertCustomStartVar(postmanConfig, payload.key, {
-                  value: payload.value,
-                  generator: payload.generator,
-                }),
-              );
-            }}
-            onRemoveCustomVar={(key) => {
-              onPostmanConfigChange(removeCustomStartVar(postmanConfig, key));
-            }}
-          />
-        )}
+        <ScenarioStepPostmanPanel
+          ref={bodyFlushRef}
+          runSteps={runSteps}
+          stepIndex={selectedStepIndex}
+          bindings={bindings}
+          onBindingsChange={onBindingsChange}
+          startVarKeys={bodyStartVarKeys}
+          collectionVars={postmanConfig.startVars}
+          preview={preview}
+          previewLoading={previewLoading}
+          onAddCustomVar={(payload) => {
+            onPostmanConfigChange(
+              upsertCustomStartVar(postmanConfig, payload.key, {
+                value: payload.value,
+                generator: payload.generator,
+              }),
+            );
+          }}
+          onRemoveCustomVar={(key) => {
+            onPostmanConfigChange(removeCustomStartVar(postmanConfig, key));
+          }}
+        />
       </div>
     </div>
   );

@@ -18,7 +18,7 @@ from app.domain.collection_var_generators import (
     validate_custom_impl,
 )
 from app.integrations.llm_client import LlmClient
-from app.models.collection_var_generator import CollectionVarGenerator
+from app.models.fnx_collection_var_generator import CollectionVarGenerator
 from app.prompts.collection_var_generator_prompt import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,

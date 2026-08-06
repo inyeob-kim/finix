@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.core.deps import get_execution_service, get_testcase_service
+from app.core.deps import (
+    get_execution_service,
+    get_testcase_service,
+    require_active_inst_cd,
+)
 from app.schemas.execution_schema import (
     ExecutionDetailReadV1,
     TestCaseExecutionCreateV1,
@@ -30,6 +36,32 @@ class MaterializePoolRequest(BaseModel):
     )
 
 
+class MaterializeCaseRequest(BaseModel):
+    instruction: str | None = Field(default=None, max_length=2000)
+    bundle_id: int | None = Field(default=None, ge=1)
+    yaml_text: str | None = Field(
+        default=None,
+        description="Editor YAML; when set, take this case from the document.",
+    )
+
+
+class RunRuleCaseRequest(BaseModel):
+    instruction: str | None = Field(default=None, max_length=2000)
+    bundle_id: int | None = Field(default=None, ge=1)
+    yaml_text: str | None = Field(
+        default=None,
+        description="Editor YAML used to upsert TC before run (apply not required).",
+    )
+    base_url: str = Field(default="", max_length=2048)
+    mode: Literal["simulate", "live"] = "simulate"
+    postman: dict[str, Any] | None = None
+
+
+class RunRuleCaseResponse(BaseModel):
+    testcase: TestCaseRead
+    execution: ExecutionDetailReadV1
+
+
 @router.post(
     "/{service_code}/test-cases/materialize",
     response_model=list[TestCaseRead],
@@ -38,6 +70,7 @@ class MaterializePoolRequest(BaseModel):
 async def materialize_test_case_pool(
     service_code: str,
     payload: MaterializePoolRequest = MaterializePoolRequest(),
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> list[TestCaseRead]:
     """Create HTTP test cases for one service (no scenario) from YAML rules."""
@@ -47,8 +80,68 @@ async def materialize_test_case_pool(
         replace_existing=payload.replace_existing,
         bundle_id=payload.bundle_id,
         yaml_text=payload.yaml_text,
+        inst_cd=inst_cd,
     )
     return [testcase_entity_to_read(r) for r in rows]
+
+
+@router.post(
+    "/{service_code}/cases/{case_id}/materialize",
+    response_model=TestCaseRead,
+    summary="Upsert one pool test case for a rule case_id",
+)
+async def materialize_one_rule_case(
+    service_code: str,
+    case_id: str,
+    payload: MaterializeCaseRequest = MaterializeCaseRequest(),
+    inst_cd: str = Depends(require_active_inst_cd),
+    testcase_service: TestCaseService = Depends(get_testcase_service),
+) -> TestCaseRead:
+    row = await testcase_service.materialize_one_case(
+        service_code,
+        case_id,
+        instruction=payload.instruction,
+        bundle_id=payload.bundle_id,
+        yaml_text=payload.yaml_text,
+        inst_cd=inst_cd,
+    )
+    return testcase_entity_to_read(row)
+
+
+@router.post(
+    "/{service_code}/cases/{case_id}/run",
+    response_model=RunRuleCaseResponse,
+    summary="Upsert TC for one rule case and execute it",
+)
+async def run_one_rule_case(
+    service_code: str,
+    case_id: str,
+    payload: RunRuleCaseRequest = RunRuleCaseRequest(),
+    inst_cd: str = Depends(require_active_inst_cd),
+    testcase_service: TestCaseService = Depends(get_testcase_service),
+    execution_service: ExecutionService = Depends(get_execution_service),
+) -> RunRuleCaseResponse:
+    """Primary Rules UX path: case → TC upsert → HTTP execution (no apply required)."""
+    tc = await testcase_service.materialize_one_case(
+        service_code,
+        case_id,
+        instruction=payload.instruction,
+        bundle_id=payload.bundle_id,
+        yaml_text=payload.yaml_text,
+        inst_cd=inst_cd,
+    )
+    run = await execution_service.create_run_for_testcase(
+        inst_cd=inst_cd,
+        svc_code=tc.svc_code,
+        rule_case_id=tc.rule_case_id,
+        base_url=payload.base_url,
+        mode=payload.mode,
+        postman_config=payload.postman,
+    )
+    return RunRuleCaseResponse(
+        testcase=testcase_entity_to_read(tc),
+        execution=execution_run_to_detail(run),
+    )
 
 
 @router.post(
@@ -59,6 +152,7 @@ async def materialize_test_case_pool(
 async def run_service_test_cases_v1(
     service_code: str,
     payload: TestCaseExecutionCreateV1 = TestCaseExecutionCreateV1(),
+    inst_cd: str = Depends(require_active_inst_cd),
     execution_service: ExecutionService = Depends(get_execution_service),
 ) -> ExecutionDetailReadV1:
     """Execute every materialized test case for the service as one multi-step run."""
@@ -67,6 +161,7 @@ async def run_service_test_cases_v1(
         base_url=payload.base_url,
         mode=payload.mode,
         postman_config=payload.postman,
+        inst_cd=inst_cd,
     )
     return execution_run_to_detail(run)
 
@@ -78,6 +173,7 @@ async def run_service_test_cases_v1(
 async def run_service_test_cases_stream_v1(
     service_code: str,
     payload: TestCaseExecutionCreateV1 = TestCaseExecutionCreateV1(),
+    inst_cd: str = Depends(require_active_inst_cd),
     execution_service: ExecutionService = Depends(get_execution_service),
 ) -> StreamingResponse:
     """Execute the service test case pool and stream per-case progress."""
@@ -86,6 +182,7 @@ async def run_service_test_cases_stream_v1(
         base_url=payload.base_url,
         mode=payload.mode,
         postman_config=payload.postman,
+        inst_cd=inst_cd,
     )
     return StreamingResponse(
         sse_stream_events(events, fallback_message="테스트케이스 실행에 실패했습니다."),
@@ -100,10 +197,12 @@ async def run_service_test_cases_stream_v1(
 )
 async def export_service_test_cases_postman_v1(
     service_code: str,
+    inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> JSONResponse:
     """Return a Postman Collection v2.1 with BXM scripts and response tests."""
     collection = await testcase_service.build_postman_for_service_export(
         service_code,
+        inst_cd=inst_cd,
     )
     return JSONResponse(content=collection)

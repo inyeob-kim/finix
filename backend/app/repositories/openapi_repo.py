@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.openapi_document import ApiOperation, OpenApiDocument
+from app.models.fnx_openapi_document import ApiOperation, OpenApiDocument
 
 
 class OpenApiRepository:

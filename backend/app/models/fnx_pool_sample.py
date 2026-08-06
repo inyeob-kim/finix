@@ -8,19 +8,23 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Uniqu
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.domain.inst_scope import DEFAULT_INST_CD
 
 
 class PoolSample(Base):
     """One captured request/response pair used as replay / expected-error seed data."""
 
-    __tablename__ = "pool_samples"
+    __tablename__ = "fnx_pool_sample"
     __table_args__ = (
-        UniqueConstraint("source_fingerprint", name="uq_pool_samples_fingerprint"),
+        UniqueConstraint("source_fingerprint", name="uq_fnx_pool_sample_fingerprint"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     api_operation_id: Mapped[int | None] = mapped_column(
-        ForeignKey("api_operations.id", ondelete="SET NULL"),
+        ForeignKey("fnx_api_operation.id", ondelete="SET NULL"),
         nullable=True,
     )
     service_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

@@ -96,7 +96,7 @@ export function ScenarioPreviewPanel({
                         className="flex flex-col items-stretch"
                       >
                         <FinixFlowStepCard
-                          order={step.order}
+                          order={`TC${idx + 1}`}
                           title={runStepCaseIdLabel(step)}
                           subtitle={
                             runStepShortDescription(step) ||

@@ -4,20 +4,27 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.domain.inst_scope import DEFAULT_INST_CD
 
 
 class ServiceRuleCurrent(Base):
-    """Applied rules for a service, plus optional working draft."""
+    """Applied rules for a service, plus optional working draft (façade)."""
 
-    __tablename__ = "service_rules_current"
+    __tablename__ = "fnx_rule_doc_current"
+    __table_args__ = (
+        UniqueConstraint("inst_cd", "service_code", name="uq_fnx_rule_doc_current_inst_svc"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inst_cd: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DEFAULT_INST_CD, index=True
+    )
     service_code: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True, index=True
+        String(64), nullable=False, index=True
     )
     service_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_version: Mapped[str | None] = mapped_column(String(128), nullable=True)

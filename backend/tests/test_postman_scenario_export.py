@@ -2,24 +2,22 @@
 
 from app.domain.postman_chaining import build_postman_request_body, merge_postman_events
 from app.domain.scenario_bindings import ExtractSpec, InjectSpec, OverrideSpec
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.services.scenario_run_resolver import bindings_by_logical_step, resolve_scenario_run
 from app.utils.json_text import dumps_json, loads_json
 
 
-def _tc(tid: int, *, step_index: int, body: dict) -> TestCase:
-    return TestCase(
-        id=tid,
-        scenario_id=1,
+def _tc(tid: int, *, body: dict) -> FnxTestcase:
+    return FnxTestcase(
+        inst_cd="1001",
+        svc_code="SVC",
+        rule_case_id=f"C-{tid}",
         name=f"TC-{tid}",
-        steps=None,
         http_method="POST",
         endpoint="/api/x",
         request_body_json=dumps_json(body),
         expected_status=200,
         expected_body_json="{}",
-        step_index=step_index,
-        rule_history_id=None,
     )
 
 
@@ -42,8 +40,8 @@ def test_postman_native_body_overrides_and_inject_placeholders():
         ],
     )
     binding_map = bindings_by_logical_step(steps_json)
-    t1 = _tc(1, step_index=0, body={"custId": "T1", "arrIdNbr": "T1"})
-    t2 = _tc(2, step_index=1, body={"arrIdNbr": ""})
+    t1 = _tc(1, body={"custId": "T1", "arrIdNbr": "T1"})
+    t2 = _tc(2, body={"arrIdNbr": ""})
 
     inj0, ext0, ov0 = binding_map.get(0, ([], [], []))
     inj1, ext1, ov1 = binding_map.get(1, ([], [], []))
@@ -87,11 +85,11 @@ def test_postman_resolved_snapshot_includes_overrides_and_injected_values():
             },
         ],
     )
-    t1 = _tc(1, step_index=0, body={"seed": "x"})
-    t2 = _tc(2, step_index=1, body={"arrIdNbr": ""})
+    t1 = _tc(1, body={"seed": "x"})
+    t2 = _tc(2, body={"arrIdNbr": ""})
 
-    def sim(tc: TestCase, body: dict) -> tuple[int, dict]:
-        if tc.id == 1:
+    def sim(tc: FnxTestcase, body: dict) -> tuple[int, dict]:
+        if tc.rule_case_id == "C-1":
             return 200, {"arrIdNbr": "FROM-STEP-1"}
         return 200, {}
 

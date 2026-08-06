@@ -3,7 +3,8 @@ import {
   streamExecutionEvents,
   type ExecutionStreamEvent,
 } from "./executionApi";
-import type { ExecutionDetailDto, TestCaseReadDto } from "./types";
+import { getRequiredInstCd, withInstCdQuery } from "@/lib/instScope";
+import type { ExecutionDetailDto, TestCaseReadDto, TestCaseRefDto } from "./types";
 
 type TestCaseExecutionRequest = {
   base_url?: string;
@@ -23,21 +24,31 @@ type TestCaseExecutionRequest = {
 function testCaseExecutionBody(body?: TestCaseExecutionRequest) {
   return {
     base_url: body?.base_url ?? "",
-    mode: body?.mode ?? "simulate",
+    mode: body?.mode ?? "live",
     postman: body?.postman ?? null,
   };
 }
 
-function serviceTestCasesExecutionPath(serviceCode: string): string {
-  return `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/executions`;
+function serviceTestCasesExecutionPath(
+  serviceCode: string,
+  instCd?: string | null,
+): string {
+  return withInstCdQuery(
+    `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/executions`,
+    instCd,
+  );
 }
 
 export async function generateTestCases(
   scenarioId: number,
   instruction?: string | null,
+  instCd?: string | null,
 ): Promise<TestCaseReadDto[]> {
   return apiRequest<TestCaseReadDto[]>(
-    `/api/v1/scenarios/${scenarioId}/test-cases/generate`,
+    withInstCdQuery(
+      `/api/v1/scenarios/${scenarioId}/test-cases/generate`,
+      instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify({ instruction: instruction ?? null }),
@@ -47,9 +58,10 @@ export async function generateTestCases(
 
 export async function listTestCases(
   scenarioId: number,
+  instCd?: string | null,
 ): Promise<TestCaseReadDto[]> {
   return apiRequest<TestCaseReadDto[]>(
-    `/api/v1/scenarios/${scenarioId}/test-cases`,
+    withInstCdQuery(`/api/v1/scenarios/${scenarioId}/test-cases`, instCd),
     { method: "GET" },
   );
 }
@@ -62,10 +74,14 @@ export async function materializeTestCasesForService(
     replace_existing?: boolean;
     bundle_id?: number | null;
     yaml_text?: string | null;
+    instCd?: string | null;
   },
 ): Promise<TestCaseReadDto[]> {
   return apiRequest<TestCaseReadDto[]>(
-    `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/materialize`,
+    withInstCdQuery(
+      `/api/v1/services/${encodeURIComponent(serviceCode)}/test-cases/materialize`,
+      payload?.instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify({
@@ -78,12 +94,74 @@ export async function materializeTestCasesForService(
   );
 }
 
+/** Upsert one pool TC for a rule case_id (other cases untouched). */
+export async function materializeOneRuleCase(
+  serviceCode: string,
+  caseId: string,
+  payload?: {
+    instruction?: string | null;
+    bundle_id?: number | null;
+    yaml_text?: string | null;
+    instCd?: string | null;
+  },
+): Promise<TestCaseReadDto> {
+  return apiRequest<TestCaseReadDto>(
+    withInstCdQuery(
+      `/api/v1/services/${encodeURIComponent(serviceCode)}/cases/${encodeURIComponent(caseId)}/materialize`,
+      payload?.instCd,
+    ),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        instruction: payload?.instruction ?? null,
+        bundle_id: payload?.bundle_id ?? null,
+        yaml_text: payload?.yaml_text ?? null,
+      }),
+    },
+  );
+}
+
+export type RunRuleCaseResultDto = {
+  testcase: TestCaseReadDto;
+  execution: ExecutionDetailDto;
+};
+
+/** Upsert TC for one rule case and execute (primary Rules path). */
+export async function runRuleCase(
+  serviceCode: string,
+  caseId: string,
+  payload?: TestCaseExecutionRequest & {
+    instruction?: string | null;
+    bundle_id?: number | null;
+    yaml_text?: string | null;
+    instCd?: string | null;
+  },
+): Promise<RunRuleCaseResultDto> {
+  return apiRequest<RunRuleCaseResultDto>(
+    withInstCdQuery(
+      `/api/v1/services/${encodeURIComponent(serviceCode)}/cases/${encodeURIComponent(caseId)}/run`,
+      payload?.instCd,
+    ),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        instruction: payload?.instruction ?? null,
+        bundle_id: payload?.bundle_id ?? null,
+        yaml_text: payload?.yaml_text ?? null,
+        ...testCaseExecutionBody(payload),
+      }),
+    },
+  );
+}
+
 export async function listTestCasesByServiceCode(
   serviceCode: string,
   limit = 200,
+  instCd?: string | null,
 ): Promise<TestCaseReadDto[]> {
   const q = new URLSearchParams({
     service_code: serviceCode,
+    inst_cd: getRequiredInstCd(instCd),
     limit: String(limit),
   });
   return apiRequest<TestCaseReadDto[]>(
@@ -92,15 +170,23 @@ export async function listTestCasesByServiceCode(
   );
 }
 
-export async function getTestCase(testCaseId: number): Promise<TestCaseReadDto> {
-  return apiRequest<TestCaseReadDto>(`/api/v1/test-cases/${testCaseId}`, {
-    method: "GET",
-  });
+export async function getTestCase(
+  svcCode: string,
+  ruleCaseId: string,
+  instCd?: string | null,
+): Promise<TestCaseReadDto> {
+  return apiRequest<TestCaseReadDto>(
+    withInstCdQuery(
+      `/api/v1/test-cases/${encodeURIComponent(svcCode)}/${encodeURIComponent(ruleCaseId)}`,
+      instCd,
+    ),
+    { method: "GET" },
+  );
 }
 
 export async function attachTestCasesToScenario(
   scenarioId: number,
-  perStep: number[][],
+  perStep: TestCaseRefDto[][],
 ): Promise<TestCaseReadDto[]> {
   return apiRequest<TestCaseReadDto[]>(
     `/api/v1/scenarios/${scenarioId}/attach-test-cases`,
@@ -112,11 +198,16 @@ export async function attachTestCasesToScenario(
 }
 
 export async function runTestCaseExecution(
-  testcaseId: number,
+  svcCode: string,
+  ruleCaseId: string,
   body?: TestCaseExecutionRequest,
+  instCd?: string | null,
 ): Promise<ExecutionDetailDto> {
   return apiRequest<ExecutionDetailDto>(
-    `/api/v1/test-cases/${testcaseId}/executions`,
+    withInstCdQuery(
+      `/api/v1/test-cases/${encodeURIComponent(svcCode)}/${encodeURIComponent(ruleCaseId)}/executions`,
+      instCd,
+    ),
     {
       method: "POST",
       body: JSON.stringify(testCaseExecutionBody(body)),
@@ -154,19 +245,27 @@ export async function streamServiceTestCasesExecution(
 }
 
 export async function downloadPostmanCollection(
-  testcaseId: number,
-  options?: { mode?: "template" | "resolved"; scenarioId?: number },
+  svcCode: string,
+  ruleCaseId: string,
+  options?: {
+    mode?: "template" | "resolved";
+    scenarioId?: number;
+    instCd?: string | null;
+  },
 ): Promise<void> {
-  const q = new URLSearchParams({ mode: options?.mode ?? "template" });
+  const q = new URLSearchParams({
+    mode: options?.mode ?? "template",
+    inst_cd: getRequiredInstCd(options?.instCd),
+  });
   if (options?.scenarioId != null) {
     q.set("scenario_id", String(options.scenarioId));
   }
-  const path = `/api/v1/test-cases/${testcaseId}/export/postman?${q.toString()}`;
+  const path = `/api/v1/test-cases/${encodeURIComponent(svcCode)}/${encodeURIComponent(ruleCaseId)}/export/postman?${q.toString()}`;
   const blob = await fetchBlob(path);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `postman-testcase-${testcaseId}.json`;
+  a.download = `postman-testcase-${svcCode}-${ruleCaseId}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -174,9 +273,13 @@ export async function downloadPostmanCollection(
 /** Download Postman collection for all pool test cases under a service. */
 export async function downloadServicePostmanCollection(
   serviceCode: string,
+  instCd?: string | null,
 ): Promise<void> {
   const code = serviceCode.trim();
-  const path = `/api/v1/services/${encodeURIComponent(code)}/test-cases/export/postman`;
+  const path = withInstCdQuery(
+    `/api/v1/services/${encodeURIComponent(code)}/test-cases/export/postman`,
+    instCd,
+  );
   const blob = await fetchBlob(path);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

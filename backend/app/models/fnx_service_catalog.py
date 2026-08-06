@@ -13,7 +13,7 @@ from app.db.base import Base
 class ServiceCatalogItem(Base):
     """Normalized service metadata used for generation and lookups."""
 
-    __tablename__ = "service_catalog_items"
+    __tablename__ = "fnx_service_catalog"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     service_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)

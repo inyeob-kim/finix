@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 from app.utils.json_text import loads_json
 
 
 def simulate_response(
-    testcase: TestCase,
+    testcase: FnxTestcase,
     *,
     request_body: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:

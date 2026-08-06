@@ -21,7 +21,6 @@ import {
     focusStepsFromRegistryItem,
     runRegistryCollectionScenarios,
     runRegistryScenario,
-    type ScenarioRunMode,
     type ScenarioRunProgressState,
 } from "@/lib/registryScenarioRun";
 import { persistRegistryScenarioToDb } from "@/lib/registryScenarioPersist";
@@ -178,15 +177,13 @@ function mapPersistedTestcaseToRef(
 ): ScenarioRuleTestcaseRef {
   const parsed = parseMaterializedTestcaseName(row.name, serviceCode);
   return {
-    id: `tc-${row.id}`,
+    id: `tc-${serviceCode}-${row.rule_case_id}`,
     serviceCode,
     serviceName,
-    ruleId: row.case_id?.trim() || parsed.ruleId,
+    ruleId: row.rule_case_id.trim() || row.case_id?.trim() || parsed.ruleId,
     ruleType: parsed.ruleType,
     title: row.name,
     description: parsed.shortLabel,
-    backendTestcaseId: row.id,
-    scenarioId: row.scenario_id,
     pinnedFingerprint: fingerprintRequestBody(row.request_body),
   };
 }
@@ -299,7 +296,6 @@ export function ScenarioRegistry() {
     useState<ScenarioRegistryItem | null>(null);
   const [scenarioRunDraft, setScenarioRunDraft] =
     useState<ScenarioPostmanConfig>(emptyPostmanConfig);
-  const [scenarioRunMode, setScenarioRunMode] = useState<ScenarioRunMode>("live");
   const [scenarioRunLoading, setScenarioRunLoading] = useState(false);
   const [scenarioRunError, setScenarioRunError] = useState<string | null>(null);
   const [scenarioRunHeaderOpen, setScenarioRunHeaderOpen] = useState(false);
@@ -308,7 +304,6 @@ export function ScenarioRegistry() {
   const [collectionRunOpen, setCollectionRunOpen] = useState(false);
   const [collectionRunDraft, setCollectionRunDraft] =
     useState<ScenarioPostmanConfig>(emptyPostmanConfig);
-  const [collectionRunMode, setCollectionRunMode] = useState<ScenarioRunMode>("live");
   const [collectionRunLoading, setCollectionRunLoading] = useState(false);
   const [collectionRunError, setCollectionRunError] = useState<string | null>(null);
   const [collectionRunHeaderOpen, setCollectionRunHeaderOpen] = useState(false);
@@ -554,16 +549,16 @@ export function ScenarioRegistry() {
       setRulePickLoading(true);
       try {
         const merged: ScenarioRuleTestcaseRef[] = [];
-        const seenIds = new Set<number>();
+        const seenIds = new Set<string>();
         for (const s of serviceDrafts) {
           try {
             const rows = await listTestCasesByServiceCode(s.code, 500);
             if (cancelled) return;
             const name = s.name || s.code;
             for (const row of rows) {
-              if (row.scenario_id != null) continue;
-              if (seenIds.has(row.id)) continue;
-              seenIds.add(row.id);
+              const key = `${row.svc_code}/${row.rule_case_id}`;
+              if (seenIds.has(key)) continue;
+              seenIds.add(key);
               merged.push(mapPersistedTestcaseToRef(row, s.code, name));
             }
           } catch {
@@ -1100,7 +1095,6 @@ export function ScenarioRegistry() {
     setScenarioRunDraft(
       mergeWithExecutionDefaults(ensurePostmanConfig(item.postmanConfig)),
     );
-    setScenarioRunMode("live");
     setScenarioRunTarget(itemForRun);
     setItems((prev) =>
       prev.map((row) =>
@@ -1122,8 +1116,8 @@ export function ScenarioRegistry() {
   const confirmScenarioRun = async () => {
     const item = scenarioRunTarget;
     if (!item || !canRunRegistryScenario(item)) return;
-    if (scenarioRunMode === "live" && !scenarioRunDraft.baseUrl.trim()) {
-      setScenarioRunError("Live 실행에는 baseUrl이 필요합니다.");
+    if (!scenarioRunDraft.baseUrl.trim()) {
+      setScenarioRunError("실행 API에는 baseUrl이 필요합니다.");
       return;
     }
 
@@ -1143,7 +1137,7 @@ export function ScenarioRegistry() {
       const { scenarioId, executionId } = await runRegistryScenario({
         item: itemWithPostman,
         postmanConfig: scenarioRunDraft,
-        mode: scenarioRunMode,
+        mode: "live",
         onProgress: setScenarioRunFocus,
       });
       setItems((prev) =>
@@ -1193,7 +1187,6 @@ export function ScenarioRegistry() {
         baseUrl: pickInitialExportBaseUrl(collectionExportStats.exportable),
       }),
     );
-    setCollectionRunMode("live");
     setCollectionRunOpen(true);
   };
 
@@ -1207,8 +1200,8 @@ export function ScenarioRegistry() {
 
   const confirmCollectionRun = async () => {
     if (!selectedFolderId) return;
-    if (collectionRunMode === "live" && !collectionRunDraft.baseUrl.trim()) {
-      setCollectionRunError("Live 실행에는 baseUrl이 필요합니다.");
+    if (!collectionRunDraft.baseUrl.trim()) {
+      setCollectionRunError("실행 API에는 baseUrl이 필요합니다.");
       return;
     }
 
@@ -1225,7 +1218,7 @@ export function ScenarioRegistry() {
         scenariosInSelectedFolder,
         {
           baseUrlOverride: collectionRunDraft.baseUrl,
-          mode: collectionRunMode,
+          mode: "live",
         },
         (done, total) => setCollectionRunProgress({ done, total }),
       );
@@ -2418,8 +2411,6 @@ export function ScenarioRegistry() {
             <ScenarioRunDialogForm
               postmanConfig={scenarioRunDraft}
               onPostmanConfigChange={setScenarioRunDraft}
-              mode={scenarioRunMode}
-              onModeChange={setScenarioRunMode}
               onOpenHeaderSettings={() => setScenarioRunHeaderOpen(true)}
               baseUrlHint="baseUrl·헤더는 저장 후 이번 실행에 반영됩니다."
             />
@@ -2506,8 +2497,6 @@ export function ScenarioRegistry() {
             <ScenarioRunDialogForm
               postmanConfig={collectionRunDraft}
               onPostmanConfigChange={setCollectionRunDraft}
-              mode={collectionRunMode}
-              onModeChange={setCollectionRunMode}
               onOpenHeaderSettings={() => setCollectionRunHeaderOpen(true)}
               baseUrlHint="baseUrl은 컬렉션 내 모든 시나리오 실행에 적용됩니다."
             />

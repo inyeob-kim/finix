@@ -2,12 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { resolveScenarioPreviewInline } from "@/api/scenarioApi";
 import { ApiError } from "@/api/client";
-import type { ScenarioResolvePreviewDto, ScenarioStepDto } from "@/api/types";
+import type {
+  ScenarioResolvePreviewDto,
+  ScenarioStepDto,
+  TestCaseRefDto,
+} from "@/api/types";
 import { FinixLoading } from "../ui/finix-loading";
 
 type Props = {
   steps: ScenarioStepDto[];
-  perStep: number[][];
+  perStep: TestCaseRefDto[][];
   enabled?: boolean;
 };
 
@@ -97,7 +101,7 @@ export function ScenarioResolvePreviewCard({
         <div className="space-y-2 max-h-[200px] overflow-y-auto">
           {preview.steps.map((s, i) => (
             <div
-              key={`${s.testcase_id}-${i}`}
+              key={`${s.svc_code}-${s.rule_case_id}-${i}`}
               className="rounded-sm border border-border bg-background px-3 py-2 text-xs"
             >
               <div className="font-medium truncate">{s.name}</div>

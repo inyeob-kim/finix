@@ -14,7 +14,9 @@ describe("executionStepView", () => {
     const vm = parseExecutionStep({
       step_index: 0,
       step_label: "TC-1",
-      testcase_id: 10,
+      inst_cd: "FNX",
+      svc_code: "PY027",
+      rule_case_id: "PY027-N-001",
       status: "passed",
       error_message: null,
       expected: { status: 200, body: { ok: true } },
@@ -50,7 +52,6 @@ describe("executionStepView", () => {
     const vm = parseExecutionStep({
       step_index: 1,
       step_label: "TC-2",
-      testcase_id: null,
       status: "failed",
       error_message: "boom; second",
       expected: { status: 200, body: {} },
@@ -78,7 +79,8 @@ describe("executionStepView", () => {
       parseExecutionStep({
         step_index: 0,
         step_label: "A",
-        testcase_id: 1,
+        svc_code: "PY027",
+        rule_case_id: "PY027-N-001",
         status: "passed",
         error_message: null,
         expected: {},

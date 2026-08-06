@@ -19,10 +19,12 @@ from app.domain.cbs_service_taxonomy import (
     infer_business_domain,
 )
 from app.domain.dynamic_macro_resolver import validate_input_macros
+from app.domain.rule_case_codec import extract_rules_list
 from app.domain.yaml_rules_order import sort_rules_normal_then_error
-from app.models.service_rule_current import ServiceRuleCurrent
-from app.models.service_rule_history import ServiceRuleHistory
+from app.models.fnx_rule_doc_current import ServiceRuleCurrent
+from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
+from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 
 logger = logging.getLogger(__name__)
@@ -506,9 +508,11 @@ class ServiceRulesService:
         *,
         repo: ServiceRulesRepository,
         cbs_catalog: CbsServiceCatalogRepository | None = None,
+        case_repo: FnxRuleCaseRepository | None = None,
     ) -> None:
         self._repo = repo
         self._cbs_catalog = cbs_catalog
+        self._case_repo = case_repo
 
     async def list_registry(
         self,
@@ -517,6 +521,103 @@ class ServiceRulesService:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        inst_cd: str | None = None,
+    ) -> tuple[list[ServiceRuleRegistryRow], int]:
+        from app.domain.inst_scope import require_inst_cd
+
+        if self._case_repo is not None and inst_cd is not None:
+            return await self._list_registry_from_fnx(
+                query=query,
+                status=status,
+                limit=limit,
+                offset=offset,
+                inst_cd=require_inst_cd(inst_cd),
+            )
+        return await self._list_registry_from_facade(
+            query=query,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def _list_registry_from_fnx(
+        self,
+        *,
+        query: str | None,
+        status: str | None,
+        limit: int,
+        offset: int,
+        inst_cd: str,
+    ) -> tuple[list[ServiceRuleRegistryRow], int]:
+        assert self._case_repo is not None
+        taxonomy: dict[str, tuple[str, str]] = {}
+        if self._cbs_catalog is not None:
+            try:
+                taxonomy = await self._cbs_catalog.taxonomy_by_service_code()
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load CBS taxonomy for rules registry", exc_info=True
+                )
+
+        svcs = await self._case_repo.list_svcs(inst_cd=inst_cd, limit=5000)
+        rows: list[ServiceRuleRegistryRow] = []
+        for svc in svcs:
+            cases = await self._case_repo.list_cases(svc.svc_code, inst_cd=inst_cd)
+            has_draft = any(c.has_draft for c in cases)
+            has_applied = any((c.checksum or "").strip() for c in cases)
+            editor_rules = await self._case_repo.list_editor_rules(
+                svc.svc_code, inst_cd=inst_cd
+            )
+            facade = await self._repo.get_current(svc.svc_code, inst_cd=inst_cd)
+            if facade is None:
+                # Keep activate/bundle_id compatible after dual-write paths.
+                facade = await self._repo.ensure_current(svc.svc_code, inst_cd=inst_cd)
+            history_count = await self._repo.count_history(svc.svc_code, inst_cd=inst_cd)
+            display_status = "draft" if has_draft else ("active" if has_applied else "draft")
+            name = (svc.service_name_snapshot or "").strip() or svc.svc_code
+            domain, component = taxonomy.get(svc.svc_code, ("", ""))
+            if not domain:
+                domain = infer_business_domain(svc.svc_code)
+            updated_at = svc.draft_updated_at if has_draft else svc.updated_at
+            updated_by = (
+                svc.draft_updated_by if has_draft else svc.updated_by
+            )
+            source_version = (
+                svc.draft_source_version if has_draft else svc.source_version
+            )
+            rows.append(
+                ServiceRuleRegistryRow(
+                    service_code=svc.svc_code,
+                    service_name=name,
+                    source_version=source_version,
+                    status=display_status,
+                    rules=len(editor_rules),
+                    bundle_id=facade.id,
+                    bundle_version=1 if has_applied else 0,
+                    last_updated_at=updated_at,
+                    last_updated_by=updated_by,
+                    is_active=has_applied and not has_draft,
+                    version_count=history_count,
+                    active_bundle_version=1 if has_applied else None,
+                    draft_bundle_version=1 if has_draft else None,
+                    has_approved=False,
+                    has_draft=has_draft,
+                    history_count=history_count,
+                    business_domain=domain or UNCLASSIFIED_DOMAIN,
+                    component_code=component or "",
+                )
+            )
+        return self._paginate_registry_rows(
+            rows, query=query, status=status, limit=limit, offset=offset
+        )
+
+    async def _list_registry_from_facade(
+        self,
+        *,
+        query: str | None,
+        status: str | None,
+        limit: int,
+        offset: int,
     ) -> tuple[list[ServiceRuleRegistryRow], int]:
         taxonomy: dict[str, tuple[str, str]] = {}
         if self._cbs_catalog is not None:
@@ -562,7 +663,19 @@ class ServiceRulesService:
                     component_code=component or "",
                 )
             )
+        return self._paginate_registry_rows(
+            rows, query=query, status=status, limit=limit, offset=offset
+        )
 
+    @staticmethod
+    def _paginate_registry_rows(
+        rows: list[ServiceRuleRegistryRow],
+        *,
+        query: str | None,
+        status: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[ServiceRuleRegistryRow], int]:
         q = (query or "").strip().lower()
         if q:
             rows = [
@@ -593,6 +706,52 @@ class ServiceRulesService:
         page = rows[offset : offset + limit]
         return page, total
 
+    async def get_editor_base_rules(
+        self, service_code: str, *, inst_cd: str
+    ) -> list[dict[str, Any]]:
+        """Institution-scoped merge/editor base rules (case SoT)."""
+        from app.domain.inst_scope import require_inst_cd
+
+        code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code:
+            return []
+        if self._case_repo is not None:
+            return await self._case_repo.list_editor_rules(code, inst_cd=inst)
+        current = await self._repo.get_current(code, inst_cd=inst)
+        if current is None:
+            return []
+        return extract_rules_list(
+            current.draft_rules_json
+            if current.has_draft
+            else current.rules_json
+        )
+
+    async def has_working_draft(self, service_code: str, *, inst_cd: str) -> bool:
+        """True when institution-scoped cases have draft fields."""
+        from app.domain.inst_scope import require_inst_cd
+
+        code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code:
+            return False
+        if self._case_repo is not None:
+            return await self._case_repo.has_any_draft(code, inst_cd=inst)
+        current = await self._repo.get_current(code, inst_cd=inst)
+        return bool(current and current.has_draft)
+
+    async def has_applied_rules(self, service_code: str, *, inst_cd: str) -> bool:
+        from app.domain.inst_scope import require_inst_cd
+
+        code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code:
+            return False
+        if self._case_repo is not None:
+            return await self._case_repo.has_any_applied(code, inst_cd=inst)
+        current = await self._repo.get_current(code, inst_cd=inst)
+        return bool(current and current.has_applied)
+
     async def upsert_draft(
         self,
         *,
@@ -600,15 +759,19 @@ class ServiceRulesService:
         yaml_text: str,
         source_version: str | None,
         created_by: str | None,
+        inst_cd: str,
     ) -> ServiceRuleCurrent:
+        from app.domain.inst_scope import require_inst_cd
+
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
         if not (yaml_text or "").strip():
             raise InvalidInputError("yaml_text가 비어있습니다.")
 
         canonical_yaml, parsed = validate_and_prepare_yaml(yaml_text)
-        row = await self._repo.ensure_current(code)
+        row = await self._repo.ensure_current(code, inst_cd=inst)
         row.service_name_snapshot = str(parsed.get("service_name") or "") or None
         row.draft_yaml_text = canonical_yaml
         row.draft_rules_json = json.dumps(parsed, ensure_ascii=False)
@@ -618,7 +781,66 @@ class ServiceRulesService:
         from datetime import datetime, timezone
 
         row.draft_updated_at = datetime.now(timezone.utc)
-        return await self._repo.flush_current(row)
+        row = await self._repo.flush_current(row)
+        await self._dual_write_draft(row, parsed, created_by, inst_cd=inst)
+        return row
+
+    async def _dual_write_draft(
+        self,
+        row: ServiceRuleCurrent,
+        parsed: dict[str, Any],
+        updated_by: str | None,
+        *,
+        inst_cd: str,
+    ) -> None:
+        if self._case_repo is None:
+            return
+        await self._case_repo.upsert_draft_cases_from_payload(
+            svc_code=row.service_code,
+            parsed=parsed,
+            updated_by=updated_by,
+            inst_cd=inst_cd,
+        )
+        await self._case_repo.sync_header_from_current(row, inst_cd=inst_cd)
+
+    async def _dual_write_apply(
+        self,
+        row: ServiceRuleCurrent,
+        *,
+        applied_by: str | None,
+        change_kind: str = "apply",
+        inst_cd: str,
+    ) -> None:
+        if self._case_repo is None:
+            return
+        await self._case_repo.apply_draft_cases(
+            svc_code=row.service_code,
+            applied_by=applied_by,
+            change_kind=change_kind,
+            inst_cd=inst_cd,
+        )
+        await self._case_repo.sync_header_from_current(row, inst_cd=inst_cd)
+
+    async def _dual_write_restore(
+        self,
+        row: ServiceRuleCurrent,
+        parsed: dict[str, Any],
+        *,
+        updated_by: str | None,
+        change_kind: str = "restore",
+        inst_cd: str,
+    ) -> None:
+        if self._case_repo is None:
+            return
+        await self._case_repo.replace_applied_cases_from_payload(
+            svc_code=row.service_code,
+            parsed=parsed,
+            updated_by=updated_by,
+            change_kind=change_kind,
+            clear_draft=True,
+            inst_cd=inst_cd,
+        )
+        await self._case_repo.sync_header_from_current(row, inst_cd=inst_cd)
 
     async def create_draft(
         self,
@@ -627,6 +849,7 @@ class ServiceRulesService:
         yaml_text: str,
         source_version: str | None,
         created_by: str | None,
+        inst_cd: str,
     ) -> ServiceRuleCurrent:
         """AI / create paths upsert the working draft (no new version row)."""
         return await self.upsert_draft(
@@ -634,6 +857,7 @@ class ServiceRulesService:
             yaml_text=yaml_text,
             source_version=source_version,
             created_by=created_by,
+            inst_cd=inst_cd,
         )
 
     async def update_draft(
@@ -644,11 +868,12 @@ class ServiceRulesService:
         yaml_text: str,
         source_version: str | None = None,
         created_by: str | None = None,
+        inst_cd: str,
     ) -> ServiceRuleCurrent:
         code = (service_code or "").strip()
         row = await self._repo.get_current_by_id(bundle_id)
         if row is None:
-            row = await self._repo.get_current(code)
+            row = await self._repo.get_current(code, inst_cd=inst_cd)
         if row is None:
             raise EntityNotFoundError("ServiceRuleCurrent", bundle_id)
         if row.service_code != code:
@@ -658,13 +883,18 @@ class ServiceRulesService:
             yaml_text=yaml_text,
             source_version=source_version,
             created_by=created_by,
+            inst_cd=inst_cd,
         )
 
-    async def get_active(self, service_code: str) -> ServiceRuleCurrent | None:
-        return await self._repo.get_active_bundle(service_code)
+    async def get_active(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> ServiceRuleCurrent | None:
+        return await self._repo.get_active_bundle(service_code, inst_cd=inst_cd)
 
-    async def get_current(self, service_code: str) -> ServiceRuleCurrent | None:
-        return await self._repo.get_current(service_code)
+    async def get_current(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> ServiceRuleCurrent | None:
+        return await self._repo.get_current(service_code, inst_cd=inst_cd)
 
     async def get_bundle(self, bundle_id: int) -> ServiceRuleCurrent | ServiceRuleHistory:
         """Resolve editor id: current row id, else history id."""
@@ -677,16 +907,84 @@ class ServiceRulesService:
         return history
 
     async def get_editor_document(
-        self, service_code: str
+        self, service_code: str, *, inst_cd: str | None = None
     ) -> ServiceRuleCurrent | None:
-        """Row used by the YAML editor (prefer draft content via properties)."""
-        return await self._repo.get_current(service_code)
+        """Façade row for legacy callers. Prefer get_editor_bundle_dict with inst_cd."""
+        return await self._repo.get_current(service_code, inst_cd=inst_cd)
+
+    async def get_editor_bundle_dict(
+        self, service_code: str, *, inst_cd: str
+    ) -> dict[str, Any] | None:
+        """Institution-scoped editor document as a plain dict (no façade write)."""
+        from app.domain.inst_scope import require_inst_cd
+        from app.domain.rule_case_codec import assemble_yaml_from_rules
+
+        code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code or self._case_repo is None:
+            return None
+        rules = await self._case_repo.list_editor_rules(code, inst_cd=inst)
+        svc = await self._case_repo.get_svc(code, inst_cd=inst)
+        if not rules and svc is None:
+            return None
+        has_draft = await self._case_repo.has_any_draft(code, inst_cd=inst)
+        has_applied = await self._case_repo.has_any_applied(code, inst_cd=inst)
+        if not rules and not has_draft and not has_applied:
+            return None
+        name = (svc.service_name_snapshot if svc else None) or code
+        yaml_text = ""
+        parsed: dict[str, Any] = {"service_code": code, "service_name": name, "rules": []}
+        checksum = ""
+        if rules:
+            yaml_text, parsed = assemble_yaml_from_rules(
+                svc_code=code,
+                service_name=name,
+                rules=rules,
+                source_version=(
+                    (svc.draft_source_version if has_draft else svc.source_version)
+                    if svc
+                    else None
+                ),
+            )
+            checksum = _sha256_text(yaml_text)
+        facade = await self._repo.get_current(code, inst_cd=inst)
+        return {
+            "id": facade.id if facade is not None else 0,
+            "service_code": code,
+            "service_name_snapshot": name,
+            "status": "draft" if has_draft else ("active" if has_applied else "draft"),
+            "is_active": has_applied and not has_draft,
+            "version": 1 if has_applied else 0,
+            "source_version": (
+                (svc.draft_source_version if has_draft else svc.source_version)
+                if svc
+                else None
+            ),
+            "checksum": checksum,
+            "created_by": (
+                (svc.draft_updated_by if has_draft else svc.updated_by) if svc else None
+            ),
+            "created_at": svc.created_at if svc else None,
+            "updated_at": (
+                (svc.draft_updated_at if has_draft else svc.updated_at) if svc else None
+            ),
+            "yaml_text": yaml_text,
+            "rules": parsed,
+            "has_draft": has_draft,
+        }
 
     async def apply_draft(
-        self, *, service_code: str, applied_by: str | None = None
+        self,
+        *,
+        service_code: str,
+        applied_by: str | None = None,
+        inst_cd: str,
     ) -> ServiceRuleCurrent:
+        from app.domain.inst_scope import require_inst_cd
+
         code = (service_code or "").strip()
-        row = await self._repo.get_current(code)
+        inst = require_inst_cd(inst_cd)
+        row = await self._repo.get_current(code, inst_cd=inst)
         if row is None:
             raise EntityNotFoundError("ServiceRuleCurrent", code)
         if not row.has_draft:
@@ -708,6 +1006,7 @@ class ServiceRulesService:
         # Every apply appends an immutable snapshot of what is now live.
         await self._repo.add_history(
             ServiceRuleHistory(
+                inst_cd=inst,
                 service_code=code,
                 service_name_snapshot=row.service_name_snapshot,
                 source_version=row.source_version,
@@ -719,16 +1018,21 @@ class ServiceRulesService:
                 created_by=applied_by or row.updated_by,
             )
         )
+        await self._dual_write_apply(
+            row, applied_by=applied_by or row.updated_by, inst_cd=inst
+        )
         return row
 
-    async def activate(self, bundle_id: int) -> ServiceRuleCurrent:
+    async def activate(self, bundle_id: int, *, inst_cd: str) -> ServiceRuleCurrent:
         """Compatibility: apply draft for the current row id."""
         row = await self._repo.get_current_by_id(bundle_id)
         if row is None:
             # If client still passes draft "bundle" id incorrectly, try as service lookup.
             raise EntityNotFoundError("ServiceRuleCurrent", bundle_id)
         return await self.apply_draft(
-            service_code=row.service_code, applied_by=row.draft_updated_by
+            service_code=row.service_code,
+            applied_by=row.draft_updated_by,
+            inst_cd=inst_cd,
         )
 
     async def restore_from_history(
@@ -737,18 +1041,25 @@ class ServiceRulesService:
         service_code: str,
         history_id: int,
         restored_by: str | None = None,
+        inst_cd: str,
     ) -> ServiceRuleCurrent:
+        from app.domain.inst_scope import require_inst_cd
+
         code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
         hist = await self._repo.get_history(history_id)
         if hist is None:
             raise EntityNotFoundError("ServiceRuleHistory", history_id)
         if hist.service_code != code:
             raise InvalidInputError("service_code mismatch")
+        if hist.inst_cd != inst:
+            raise InvalidInputError("inst_cd mismatch")
 
-        row = await self._repo.ensure_current(code)
+        row = await self._repo.ensure_current(code, inst_cd=inst)
         if row.has_applied:
             await self._repo.add_history(
                 ServiceRuleHistory(
+                    inst_cd=inst,
                     service_code=code,
                     service_name_snapshot=row.service_name_snapshot,
                     source_version=row.source_version,
@@ -774,24 +1085,52 @@ class ServiceRulesService:
         row.draft_source_version = None
         row.draft_updated_at = None
         row.draft_updated_by = None
-        return await self._repo.flush_current(row)
+        row = await self._repo.flush_current(row)
+        parsed: dict[str, Any] = {}
+        if row.rules_json:
+            try:
+                loaded = json.loads(row.rules_json)
+                if isinstance(loaded, dict):
+                    parsed = loaded
+            except Exception:  # noqa: BLE001
+                parsed = {}
+        if not parsed.get("rules") and (row.yaml_text or "").strip():
+            try:
+                _, parsed = validate_and_prepare_yaml(row.yaml_text)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "restore dual-write: YAML parse failed for %s",
+                    code,
+                    exc_info=True,
+                )
+                parsed = {"service_code": code, "rules": []}
+        await self._dual_write_restore(
+            row,
+            parsed,
+            updated_by=restored_by,
+            change_kind="restore",
+            inst_cd=inst,
+        )
+        return row
 
     async def rollback(
-        self, *, service_code: str, to_version: int
+        self, *, service_code: str, to_version: int, inst_cd: str
     ) -> ServiceRuleCurrent:
         """Compatibility: treat to_version as history_id."""
         return await self.restore_from_history(
-            service_code=service_code, history_id=to_version
+            service_code=service_code, history_id=to_version, inst_cd=inst_cd
         )
 
-    async def list_versions(self, service_code: str) -> list[ServiceRuleHistory]:
-        return await self._repo.list_history(service_code)
+    async def list_versions(
+        self, service_code: str, *, inst_cd: str | None = None
+    ) -> list[ServiceRuleHistory]:
+        return await self._repo.list_history(service_code, inst_cd=inst_cd)
 
     async def list_versions_with_active_flag(
-        self, service_code: str
+        self, service_code: str, *, inst_cd: str | None = None
     ) -> list[tuple[ServiceRuleHistory, bool]]:
-        history = await self._repo.list_history(service_code)
-        current = await self._repo.get_current(service_code)
+        history = await self._repo.list_history(service_code, inst_cd=inst_cd)
+        current = await self._repo.get_current(service_code, inst_cd=inst_cd)
         current_cs = (current.checksum if current and current.has_applied else "") or ""
         return [(h, bool(current_cs) and h.checksum == current_cs) for h in history]
 

@@ -7,6 +7,7 @@ from app.api.v1 import (
     dashboard,
     data_pool,
     executions,
+    institutions,
     log_ingest,
     manual,
     openapi_docs,
@@ -35,3 +36,5 @@ api_v1_router.include_router(
     collection_var_generators.router,
     tags=["collection-var-generators"],
 )
+api_v1_router.include_router(institutions.institutions_router, tags=["institutions"])
+api_v1_router.include_router(institutions.auth_router, tags=["auth"])

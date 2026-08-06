@@ -1,4 +1,5 @@
 import { listTestCasesByServiceCode } from "@/api/testcaseApi";
+import type { TestCaseReadDto } from "@/api/types";
 import type { ScenarioRuleTestcaseRef } from "@/app/components/scenarioRegistry/types";
 import { parseMaterializedTestcaseName } from "@/lib/materializedTestcaseName";
 import {
@@ -9,27 +10,20 @@ import {
 } from "@/lib/poolCaseLiveRef";
 
 function mapPoolRow(
-  row: {
-    id: number;
-    name: string;
-    scenario_id: number | null;
-    case_id?: string | null;
-    request_body: Record<string, unknown>;
-  },
+  row: TestCaseReadDto,
   serviceCode: string,
   serviceName: string,
 ): ScenarioRuleTestcaseRef {
   const parsed = parseMaterializedTestcaseName(row.name, serviceCode);
+  const ruleId = row.rule_case_id.trim() || row.case_id?.trim() || parsed.ruleId;
   return {
-    id: `tc-${row.id}`,
+    id: `tc-${serviceCode}-${row.rule_case_id}`,
     serviceCode,
     serviceName,
-    ruleId: row.case_id?.trim() || parsed.ruleId,
+    ruleId,
     ruleType: parsed.ruleType,
     title: row.name,
     description: parsed.shortLabel,
-    backendTestcaseId: row.id,
-    scenarioId: row.scenario_id,
     pinnedFingerprint: fingerprintRequestBody(row.request_body),
   };
 }
@@ -40,14 +34,14 @@ export async function loadPoolRefsForPicks(
 ): Promise<ScenarioRuleTestcaseRef[]> {
   const codes = [...new Set(picks.map((p) => p.serviceCode).filter(Boolean))];
   const merged: ScenarioRuleTestcaseRef[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   for (const code of codes) {
     try {
       const rows = await listTestCasesByServiceCode(code, 500);
       for (const row of rows) {
-        if (row.scenario_id != null) continue;
-        if (seen.has(row.id)) continue;
-        seen.add(row.id);
+        const key = `${row.svc_code}/${row.rule_case_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         merged.push(mapPoolRow(row, code, code));
       }
     } catch {

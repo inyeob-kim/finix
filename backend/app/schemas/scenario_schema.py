@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.domain.postman_collection_config import PostmanCollectionConfig
 from app.domain.scenario_bindings import ExtractSpec, InjectSpec, OverrideSpec
-from app.models.scenario import Scenario
+from app.models.fnx_scenario import Scenario
+from app.schemas.testcase_schema import TestCaseRefV1
 from app.utils.json_text import dumps_json, loads_json
 from app.utils.scenario_steps_document import dump_steps_document, parse_steps_document
 
@@ -25,6 +26,10 @@ class ScenarioStepRead(BaseModel):
     service_code: str | None = Field(
         default=None,
         description="SRVC_CD when known; preferred over parsing ``reason``.",
+    )
+    rule_case_id: str | None = Field(
+        default=None,
+        description="Natural-key link to fnx_testcase (with service_code + inst_cd).",
     )
     extracts: list[ExtractSpec] = Field(
         default_factory=list,
@@ -70,11 +75,14 @@ class ScenarioPatchV1(BaseModel):
 
 
 class ScenarioAttachTestCasesRequest(BaseModel):
-    """Map pool test cases onto a scenario in step order."""
+    """Map pool test cases onto a scenario in step order (natural keys, no clones)."""
 
-    per_step: list[list[int]] = Field(
+    per_step: list[list[TestCaseRefV1]] = Field(
         ...,
-        description="Index i matches scenario step i; inner list is testcase ids in run order.",
+        description=(
+            "Index i matches scenario step i; inner list is natural-key refs "
+            "in run order (typically one ref per step)."
+        ),
     )
 
 

@@ -22,9 +22,17 @@ export interface ScenarioStepDto {
   result: "success" | "error";
   reason?: string | null;
   service_code?: string | null;
+  /** Natural-key link to fnx_testcase (paired with service_code + inst_cd). */
+  rule_case_id?: string | null;
   extracts?: ScenarioBindingExtractDto[];
   injects?: ScenarioBindingInjectDto[];
   overrides?: ScenarioBindingOverrideDto[];
+}
+
+/** Natural-key reference to a pool test case (svc_code + rule_case_id). */
+export interface TestCaseRefDto {
+  svc_code: string;
+  rule_case_id: string;
 }
 
 export interface PostmanCollectionConfigDto {
@@ -106,8 +114,26 @@ export interface ServiceRuleBundleReadDto {
   change_kind?: string | null;
 }
 
+/** Case-first editor payload from fnx_rule_case (yaml_text assembled server-side). */
+export interface ServiceRuleEditorCasesDto {
+  service_code: string;
+  service_name: string | null;
+  source_version: string | null;
+  status: string;
+  has_draft: boolean;
+  is_active: boolean;
+  bundle_id: number;
+  checksum: string;
+  updated_at: string | null;
+  updated_by: string | null;
+  rules: Record<string, unknown>[];
+  yaml_text: string;
+}
+
 export interface ResolvedTestCaseStepDto {
-  testcase_id: number;
+  inst_cd: string;
+  svc_code: string;
+  rule_case_id: string;
   step_index: number;
   name: string;
   method: string | null;
@@ -153,8 +179,9 @@ export interface ScenarioBindingsSuggestDto {
 }
 
 export interface TestCaseReadDto {
-  id: number;
-  scenario_id: number | null;
+  inst_cd: string;
+  svc_code: string;
+  rule_case_id: string;
   name: string;
   case_id?: string | null;
   method: string | null;
@@ -162,14 +189,15 @@ export interface TestCaseReadDto {
   request_body: Record<string, unknown>;
   expected_status: number | null;
   expected_body: Record<string, unknown>;
-  step_index: number | null;
   created_at: string;
 }
 
 export interface ExecutionStepDto {
   step_index: number;
   step_label: string;
-  testcase_id: number | null;
+  inst_cd?: string | null;
+  svc_code?: string | null;
+  rule_case_id?: string | null;
   status: "passed" | "failed";
   expected: Record<string, unknown>;
   actual: Record<string, unknown>;

@@ -3,7 +3,7 @@
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -21,8 +21,12 @@ from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.repositories.service_registry_repo import ServiceRegistryRepository
 from app.repositories.manual_chunk_repo import ManualChunkRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
+from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
+from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
+from app.repositories.institution_repo import InstitutionRepository
 from app.services.collection_var_generator_service import CollectionVarGeneratorService
 from app.services.execution_service import ExecutionService
+from app.services.institution_service import InstitutionService
 from app.services.log_ingest_service import LogIngestService
 from app.services.openapi_ingest_service import OpenApiIngestService
 from app.services.pool_promote_service import PoolPromoteService
@@ -72,6 +76,42 @@ async def get_service_rules_repository(
 ) -> AsyncGenerator[ServiceRulesRepository, None]:
     """Yield a DB-backed service rules repository."""
     yield ServiceRulesRepository(session)
+
+
+async def get_fnx_rule_case_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[FnxRuleCaseRepository, None]:
+    """Yield per-case rules repository (dual-write SoT)."""
+    yield FnxRuleCaseRepository(session)
+
+
+async def get_fnx_testcase_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[FnxTestcaseRepository, None]:
+    """Yield natural-key testcase repository."""
+    yield FnxTestcaseRepository(session)
+
+
+async def get_institution_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[InstitutionRepository, None]:
+    """Yield institution master repository."""
+    yield InstitutionRepository(session)
+
+
+def get_institution_service(
+    repo: InstitutionRepository = Depends(get_institution_repository),
+) -> InstitutionService:
+    """Build InstitutionService."""
+    return InstitutionService(repo)
+
+
+async def require_active_inst_cd(
+    inst_cd: str = Query(..., min_length=1, description="기관코드 (instCd)"),
+    institutions: InstitutionService = Depends(get_institution_service),
+) -> str:
+    """FastAPI dependency: require non-empty active institution."""
+    return await institutions.assert_active(inst_cd)
 
 
 async def get_manual_chunk_repository(
@@ -160,6 +200,8 @@ def get_testcase_service(
         get_cbs_service_catalog_repository
     ),
     service_rules_repo: ServiceRulesRepository = Depends(get_service_rules_repository),
+    case_repo: FnxRuleCaseRepository = Depends(get_fnx_rule_case_repository),
+    tc_repo: FnxTestcaseRepository = Depends(get_fnx_testcase_repository),
 ) -> TestCaseService:
     """Build TestCaseService with injected repositories."""
     return TestCaseService(
@@ -167,6 +209,8 @@ def get_testcase_service(
         registry_repo=registry_repo,
         cbs_catalog_repo=cbs_catalog_repo,
         service_rules_repo=service_rules_repo,
+        case_repo=case_repo,
+        tc_repo=tc_repo,
     )
 
 
@@ -186,9 +230,14 @@ def get_service_rules_service(
     cbs_catalog_repo: CbsServiceCatalogRepository = Depends(
         get_cbs_service_catalog_repository
     ),
+    case_repo: FnxRuleCaseRepository = Depends(get_fnx_rule_case_repository),
 ) -> ServiceRulesService:
     """Build ServiceRulesService with injected repositories."""
-    return ServiceRulesService(repo=repo, cbs_catalog=cbs_catalog_repo)
+    return ServiceRulesService(
+        repo=repo,
+        cbs_catalog=cbs_catalog_repo,
+        case_repo=case_repo,
+    )
 
 
 async def get_pool_sample_repository(
@@ -214,13 +263,13 @@ def get_pool_service(
 
 def get_pool_promote_service(
     pool_repo: PoolSampleRepository = Depends(get_pool_sample_repository),
-    metadata_repo: MetadataRepository = Depends(get_metadata_repository),
+    tc_repo: FnxTestcaseRepository = Depends(get_fnx_testcase_repository),
     registry_repo: ServiceRegistryRepository = Depends(get_service_registry_repository),
 ) -> PoolPromoteService:
     """Build PoolPromoteService."""
     return PoolPromoteService(
         pool_repo=pool_repo,
-        metadata_repo=metadata_repo,
+        tc_repo=tc_repo,
         registry_repo=registry_repo,
     )
 
@@ -322,9 +371,10 @@ def get_manual_rag_service(
 
 def get_scenario_resolve_service(
     metadata_repo: MetadataRepository = Depends(get_metadata_repository),
+    tc_repo: FnxTestcaseRepository = Depends(get_fnx_testcase_repository),
 ) -> ScenarioResolveService:
     """Build ScenarioResolveService for binding preview."""
-    return ScenarioResolveService(metadata_repo=metadata_repo)
+    return ScenarioResolveService(metadata_repo=metadata_repo, tc_repo=tc_repo)
 
 
 def get_scenario_bindings_ai_service(
@@ -361,6 +411,7 @@ def get_execution_service(
     metadata_repo: MetadataRepository = Depends(get_metadata_repository),
     registry_repo: ServiceRegistryRepository = Depends(get_service_registry_repository),
     execution_repo: ExecutionRepository = Depends(get_execution_repository),
+    fnx_tc_repo: FnxTestcaseRepository = Depends(get_fnx_testcase_repository),
     generator_service: CollectionVarGeneratorService = Depends(
         get_collection_var_generator_service,
     ),
@@ -370,5 +421,6 @@ def get_execution_service(
         metadata_repo=metadata_repo,
         registry_repo=registry_repo,
         execution_repo=execution_repo,
+        fnx_tc_repo=fnx_tc_repo,
         generator_service=generator_service,
     )

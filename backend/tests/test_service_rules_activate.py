@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
-from app.models.service_rule_current import ServiceRuleCurrent
-from app.models.service_rule_history import ServiceRuleHistory
+from app.models.fnx_rule_doc_current import ServiceRuleCurrent
+from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.services.service_rules_service import ServiceRulesService
 from tests.test_service_rules_validation import _case_rule
 
@@ -110,7 +110,7 @@ def test_apply_draft_records_applied_snapshot_and_clears_draft():
     )
     repo = _FakeRepo(row)
     svc = ServiceRulesService(repo=repo)
-    result = asyncio.run(svc.apply_draft(service_code="PY027", applied_by="me"))
+    result = asyncio.run(svc.apply_draft(service_code="PY027", applied_by="me", inst_cd="1001"))
     assert result.has_draft is False
     assert result.has_applied is True
     assert "PY027-E-001" in (result.yaml_text or "")
@@ -126,7 +126,7 @@ def test_apply_first_time_also_records_history():
     row.checksum = ""
     repo = _FakeRepo(row)
     svc = ServiceRulesService(repo=repo)
-    result = asyncio.run(svc.apply_draft(service_code="PY027", applied_by="me"))
+    result = asyncio.run(svc.apply_draft(service_code="PY027", applied_by="me", inst_cd="1001"))
     assert result.has_applied is True
     assert len(repo.history) == 1
     assert repo.history[0].checksum == "first-cs"
@@ -138,7 +138,7 @@ def test_activate_compat_applies_draft():
     row.checksum = ""
     repo = _FakeRepo(row)
     svc = ServiceRulesService(repo=repo)
-    result = asyncio.run(svc.activate(1))
+    result = asyncio.run(svc.activate(1, inst_cd="1001"))
     assert result.has_applied is True
     assert result.has_draft is False
     assert len(repo.history) == 1
@@ -161,7 +161,7 @@ def test_restore_from_history_snapshots_current():
     repo.history.append(hist)
     svc = ServiceRulesService(repo=repo)
     result = asyncio.run(
-        svc.restore_from_history(service_code="PY027", history_id=50)
+        svc.restore_from_history(service_code="PY027", history_id=50, inst_cd="1001")
     )
     assert result.checksum == "hist-cs"
     assert "PY027-E-002" in (result.yaml_text or "")
@@ -171,8 +171,8 @@ def test_restore_from_history_snapshots_current():
 def test_apply_without_draft_fails():
     row = _current()
     svc = ServiceRulesService(repo=_FakeRepo(row))
-    with pytest.raises(InvalidInputError, match="작업본"):
-        asyncio.run(svc.apply_draft(service_code="PY027"))
+    with pytest.raises(InvalidInputError):
+        asyncio.run(svc.apply_draft(service_code="PY027", inst_cd="1001"))
 
 
 def test_restore_missing_history():
@@ -180,5 +180,7 @@ def test_restore_missing_history():
     svc = ServiceRulesService(repo=_FakeRepo(row))
     with pytest.raises(EntityNotFoundError):
         asyncio.run(
-            svc.restore_from_history(service_code="PY027", history_id=999)
+            svc.restore_from_history(
+                service_code="PY027", history_id=999, inst_cd="1001"
+            )
         )

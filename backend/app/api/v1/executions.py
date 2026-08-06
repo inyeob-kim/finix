@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from app.core.deps import get_execution_service
+from app.core.deps import get_execution_service, require_active_inst_cd
 from app.schemas.execution_schema import (
     ExecutionCreateV1,
     ExecutionDetailReadV1,
@@ -25,12 +25,14 @@ router = APIRouter(prefix="/executions")
 async def create_execution_v1(
     payload: ExecutionCreateV1,
     service: ExecutionService = Depends(get_execution_service),
+    inst_cd: str = Depends(require_active_inst_cd),
 ) -> ExecutionDetailReadV1:
     """Execute all test cases for a scenario and return structured results."""
     run = await service.create_run_for_scenario(
         scenario_id=payload.scenario_id,
         base_url=payload.base_url,
         mode=payload.mode,
+        inst_cd=inst_cd,
     )
     return execution_run_to_detail(run)
 
@@ -39,12 +41,14 @@ async def create_execution_v1(
 async def create_execution_stream_v1(
     payload: ExecutionCreateV1,
     service: ExecutionService = Depends(get_execution_service),
+    inst_cd: str = Depends(require_active_inst_cd),
 ) -> StreamingResponse:
     """Execute a scenario and stream per-step progress as Server-Sent Events."""
     events = service.iter_run_for_scenario(
         scenario_id=payload.scenario_id,
         base_url=payload.base_url,
         mode=payload.mode,
+        inst_cd=inst_cd,
     )
     return StreamingResponse(
         sse_stream_events(events, fallback_message="시나리오 실행에 실패했습니다."),

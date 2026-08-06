@@ -1,26 +1,10 @@
-"""Async data access for scenarios, test cases, and legacy execution logs."""
+"""Async data access for scenarios and legacy execution logs."""
 
-from typing import Any
-
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.execution_log import ExecutionLog
-from app.models.scenario import Scenario
-from app.models.service_rule_history import ServiceRuleHistory
-from app.models.testcase import TestCase
-
-_UNSET = object()
-
-
-def _service_pool_name_filters(code: str):
-    """SQL filters for current + legacy materialized name shapes."""
-    return or_(
-        TestCase.name.startswith(f"{code} "),
-        TestCase.name.startswith(f"[E] {code}-"),
-        TestCase.name.startswith(f"[N] {code}-"),
-        TestCase.name.like(f"[%] {code}-%"),
-    )
+from app.models.fnx_execution_log import ExecutionLog
+from app.models.fnx_scenario import Scenario
 
 
 class MetadataRepository:
@@ -39,9 +23,13 @@ class MetadataRepository:
         prompt: str | None = None,
         steps_json: str | None = None,
         is_saved: bool = False,
+        inst_cd: str | None = None,
     ) -> Scenario:
         """Insert a new scenario row."""
+        from app.domain.inst_scope import DEFAULT_INST_CD, require_inst_cd
+
         entity = Scenario(
+            inst_cd=require_inst_cd(inst_cd or DEFAULT_INST_CD),
             title=title,
             description=description,
             content=content,
@@ -67,9 +55,12 @@ class MetadataRepository:
         saved_only: bool | None,
         limit: int,
         offset: int,
+        inst_cd: str | None = None,
     ) -> tuple[list[Scenario], int]:
-        """Return scenarios with optional saved filter and total count."""
-        filters = []
+        """Return scenarios with optional saved/inst filter and total count."""
+        from app.domain.inst_scope import DEFAULT_INST_CD, require_inst_cd
+
+        filters = [Scenario.inst_cd == require_inst_cd(inst_cd or DEFAULT_INST_CD)]
         if saved_only is True:
             filters.append(Scenario.is_saved.is_(True))
         elif saved_only is False:
@@ -117,217 +108,22 @@ class MetadataRepository:
         await self._session.refresh(entity)
         return entity
 
-    async def create_testcase(
-        self,
-        *,
-        name: str,
-        steps: str | None = None,
-        scenario_id: int | None = None,
-        http_method: str | None = None,
-        endpoint: str | None = None,
-        request_body_json: str | None = None,
-        expected_status: int | None = None,
-        expected_body_json: str | None = None,
-        step_index: int | None = None,
-        rule_history_id: int | None = None,
-        pool_sample_id: int | None = None,
-    ) -> TestCase:
-        """Insert a new test case row."""
-        entity = TestCase(
-            name=name,
-            steps=steps,
-            scenario_id=scenario_id,
-            http_method=http_method,
-            endpoint=endpoint,
-            request_body_json=request_body_json,
-            expected_status=expected_status,
-            expected_body_json=expected_body_json,
-            step_index=step_index,
-            rule_history_id=rule_history_id,
-            pool_sample_id=pool_sample_id,
-        )
-        self._session.add(entity)
-        await self._session.flush()
-        await self._session.refresh(entity)
-        return entity
-
-    async def get_testcase_by_id(self, testcase_id: int) -> TestCase | None:
-        """Load a test case by primary key."""
-        result = await self._session.execute(
-            select(TestCase).where(TestCase.id == testcase_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def list_testcases_for_scenario(self, scenario_id: int) -> list[TestCase]:
-        """Return test cases for a scenario ordered by step_index then id."""
-        stmt = (
-            select(TestCase)
-            .where(TestCase.scenario_id == scenario_id)
-            .order_by(TestCase.step_index.asc(), TestCase.id.asc())
-        )
-        return list((await self._session.execute(stmt)).scalars().all())
-
-    async def list_testcases_for_service_code(
-        self, service_code: str, *, limit: int = 200
-    ) -> list[TestCase]:
-        """Return pool HTTP test cases for a service (excludes scenario clones)."""
-        code = (service_code or "").strip()
-        if not code:
-            return []
-        stmt = (
-            select(TestCase)
-            .outerjoin(
-                ServiceRuleHistory,
-                TestCase.rule_history_id == ServiceRuleHistory.id,
-            )
-            .where(
-                TestCase.scenario_id.is_(None),
-                or_(
-                    _service_pool_name_filters(code),
-                    ServiceRuleHistory.service_code == code,
-                ),
-            )
-            .order_by(TestCase.id.desc())
-            .limit(limit)
-        )
-        return list((await self._session.execute(stmt)).scalars().all())
-
-    async def find_pool_testcase_by_service_and_case_id(
-        self,
-        service_code: str,
-        case_id: str,
-        *,
-        limit_scan: int = 500,
-    ) -> TestCase | None:
-        """
-        Return the newest pool TC whose name encodes ``case_id`` for ``service_code``.
-        """
-        from app.utils.testcase_case_id import parse_case_id_from_testcase_name
-
-        code = (service_code or "").strip()
-        cid = (case_id or "").strip()
-        if not code or not cid:
-            return None
-        rows = await self.list_testcases_for_service_code(code, limit=limit_scan)
-        for row in rows:
-            parsed = parse_case_id_from_testcase_name(row.name or "", service_code=code)
-            if parsed == cid:
-                return row
-        return None
-
-    async def find_pool_testcase_by_sample_id(self, sample_id: int) -> TestCase | None:
-        """Return scenario-less testcase promoted from a pool sample."""
-        stmt = (
-            select(TestCase)
-            .where(
-                TestCase.scenario_id.is_(None),
-                TestCase.pool_sample_id == sample_id,
-            )
-            .order_by(TestCase.id.asc())
-            .limit(1)
-        )
-        return (await self._session.execute(stmt)).scalar_one_or_none()
-
-    async def update_testcase_http_fields(
-        self,
-        entity: TestCase,
-        *,
-        name: str | None = None,
-        http_method: str | None = None,
-        endpoint: str | None = None,
-        request_body_json: str | None = None,
-        expected_status: int | None = None,
-        expected_body_json: str | None = None,
-    ) -> TestCase:
-        """Patch HTTP fields on an already-loaded testcase entity."""
-        updated = await self.update_testcase_fields(
-            entity.id,
-            name=name,
-            http_method=http_method,
-            endpoint=endpoint,
-            request_body_json=request_body_json,
-            expected_status=expected_status,
-            expected_body_json=expected_body_json,
-        )
-        assert updated is not None
-        return updated
-
-    async def delete_testcases_for_scenario(self, scenario_id: int) -> int:
-        """Remove all test cases linked to a scenario. Returns deleted count."""
-        result = await self._session.execute(
-            delete(TestCase).where(TestCase.scenario_id == scenario_id)
-        )
-        return result.rowcount or 0
-
-    async def delete_testcases_pool_for_service(self, service_code: str) -> int:
-        """Remove pool test cases (no scenario) for one service code."""
-        code = (service_code or "").strip()
-        if not code:
-            return 0
-        history_id_subq = select(ServiceRuleHistory.id).where(
-            ServiceRuleHistory.service_code == code
-        )
-        result = await self._session.execute(
-            delete(TestCase).where(
-                TestCase.scenario_id.is_(None),
-                or_(
-                    _service_pool_name_filters(code),
-                    TestCase.rule_history_id.in_(history_id_subq),
-                ),
-            )
-        )
-        return result.rowcount or 0
-
-    async def update_testcase_fields(
-        self,
-        testcase_id: int,
-        *,
-        name: str | None = None,
-        http_method: str | None = None,
-        endpoint: str | None = None,
-        request_body_json: str | None = None,
-        expected_status: int | None = None,
-        expected_body_json: str | None = None,
-        step_index: int | None = None,
-        steps: str | None = None,
-        scenario_id: Any = _UNSET,
-    ) -> TestCase | None:
-        """Patch fields on a test case."""
-        entity = await self.get_testcase_by_id(testcase_id)
-        if entity is None:
-            return None
-        if name is not None:
-            entity.name = name
-        if http_method is not None:
-            entity.http_method = http_method
-        if endpoint is not None:
-            entity.endpoint = endpoint
-        if request_body_json is not None:
-            entity.request_body_json = request_body_json
-        if expected_status is not None:
-            entity.expected_status = expected_status
-        if expected_body_json is not None:
-            entity.expected_body_json = expected_body_json
-        if step_index is not None:
-            entity.step_index = step_index
-        if steps is not None:
-            entity.steps = steps
-        if scenario_id is not _UNSET:
-            entity.scenario_id = scenario_id  # type: ignore[assignment]
-        await self._session.flush()
-        await self._session.refresh(entity)
-        return entity
-
     async def create_execution_log(
         self,
         *,
-        testcase_id: int,
         status: str,
         detail: str | None,
+        inst_cd: str | None = None,
+        svc_code: str | None = None,
+        rule_case_id: str | None = None,
     ) -> ExecutionLog:
-        """Persist a legacy single-testcase execution log row."""
+        """Persist a single-testcase execution log row."""
+        from app.domain.inst_scope import DEFAULT_INST_CD, require_inst_cd
+
         entity = ExecutionLog(
-            testcase_id=testcase_id,
+            inst_cd=require_inst_cd(inst_cd or DEFAULT_INST_CD),
+            svc_code=(svc_code or "").strip() or None,
+            rule_case_id=(rule_case_id or "").strip() or None,
             status=status,
             detail=detail,
         )

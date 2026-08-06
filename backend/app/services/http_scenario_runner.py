@@ -15,7 +15,7 @@ from app.domain.collection_var_generators import (
     resolve_start_var_value,
 )
 from app.domain.step_http_result import StepHttpResult
-from app.models.testcase import TestCase
+from app.models.fnx_testcase import FnxTestcase
 
 DEFAULT_TIMEOUT_SEC = 30.0
 
@@ -70,7 +70,7 @@ def headers_to_map(headers: list[dict[str, str]]) -> dict[str, str]:
 
 
 def execute_http_testcase(
-    testcase: TestCase,
+    testcase: FnxTestcase,
     *,
     base_url: str,
     request_body: dict[str, Any],
@@ -116,7 +116,7 @@ def make_live_response_callback(
         service_code_for_testcase,
     )
 
-    def _call(testcase: TestCase, request_body: dict[str, Any]) -> StepHttpResult:
+    def _call(testcase: FnxTestcase, request_body: dict[str, Any]) -> StepHttpResult:
         svc = service_code_for_testcase(
             testcase,
             step_service_codes=step_service_codes,

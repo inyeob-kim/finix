@@ -18,14 +18,14 @@ function baseItem(
         serviceCode: "A",
         serviceName: "A",
         title: "t1",
-        backendTestcaseId: 101,
+        ruleId: "A-N-001",
       },
       {
         id: "p2",
         serviceCode: "B",
         serviceName: "B",
         title: "t2",
-        backendTestcaseId: 102,
+        ruleId: "B-N-001",
       },
     ],
     saveStatus: "ready",
@@ -34,18 +34,18 @@ function baseItem(
 }
 
 describe("canExportRegistryScenarioPostman", () => {
-  it("allows ready scenarios with all DB ids", () => {
+  it("allows ready scenarios with all case_ids", () => {
     expect(canExportRegistryScenarioPostman(baseItem())).toBe(true);
     expect(registryScenarioPostmanExportBlockReason(baseItem())).toBeNull();
   });
 
-  it("blocks draft even when DB ids exist", () => {
+  it("blocks draft even when case_ids exist", () => {
     const item = baseItem({ saveStatus: "draft" });
     expect(canExportRegistryScenarioPostman(item)).toBe(false);
     expect(registryScenarioPostmanExportBlockReason(item)).toMatch(/임시저장/);
   });
 
-  it("blocks when any pick lacks backendTestcaseId", () => {
+  it("blocks when any pick lacks case_id", () => {
     const item = baseItem({
       selectedRuleTestcases: [
         {
@@ -53,7 +53,7 @@ describe("canExportRegistryScenarioPostman", () => {
           serviceCode: "A",
           serviceName: "A",
           title: "t1",
-          backendTestcaseId: 101,
+          ruleId: "A-N-001",
         },
         { id: "p2", serviceCode: "B", serviceName: "B", title: "t2" },
       ],
