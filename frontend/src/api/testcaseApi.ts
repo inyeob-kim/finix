@@ -158,12 +158,16 @@ export async function listTestCasesByServiceCode(
   serviceCode: string,
   limit = 200,
   instCd?: string | null,
+  options?: { scenarioEligible?: boolean },
 ): Promise<TestCaseReadDto[]> {
   const q = new URLSearchParams({
     service_code: serviceCode,
     inst_cd: getRequiredInstCd(instCd),
     limit: String(limit),
   });
+  if (options?.scenarioEligible) {
+    q.set("scenario_eligible", "true");
+  }
   return apiRequest<TestCaseReadDto[]>(
     `/api/v1/test-cases?${q.toString()}`,
     { method: "GET" },

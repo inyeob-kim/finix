@@ -322,7 +322,7 @@ export const ScenarioStepPostmanPanel = forwardRef<
     runStepShortDescription(step) || step.title?.trim() || step.serviceCode;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col border-l border-border bg-card lg:w-[min(26rem,100%)]">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-card">
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
           <p className="text-sm font-medium font-mono text-primary truncate">

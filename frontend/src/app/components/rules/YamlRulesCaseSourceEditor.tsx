@@ -235,7 +235,7 @@ export const YamlRulesCaseSourceEditor = forwardRef<
         onRunCase={onRunCase}
       />
 
-      <div className="flex-1 min-h-0 flex flex-col gap-2">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
         {activeDiagnostic ? (
           <YamlEditorDiagnosticBar
             diagnostic={activeDiagnostic}

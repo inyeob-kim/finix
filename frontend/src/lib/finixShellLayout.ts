@@ -1,5 +1,10 @@
-/** App shell: sidebar logo row and page header bar share one height. */
-export const SHELL_HEADER_HEIGHT_CLASS = "h-[4.5rem]";
+/** Global app bar (institution / user) — aligns with sidebar logo row. */
+export const SHELL_GLOBAL_HEADER_HEIGHT_CLASS = "h-10";
+
+export const SHELL_GLOBAL_HEADER_ROW_CLASS = "flex items-center shrink-0";
+
+/** Page title row below the global bar. */
+export const SHELL_HEADER_HEIGHT_CLASS = "h-[3.25rem]";
 
 export const SHELL_HEADER_ROW_CLASS = [
   "flex items-center shrink-0",

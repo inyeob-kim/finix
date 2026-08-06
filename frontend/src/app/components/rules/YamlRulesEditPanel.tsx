@@ -34,8 +34,6 @@ type YamlRulesEditPanelProps = {
   onNotice: (msg: string) => void;
   onError: (msg: string | null) => void;
   onFocusEditChange?: (focused: boolean) => void;
-  /** 동적값 패널 열림 — 부모가 모달 폭을 넓힐 때 사용 */
-  onMacroPanelOpenChange?: (open: boolean) => void;
   onRunCase?: (caseId: string, ruleIndex: number) => void;
 };
 
@@ -51,7 +49,6 @@ export function YamlRulesEditPanel({
   onNotice,
   onError,
   onFocusEditChange,
-  onMacroPanelOpenChange,
   onRunCase,
 }: YamlRulesEditPanelProps) {
   const [subTab, setSubTab] = useState<YamlEditSubTab>("source");
@@ -68,17 +65,13 @@ export function YamlRulesEditPanel({
 
   const focusEdit = subTab === "fields" && fieldsRuleEditing;
 
-  const setMacroOpen = useCallback(
-    (open: boolean) => {
-      setMacroPanelOpen(open);
-      onMacroPanelOpenChange?.(open);
-    },
-    [onMacroPanelOpenChange],
-  );
+  const setMacroOpen = useCallback((open: boolean) => {
+    setMacroPanelOpen(open);
+  }, []);
 
-  useEffect(() => {
-    return () => onMacroPanelOpenChange?.(false);
-  }, [onMacroPanelOpenChange]);
+  const toggleMacroPanel = useCallback(() => {
+    setMacroOpen(!macroPanelOpen);
+  }, [macroPanelOpen, setMacroOpen]);
 
   const handleFieldsEditingChange = useCallback(
     (editing: boolean) => {
@@ -98,9 +91,6 @@ export function YamlRulesEditPanel({
     [],
   );
 
-  const toggleMacroPanel = useCallback(() => {
-    setMacroOpen(!macroPanelOpen);
-  }, [macroPanelOpen, setMacroOpen]);
   const applyMacro = useCallback(
     (macro: string) => {
       if (subTab === "source") {
@@ -359,7 +349,7 @@ export function YamlRulesEditPanel({
         {macroPanelOpen ? (
           <div
             className={cn(
-              "flex h-full min-h-0 shrink-0 flex-col",
+              "flex h-full min-h-0 flex-col border-l border-border",
               FINIX_YAML_MACRO_RAIL_WIDTH,
             )}
           >

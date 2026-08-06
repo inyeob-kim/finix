@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { clearFinixTaglineIntroSession } from "@/lib/finixBrandTagline";
 
 export type UserRole = "qa.editor" | "qa.approver";
 
@@ -27,6 +28,7 @@ export const useAuthStore = create<AuthState>()(
         if (!inst_cd) {
           throw new Error("기관코드(inst_cd)가 필요합니다.");
         }
+        clearFinixTaglineIntroSession();
         set({
           user: {
             ...user,
@@ -38,6 +40,7 @@ export const useAuthStore = create<AuthState>()(
       },
       logout: () => {
         if (!get().isAuthenticated) return;
+        clearFinixTaglineIntroSession();
         set({ user: null, isAuthenticated: false });
       },
     }),

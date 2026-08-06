@@ -24,7 +24,10 @@ export function PageHeaderBar({
         <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden text-primary [&_svg]:shrink-0">
           {icon}
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="text-muted-foreground/70 shrink-0" aria-hidden>
+            |
+          </span>
           <h1 className="text-base font-semibold tracking-tight truncate">{title}</h1>
         </div>
         {actions != null ? (

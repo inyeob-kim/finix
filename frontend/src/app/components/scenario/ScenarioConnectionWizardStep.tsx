@@ -118,7 +118,7 @@ export function ScenarioConnectionWizardStep({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border lg:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-border lg:w-1/2 lg:border-b-0 lg:border-r">
           <ScenarioBindingCanvas
             runSteps={runSteps}
             bindings={bindings}
@@ -130,6 +130,7 @@ export function ScenarioConnectionWizardStep({
             onSelectStep={selectStep}
           />
         </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-1/2">
         <ScenarioStepPostmanPanel
           ref={bodyFlushRef}
           runSteps={runSteps}
@@ -152,6 +153,7 @@ export function ScenarioConnectionWizardStep({
             onPostmanConfigChange(removeCustomStartVar(postmanConfig, key));
           }}
         />
+        </div>
       </div>
     </div>
   );

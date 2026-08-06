@@ -28,6 +28,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "./ui/sheet";
 import { PageShell } from "./PageShell";
 import { TablePagination } from "./ui/finix-pagination";
 import {
@@ -104,7 +111,7 @@ import {
 import { useAuthStore } from "../auth/authStore";
 import {
   FINIX_LARGE_MODAL_CONTENT,
-  FINIX_LARGE_MODAL_WITH_RAIL_CONTENT,
+  FINIX_STANDARD_SHEET_CONTENT,
 } from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
 
@@ -209,7 +216,6 @@ export function RulesMeta() {
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [yamlCopyDone, setYamlCopyDone] = useState(false);
   const [yamlRuleFocusEdit, setYamlRuleFocusEdit] = useState(false);
-  const [yamlMacroPanelOpen, setYamlMacroPanelOpen] = useState(false);
   const [historyItem, setHistoryItem] = useState<RuleRegistryItem | null>(null);
   const [runningCaseId, setRunningCaseId] = useState<string | null>(null);
   const [poolRows, setPoolRows] = useState<TestCaseReadDto[]>([]);
@@ -601,7 +607,7 @@ export function RulesMeta() {
       const items = await reloadRegistry();
       applySavedBundle(
         bundle,
-        "버전이 확정되었습니다. (일상 실행은 케이스 ▶ 로 바로 가능합니다)",
+        "버전이 확정되었습니다. 시나리오에서 활성 케이스를 참조할 수 있습니다.",
         items,
       );
     } catch (e) {
@@ -1016,44 +1022,41 @@ export function RulesMeta() {
 
         </div>
 
-      <Dialog
+      <Sheet
         open={!!selected}
         onOpenChange={(open) => {
           if (!open) requestClosePanel();
         }}
       >
-        <DialogContent
-          className={
-            yamlMacroPanelOpen && activeTab === "yaml"
-              ? FINIX_LARGE_MODAL_WITH_RAIL_CONTENT
-              : FINIX_LARGE_MODAL_CONTENT
-          }
+        <SheetContent
+          side="right"
+          className={FINIX_STANDARD_SHEET_CONTENT}
           onPointerDownOutside={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
           {selected && (
             <>
-              <DialogHeader
+              <SheetHeader
                 className={cn(
                   "px-6 border-b border-border shrink-0 text-left",
                   yamlRuleFocusEdit ? "pt-4 pb-3" : "pt-5 pb-4",
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2 pr-10">
-                  <DialogTitle
+                  <SheetTitle
                     className={cn(
                       "leading-snug font-semibold",
                       yamlRuleFocusEdit ? "text-base" : "text-lg",
                     )}
                   >
                     {selected.serviceName}
-                  </DialogTitle>
+                  </SheetTitle>
                   <span className="font-mono text-sm text-muted-foreground">
                     {selected.serviceCode}
                   </span>
                   <StatusPill status={selected.status} />
                 </div>
-              </DialogHeader>
+              </SheetHeader>
 
               {!yamlRuleFocusEdit ? (
               <div className="px-6 pt-1 shrink-0">
@@ -1120,7 +1123,6 @@ export function RulesMeta() {
                     onNotice={setEditNotice}
                     onError={setEditError}
                     onFocusEditChange={setYamlRuleFocusEdit}
-                    onMacroPanelOpenChange={setYamlMacroPanelOpen}
                     runningCaseId={runningCaseId}
                     onRunCase={openEditorCaseRun}
                   />
@@ -1141,7 +1143,7 @@ export function RulesMeta() {
               ) : null}
 
               {!yamlRuleFocusEdit ? (
-              <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-wrap justify-end gap-2">
+              <SheetFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-row flex-wrap justify-end gap-2">
                 {editNotice ? (
                   <p className="text-xs text-emerald-700 dark:text-emerald-300 w-full text-left">{editNotice}</p>
                 ) : null}
@@ -1186,26 +1188,26 @@ export function RulesMeta() {
                       </RulesMetaHintButton>
 
                       {hasWorkingDraft ? (
-                        <RulesMetaHintButton hint="버전을 확정합니다. 일상 실행에 필수는 아닙니다.">
+                        <RulesMetaHintButton hint="작업중인 케이스를 활성(공식)으로 확정합니다. 시나리오에서 참조할 수 있습니다.">
                           <button
                             type="button"
                             className={SECONDARY_BTN_CLASS}
                             disabled={applyDisabled}
                             onClick={() => setActivateConfirmOpen(true)}
                           >
-                            버전 확정
+                            확정
                           </button>
                         </RulesMetaHintButton>
                       ) : null}
                     </>
                   );
                 })()}
-              </DialogFooter>
+              </SheetFooter>
               ) : null}
             </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       <AlertDialog
         open={closeConfirmOpen}
@@ -1260,7 +1262,7 @@ export function RulesMeta() {
       >
         <AlertDialogContent className="z-[100] sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>작업본을 버전 확정할까요?</AlertDialogTitle>
+            <AlertDialogTitle>작업본을 확정할까요?</AlertDialogTitle>
             <AlertDialogDescription className="text-left space-y-2">
               {selected ? (
                 <>
@@ -1270,8 +1272,8 @@ export function RulesMeta() {
                     </span>
                   </span>
                   <span className="block text-xs">
-                    확정하면 작업본이 현재 규칙이 되며 변경 이력에 스냅샷이
-                    쌓입니다. 케이스 ▶ 실행에는 필수가 아닙니다.
+                    확정하면 작업중인 케이스가 활성(공식)이 됩니다. 시나리오에서
+                    참조할 수 있으며, 케이스 ▶ 실행에는 필요하지 않습니다.
                   </span>
                 </>
               ) : null}
@@ -1291,7 +1293,7 @@ export function RulesMeta() {
                 void runActivate();
               }}
             >
-              버전 확정
+              확정
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

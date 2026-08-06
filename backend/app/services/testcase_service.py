@@ -503,7 +503,6 @@ class TestCaseService:
         """
         from app.domain.inst_scope import require_inst_cd
 
-        tc_repo = self._require_tc_repo()
         inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
         scenario = await self._metadata.get_scenario_by_id(scenario_id)

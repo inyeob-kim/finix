@@ -1,8 +1,8 @@
 import { useScenarioBindingSuggestions } from "@/hooks/useScenarioBindingSuggestions";
 import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import {
-    FINIX_LARGE_MODAL_CONTENT,
-    FINIX_LARGE_MODAL_MAX_WIDTH,
+    FINIX_LARGE_MODAL_SCROLL_CONTENT,
+    FINIX_STANDARD_SHEET_CONTENT,
 } from "@/lib/finixModalLayout";
 import {
     defaultCollectionPostmanZipName,
@@ -138,6 +138,13 @@ import {
   scenarioPickSourceKey,
 } from "@/lib/scenarioPickInstance";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
+import {
+    Sheet,
+    SheetContent,
+    SheetFooter,
+    SheetHeader,
+    SheetTitle,
+} from "./ui/sheet";
 import {
     Dialog,
     DialogContent,
@@ -552,7 +559,9 @@ export function ScenarioRegistry() {
         const seenIds = new Set<string>();
         for (const s of serviceDrafts) {
           try {
-            const rows = await listTestCasesByServiceCode(s.code, 500);
+            const rows = await listTestCasesByServiceCode(s.code, 500, undefined, {
+              scenarioEligible: true,
+            });
             if (cancelled) return;
             const name = s.name || s.code;
             for (const row of rows) {
@@ -1600,7 +1609,7 @@ export function ScenarioRegistry() {
                   className={[
                     "flex-1 min-w-0 overflow-auto",
                     !previewCollapsed
-                      ? "lg:w-1/2 lg:max-h-[min(70vh,800px)]"
+                      ? "lg:flex-1 lg:min-w-0 lg:max-h-[min(70vh,800px)]"
                       : "w-full",
                   ].join(" ")}
                 >
@@ -1729,7 +1738,7 @@ export function ScenarioRegistry() {
                       className={[
                         "flex-1 min-w-0 overflow-auto",
                         !previewCollapsed
-                          ? "lg:w-1/2 lg:max-h-[min(70vh,800px)]"
+                          ? "lg:flex-1 lg:min-w-0 lg:max-h-[min(70vh,800px)]"
                           : "w-full",
                       ].join(" ")}
                     >
@@ -1772,15 +1781,16 @@ export function ScenarioRegistry() {
 
         </div>
 
-      <Dialog
+      <Sheet
         open={open}
         onOpenChange={(v) => {
           setOpen(v);
           if (!v) resetForm();
         }}
       >
-        <DialogContent
-          className={`${FINIX_LARGE_MODAL_CONTENT} rounded-sm`}
+        <SheetContent
+          side="right"
+          className={FINIX_STANDARD_SHEET_CONTENT}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             if (scenarioWizardStep === 1) {
@@ -1790,8 +1800,8 @@ export function ScenarioRegistry() {
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
-            <DialogTitle className="pr-10 text-lg font-semibold">
+          <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
+            <SheetTitle className="pr-10 text-lg font-semibold">
               {editingId ? "시나리오 편집" : "시나리오 등록"}
               <span className="block text-xs font-normal text-muted-foreground mt-1">
                 {scenarioWizardStep === 1
@@ -1806,8 +1816,8 @@ export function ScenarioRegistry() {
                   ? " · 임시저장본"
                   : ""}
               </span>
-            </DialogTitle>
-          </DialogHeader>
+            </SheetTitle>
+          </SheetHeader>
 
           <div
             className={`px-6 py-4 flex-1 min-h-0 ${
@@ -1951,7 +1961,7 @@ export function ScenarioRegistry() {
             )}
           </div>
 
-          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 gap-2 sm:gap-2">
+          <SheetFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-row flex-wrap justify-end gap-2 sm:gap-2">
             {scenarioWizardStep === 1 ? (
               <>
                 <button
@@ -2096,9 +2106,9 @@ export function ScenarioRegistry() {
                 </FinixPrimaryButton>
               </>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <Dialog
         open={folderDialog}
@@ -2581,9 +2591,7 @@ export function ScenarioRegistry() {
           }
         }}
       >
-        <DialogContent
-          className={`w-full max-h-[92vh] overflow-y-auto ${FINIX_LARGE_MODAL_MAX_WIDTH} rounded-sm`}
-        >
+        <DialogContent className={`${FINIX_LARGE_MODAL_SCROLL_CONTENT} rounded-sm`}>
           <DialogHeader>
             <DialogTitle className="pr-10">
               {ioDialog === "export" ? "Export (JSON)" : "Import (JSON)"}

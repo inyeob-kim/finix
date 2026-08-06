@@ -38,7 +38,7 @@ export function ScenarioPreviewPanel({
   return (
     <aside
       className={cn(
-        "flex w-full flex-col border-border bg-card lg:w-1/2 lg:shrink-0",
+        "flex w-full flex-col border-border bg-card lg:w-[min(24rem,36%)] lg:shrink-0",
         "border-t lg:border-l lg:border-t-0",
         "max-h-[min(70vh,800px)] lg:max-h-none lg:min-h-0",
       )}

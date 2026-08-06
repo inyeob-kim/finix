@@ -44,13 +44,13 @@ export function ScenarioBindingCanvas({
   const varEdges = edges.filter((e) => e.kind === "var");
 
   return (
-    <FinixDotCanvas className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2 shrink-0">
+    <FinixDotCanvas className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2 shrink-0">
         <FinixFlowPill tone="loop">시나리오 흐름</FinixFlowPill>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-md flex-col items-stretch gap-0">
+        <div className="mx-auto flex w-full max-w-md flex-col items-stretch gap-0">
           {startNode ? (
             <ScenarioBindingStepNode
               node={startNode}

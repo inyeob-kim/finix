@@ -56,7 +56,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import { FINIX_LARGE_MODAL_MAX_WIDTH } from "@/lib/finixModalLayout";
+import { FINIX_LARGE_MODAL_CONTENT } from "@/lib/finixModalLayout";
 import { PageShell } from "./PageShell";
 import { PageActionButton } from "./ui/finix-page-action";
 import { FinixLoading, FinixLoadingPage } from "./ui/finix-loading";
@@ -876,9 +876,7 @@ export function TestCase() {
               if (!open) setRawOpenFor(null);
             }}
           >
-            <DialogContent
-              className={`w-full max-h-[92vh] overflow-hidden flex flex-col ${FINIX_LARGE_MODAL_MAX_WIDTH} gap-0 p-0`}
-            >
+            <DialogContent className={FINIX_LARGE_MODAL_CONTENT}>
               <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-2">
                 <div className="flex flex-wrap items-center gap-2 pr-10">
                   <DialogTitle className="text-lg leading-snug font-semibold">

@@ -1,5 +1,6 @@
 import { Play } from "lucide-react";
 import { getCaseId, type YamlRuleRecord } from "@/lib/yamlRulesDocument";
+import { FINIX_YAML_CASE_SIDEBAR_WIDTH } from "@/lib/finixModalLayout";
 import { cn } from "../ui/utils";
 import { CaseTypeBadge, ruleListLabel } from "./yamlCaseListUi";
 
@@ -35,7 +36,12 @@ export function YamlRulesCaseSidebar({
       : rules.map((_, index) => index);
 
   return (
-    <aside className="sm:w-56 shrink-0 flex flex-col rounded-md border border-border overflow-hidden max-h-40 sm:max-h-none">
+    <aside
+      className={cn(
+        FINIX_YAML_CASE_SIDEBAR_WIDTH,
+        "flex flex-col rounded-md border border-border overflow-hidden max-h-40 sm:max-h-none",
+      )}
+    >
       <p className="px-2.5 py-2 text-[11px] font-medium text-muted-foreground border-b border-border bg-muted/20">
         케이스 {rules.length}건
       </p>

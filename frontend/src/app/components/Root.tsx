@@ -1,5 +1,8 @@
 import finixLogo from "@/assets/finix-logo-mark-dark.png";
-import { NAV_RAIL_WIDTH_CLASS, SHELL_HEADER_HEIGHT_CLASS } from "@/lib/finixShellLayout";
+import {
+  NAV_RAIL_WIDTH_CLASS,
+  SHELL_GLOBAL_HEADER_HEIGHT_CLASS,
+} from "@/lib/finixShellLayout";
 import {
   BookOpen,
   Clock,
@@ -14,6 +17,7 @@ import {
 } from "lucide-react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuthStore } from "../auth/authStore";
+import { AppGlobalHeader } from "./AppGlobalHeader";
 import {
   Tooltip,
   TooltipContent,
@@ -46,7 +50,7 @@ export function Root() {
       >
         <div
           className={cn(
-            SHELL_HEADER_HEIGHT_CLASS,
+            SHELL_GLOBAL_HEADER_HEIGHT_CLASS,
             "flex items-center justify-center border-b border-nav-rail-border",
           )}
         >
@@ -143,7 +147,10 @@ export function Root() {
       </aside>
 
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <Outlet />
+        <AppGlobalHeader />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
