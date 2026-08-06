@@ -25,6 +25,7 @@ from app.models.fnx_rule_doc_current import ServiceRuleCurrent
 from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.repositories.cbs_service_catalog_repo import CbsServiceCatalogRepository
 from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
+from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.repositories.service_rules_repo import ServiceRulesRepository
 
 logger = logging.getLogger(__name__)
@@ -509,10 +510,12 @@ class ServiceRulesService:
         repo: ServiceRulesRepository,
         cbs_catalog: CbsServiceCatalogRepository | None = None,
         case_repo: FnxRuleCaseRepository | None = None,
+        tc_repo: FnxTestcaseRepository | None = None,
     ) -> None:
         self._repo = repo
         self._cbs_catalog = cbs_catalog
         self._case_repo = case_repo
+        self._tc_repo = tc_repo
 
     async def list_registry(
         self,
@@ -948,6 +951,7 @@ class ServiceRulesService:
             )
             checksum = _sha256_text(yaml_text)
         facade = await self._repo.get_current(code, inst_cd=inst)
+        case_meta = await self._case_meta_with_pool_flags(code, inst_cd=inst)
         return {
             "id": facade.id if facade is not None else 0,
             "service_code": code,
@@ -971,7 +975,218 @@ class ServiceRulesService:
             "yaml_text": yaml_text,
             "rules": parsed,
             "has_draft": has_draft,
+            "case_meta": case_meta,
         }
+
+    async def _sync_facade_from_cases(
+        self,
+        row: ServiceRuleCurrent,
+        *,
+        inst_cd: str,
+        updated_by: str | None = None,
+    ) -> ServiceRuleCurrent:
+        """Rebuild façade applied/draft YAML from fnx_rule_case rows."""
+        if self._case_repo is None:
+            return row
+
+        from app.domain.inst_scope import require_inst_cd
+
+        code = row.service_code
+        inst = require_inst_cd(inst_cd)
+
+        applied_asm = await self._case_repo.assemble_applied_yaml(
+            svc_code=code,
+            inst_cd=inst,
+            service_name=row.service_name_snapshot,
+            source_version=row.source_version,
+        )
+        if applied_asm:
+            yaml_text, parsed = applied_asm
+            row.yaml_text = yaml_text
+            row.rules_json = json.dumps(parsed, ensure_ascii=False)
+            row.checksum = _sha256_text(yaml_text)
+        else:
+            row.yaml_text = ""
+            row.rules_json = None
+            row.checksum = ""
+
+        has_draft = await self._case_repo.has_any_draft(code, inst_cd=inst)
+        if has_draft:
+            editor_asm = await self._case_repo.assemble_editor_yaml(
+                svc_code=code,
+                inst_cd=inst,
+                service_name=row.service_name_snapshot,
+                source_version=row.source_version,
+            )
+            if editor_asm:
+                draft_yaml, draft_parsed = editor_asm
+                row.draft_yaml_text = draft_yaml
+                row.draft_rules_json = json.dumps(draft_parsed, ensure_ascii=False)
+                row.draft_checksum = _sha256_text(draft_yaml)
+        else:
+            row.draft_yaml_text = None
+            row.draft_rules_json = None
+            row.draft_checksum = None
+            row.draft_source_version = None
+            row.draft_updated_at = None
+            row.draft_updated_by = None
+
+        if updated_by:
+            row.updated_by = updated_by
+        row = await self._repo.flush_current(row)
+        await self._case_repo.sync_header_from_current(row, inst_cd=inst)
+        return row
+
+    async def _case_meta_with_pool_flags(
+        self, service_code: str, *, inst_cd: str
+    ) -> list[dict[str, Any]]:
+        if self._case_repo is None:
+            return []
+        case_meta = await self._case_repo.list_case_meta(service_code, inst_cd=inst_cd)
+        if self._tc_repo is None:
+            for item in case_meta:
+                item["has_pool_testcase"] = False
+            return case_meta
+        for item in case_meta:
+            tc = await self._tc_repo.get(
+                inst_cd=inst_cd,
+                svc_code=service_code,
+                rule_case_id=item["case_id"],
+            )
+            item["has_pool_testcase"] = tc is not None
+        return case_meta
+
+    async def _assert_pool_testcase_exists(
+        self,
+        *,
+        inst_cd: str,
+        service_code: str,
+        case_id: str,
+    ) -> None:
+        if self._tc_repo is None:
+            return
+        tc = await self._tc_repo.get(
+            inst_cd=inst_cd,
+            svc_code=service_code,
+            rule_case_id=case_id,
+        )
+        if tc is None:
+            raise InvalidInputError(
+                f"{case_id}: 확정하려면 먼저 ▶ 실행 또는 TC 풀·실행 탭에서 "
+                "테스트케이스를 생성하세요."
+            )
+
+    async def _assert_pool_testcases_for_draft_cases(
+        self,
+        *,
+        inst_cd: str,
+        service_code: str,
+    ) -> None:
+        if self._case_repo is None or self._tc_repo is None:
+            return
+        missing: list[str] = []
+        for row in await self._case_repo.list_cases(service_code, inst_cd=inst_cd):
+            if not row.has_draft:
+                continue
+            tc = await self._tc_repo.get(
+                inst_cd=inst_cd,
+                svc_code=service_code,
+                rule_case_id=row.rule_case_id,
+            )
+            if tc is None:
+                missing.append(row.rule_case_id)
+        if missing:
+            joined = ", ".join(missing)
+            raise InvalidInputError(
+                f"확정하려면 먼저 테스트케이스를 생성하세요: {joined}"
+            )
+
+    async def apply_draft_case(
+        self,
+        *,
+        service_code: str,
+        case_id: str,
+        applied_by: str | None = None,
+        inst_cd: str,
+    ) -> dict[str, Any]:
+        """Promote one rule case draft to applied; rebuild façade from cases."""
+        from app.domain.inst_scope import require_inst_cd
+
+        code = (service_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code or not cid:
+            raise InvalidInputError("service_code와 case_id가 필요합니다.")
+        if self._case_repo is None:
+            raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
+
+        case_row = await self._case_repo.get_case_by_case_id(code, cid, inst_cd=inst)
+        if case_row is None:
+            raise EntityNotFoundError("RuleCase", f"{code}/{cid}")
+        if not case_row.has_draft:
+            raise InvalidInputError(
+                f"{cid}: 확정할 작업본이 없습니다. 저장 후 다시 시도하세요."
+            )
+        await self._assert_pool_testcase_exists(
+            inst_cd=inst, service_code=code, case_id=cid
+        )
+
+        await self._case_repo.apply_draft_case(
+            svc_code=code,
+            case_id=cid,
+            applied_by=applied_by,
+            inst_cd=inst,
+        )
+        row = await self._repo.ensure_current(code, inst_cd=inst)
+        row = await self._sync_facade_from_cases(
+            row, inst_cd=inst, updated_by=applied_by
+        )
+
+        bundle = await self.get_editor_bundle_dict(code, inst_cd=inst)
+        if bundle is None:
+            raise InvalidInputError("편집 문서를 갱신하지 못했습니다.")
+        return bundle
+
+    async def deactivate_applied_case(
+        self,
+        *,
+        service_code: str,
+        case_id: str,
+        updated_by: str | None = None,
+        inst_cd: str,
+    ) -> dict[str, Any]:
+        """Remove one case from applied (scenario-eligible) state."""
+        from app.domain.inst_scope import require_inst_cd
+
+        code = (service_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code or not cid:
+            raise InvalidInputError("service_code와 case_id가 필요합니다.")
+        if self._case_repo is None:
+            raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
+
+        case_row = await self._case_repo.get_case_by_case_id(code, cid, inst_cd=inst)
+        if case_row is None:
+            raise EntityNotFoundError("RuleCase", f"{code}/{cid}")
+        if not self._case_repo.is_case_applied(case_row):
+            raise InvalidInputError(f"{cid}: 확정된 케이스가 아닙니다.")
+
+        await self._case_repo.deactivate_applied_case(
+            svc_code=code,
+            case_id=cid,
+            updated_by=updated_by,
+            inst_cd=inst,
+        )
+        row = await self._repo.ensure_current(code, inst_cd=inst)
+        row = await self._sync_facade_from_cases(
+            row, inst_cd=inst, updated_by=updated_by
+        )
+
+        bundle = await self.get_editor_bundle_dict(code, inst_cd=inst)
+        if bundle is None:
+            raise InvalidInputError("편집 문서를 갱신하지 못했습니다.")
+        return bundle
 
     async def apply_draft(
         self,
@@ -989,6 +1204,9 @@ class ServiceRulesService:
             raise EntityNotFoundError("ServiceRuleCurrent", code)
         if not row.has_draft:
             raise InvalidInputError("적용할 작업본이 없습니다.")
+        await self._assert_pool_testcases_for_draft_cases(
+            inst_cd=inst, service_code=code
+        )
 
         row.yaml_text = row.draft_yaml_text or ""
         row.rules_json = row.draft_rules_json

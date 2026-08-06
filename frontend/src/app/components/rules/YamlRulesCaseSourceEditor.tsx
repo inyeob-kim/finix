@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import {
   dumpYamlRule,
   parseYamlRule,
@@ -34,6 +35,10 @@ type YamlRulesCaseSourceEditorProps = {
   externalDiagnostic?: YamlDiagnostic | null;
   onClearExternalDiagnostic?: () => void;
   onRunCase?: (caseId: string, ruleIndex: number) => void;
+  caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
+  applyNeedsSave?: boolean;
+  togglingCaseId?: string | null;
+  onToggleCaseApplied?: (caseId: string) => void;
 };
 
 export const YamlRulesCaseSourceEditor = forwardRef<
@@ -48,6 +53,10 @@ export const YamlRulesCaseSourceEditor = forwardRef<
     externalDiagnostic = null,
     onClearExternalDiagnostic,
     onRunCase,
+    caseMetaById,
+    applyNeedsSave,
+    togglingCaseId,
+    onToggleCaseApplied,
   },
   ref,
 ) {
@@ -225,6 +234,7 @@ export const YamlRulesCaseSourceEditor = forwardRef<
       <YamlRulesCaseSidebar
         rules={rules}
         displayIndices={displayIndices}
+        caseMetaById={caseMetaById}
         disabled={disabled}
         runningCaseId={runningCaseId}
         editingDocument={editingDocument}
@@ -233,6 +243,9 @@ export const YamlRulesCaseSourceEditor = forwardRef<
         onSelectDocument={selectDocument}
         onSelectRule={selectRule}
         onRunCase={onRunCase}
+        applyNeedsSave={applyNeedsSave}
+        togglingCaseId={togglingCaseId}
+        onToggleCaseApplied={onToggleCaseApplied}
       />
 
       <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">

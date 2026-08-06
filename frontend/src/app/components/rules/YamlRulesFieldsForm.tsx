@@ -7,6 +7,7 @@ import {
   GripVertical,
   Trash2,
 } from "lucide-react";
+import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ import {
   type YamlRuleRecord,
 } from "@/lib/yamlRulesDocument";
 import { YamlRuleSortableRow } from "./YamlRuleSortableRow";
+import { YamlRulesCaseApplyToggle } from "./YamlRulesCaseApplyToggle";
 import {
   YamlRuleFieldEditor,
   type RuleFieldDraft,
@@ -49,6 +51,10 @@ type YamlRulesFieldsFormProps = {
   onRegisterMacroInsert?: (insert: ((macro: string) => void) | null) => void;
   macroPanelOpen?: boolean;
   onToggleMacroPanel?: () => void;
+  caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
+  applyNeedsSave?: boolean;
+  togglingCaseId?: string | null;
+  onToggleCaseApplied?: (caseId: string) => void;
 };
 
 function formatJsonFieldForForm(value: unknown): string {
@@ -177,6 +183,10 @@ export function YamlRulesFieldsForm({
   onRegisterMacroInsert,
   macroPanelOpen = false,
   onToggleMacroPanel,
+  caseMetaById,
+  applyNeedsSave = false,
+  togglingCaseId = null,
+  onToggleCaseApplied,
 }: YamlRulesFieldsFormProps) {
   const parsed = useMemo(() => parseYamlRulesDocument(yamlText), [yamlText]);
   const rules = parsed.ok && Array.isArray(parsed.doc.rules) ? parsed.doc.rules : [];
@@ -490,6 +500,16 @@ export function YamlRulesFieldsForm({
                           )}
                         </span>
                       </button>
+                      {onToggleCaseApplied && getCaseId(r) ? (
+                        <YamlRulesCaseApplyToggle
+                          caseId={getCaseId(r)}
+                          meta={caseMetaById?.[getCaseId(r)]}
+                          disabled={disabled}
+                          toggling={togglingCaseId === getCaseId(r)}
+                          applyNeedsSave={applyNeedsSave}
+                          onToggle={onToggleCaseApplied}
+                        />
+                      ) : null}
                       <button
                         type="button"
                         title="이 규칙 복제"

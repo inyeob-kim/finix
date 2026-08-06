@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import { AlignLeft, CheckCircle2, Copy, Download, Plus } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { validateServiceRulesYaml } from "@/api/serviceRulesApi";
@@ -35,6 +36,10 @@ type YamlRulesEditPanelProps = {
   onError: (msg: string | null) => void;
   onFocusEditChange?: (focused: boolean) => void;
   onRunCase?: (caseId: string, ruleIndex: number) => void;
+  caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
+  applyNeedsSave?: boolean;
+  togglingCaseId?: string | null;
+  onToggleCaseApplied?: (caseId: string) => void;
 };
 
 export function YamlRulesEditPanel({
@@ -50,6 +55,10 @@ export function YamlRulesEditPanel({
   onError,
   onFocusEditChange,
   onRunCase,
+  caseMetaById,
+  applyNeedsSave = false,
+  togglingCaseId = null,
+  onToggleCaseApplied,
 }: YamlRulesEditPanelProps) {
   const [subTab, setSubTab] = useState<YamlEditSubTab>("source");
   const [validating, setValidating] = useState(false);
@@ -330,6 +339,10 @@ export function YamlRulesEditPanel({
               externalDiagnostic={sourceDiagnostic}
               onClearExternalDiagnostic={() => setSourceDiagnostic(null)}
               onRunCase={onRunCase}
+              caseMetaById={caseMetaById}
+              applyNeedsSave={applyNeedsSave}
+              togglingCaseId={togglingCaseId}
+              onToggleCaseApplied={onToggleCaseApplied}
             />
           ) : (
             <YamlRulesFieldsForm
@@ -342,6 +355,10 @@ export function YamlRulesEditPanel({
               onRegisterMacroInsert={registerFieldsMacroInsert}
               macroPanelOpen={macroPanelOpen}
               onToggleMacroPanel={toggleMacroPanel}
+              caseMetaById={caseMetaById}
+              applyNeedsSave={applyNeedsSave}
+              togglingCaseId={togglingCaseId}
+              onToggleCaseApplied={onToggleCaseApplied}
             />
           )}
         </div>

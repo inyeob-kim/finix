@@ -115,6 +115,14 @@ export interface ServiceRuleBundleReadDto {
 }
 
 /** Case-first editor payload from fnx_rule_case (yaml_text assembled server-side). */
+export interface ServiceRuleCaseMetaDto {
+  case_id: string;
+  is_applied: boolean;
+  has_draft: boolean;
+  has_pool_testcase?: boolean;
+}
+
+/** Case-first editor payload from fnx_rule_case (yaml_text assembled server-side). */
 export interface ServiceRuleEditorCasesDto {
   service_code: string;
   service_name: string | null;
@@ -128,6 +136,7 @@ export interface ServiceRuleEditorCasesDto {
   updated_by: string | null;
   rules: Record<string, unknown>[];
   yaml_text: string;
+  case_meta?: ServiceRuleCaseMetaDto[];
 }
 
 export interface ResolvedTestCaseStepDto {

@@ -231,12 +231,14 @@ def get_service_rules_service(
         get_cbs_service_catalog_repository
     ),
     case_repo: FnxRuleCaseRepository = Depends(get_fnx_rule_case_repository),
+    tc_repo: FnxTestcaseRepository = Depends(get_fnx_testcase_repository),
 ) -> ServiceRulesService:
     """Build ServiceRulesService with injected repositories."""
     return ServiceRulesService(
         repo=repo,
         cbs_catalog=cbs_catalog_repo,
         case_repo=case_repo,
+        tc_repo=tc_repo,
     )
 
 

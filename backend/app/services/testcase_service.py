@@ -487,6 +487,45 @@ class TestCaseService:
         )
         return row
 
+    async def materialize_missing_draft_cases(
+        self,
+        service_code: str,
+        *,
+        inst_cd: str,
+    ) -> list[FnxTestcase]:
+        """Create pool test cases for draft rule cases that are not yet materialized."""
+        from app.domain.inst_scope import require_inst_cd
+
+        if self._case_repo is None:
+            raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
+        tc_repo = self._require_tc_repo()
+        code = (service_code or "").strip()
+        inst = require_inst_cd(inst_cd)
+        if not code:
+            raise InvalidInputError("service_code가 필요합니다.")
+
+        created: list[FnxTestcase] = []
+        for row in await self._case_repo.list_cases(code, inst_cd=inst):
+            if not row.has_draft:
+                continue
+            cid = (row.rule_case_id or "").strip()
+            if not cid:
+                continue
+            existing = await tc_repo.get(
+                inst_cd=inst, svc_code=code, rule_case_id=cid
+            )
+            if existing is not None:
+                continue
+            created.append(
+                await self.materialize_one_case(
+                    code,
+                    cid,
+                    inst_cd=inst,
+                    require_applied=False,
+                )
+            )
+        return created
+
     async def attach_pool_to_scenario(
         self,
         scenario_id: int,

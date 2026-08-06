@@ -72,17 +72,25 @@ import {
 } from "./rules/RulesMetaTestCaseRunDialog";
 import { YamlAiJobBanner } from "./rules/YamlAiJobBanner";
 import { YamlRulesEditPanel } from "./rules/YamlRulesEditPanel";
+import { RulesMetaFooterMessage } from "./rules/RulesMetaFooterMessage";
 import { ServiceCatalogCombobox } from "./ServiceCatalogCombobox";
 import { useServiceCatalogPicker } from "@/hooks/useServiceCatalogPicker";
 import {
   activateServiceRulesBundle,
+  applyServiceRuleCase,
+  deactivateServiceRuleCase,
   createServiceRulesDraft,
   getServiceRulesBundle,
   listServiceRuleCases,
   updateServiceRulesDraft,
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
-import type { ServiceRuleBundleReadDto, TestCaseReadDto } from "@/api/types";
+import type {
+  ServiceRuleBundleReadDto,
+  ServiceRuleCaseMetaDto,
+  ServiceRuleEditorCasesDto,
+  TestCaseReadDto,
+} from "@/api/types";
 import { toast } from "sonner";
 import { useYamlAiJobStore, type YamlAiJob } from "@/app/stores/yamlAiJobStore";
 import {
@@ -130,6 +138,7 @@ const SECONDARY_BTN_CLASS =
   "h-9 px-3 rounded-sm border border-border text-sm font-medium hover:bg-muted disabled:opacity-50";
 
 const YAML_AI_MIN_SOURCE_LENGTH = 16;
+const EDIT_NOTICE_DISMISS_MS = 4000;
 
 function compareUpdated(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true });
@@ -197,6 +206,8 @@ export function RulesMeta() {
   const [activeTab, setActiveTab] = useState<"yaml" | "testcases">("yaml");
   const [yamlText, setYamlText] = useState("");
   const [baselineYamlText, setBaselineYamlText] = useState("");
+  const [caseMeta, setCaseMeta] = useState<ServiceRuleCaseMetaDto[]>([]);
+  const [togglingCaseId, setTogglingCaseId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"" | "active" | "draft">(() =>
     statusFilterFromSearch(searchParams.get("status")),
@@ -383,6 +394,7 @@ export function RulesMeta() {
       const nextYaml = editor?.yaml_text ?? "";
       setYamlText(nextYaml);
       setBaselineYamlText(nextYaml);
+      setCaseMeta(editor?.case_meta ?? []);
       setSelected((prev) =>
         prev && prev.serviceCode === serviceCode
           ? {
@@ -471,9 +483,19 @@ export function RulesMeta() {
     [],
   );
 
+  const refreshCaseMeta = useCallback(async (serviceCode: string) => {
+    const editor = await listServiceRuleCases(serviceCode);
+    if (editor) {
+      setCaseMeta(editor.case_meta ?? []);
+    }
+  }, []);
+
   const refreshPoolRows = useCallback(async () => {
     await poolRefreshRef.current?.();
-  }, []);
+    if (selected?.serviceCode) {
+      await refreshCaseMeta(selected.serviceCode);
+    }
+  }, [selected?.serviceCode, refreshCaseMeta]);
 
   const registerPoolRefresh = useCallback((refresh: () => Promise<void>) => {
     poolRefreshRef.current = refresh;
@@ -489,6 +511,8 @@ export function RulesMeta() {
     setSelected(null);
     setYamlText("");
     setBaselineYamlText("");
+    setCaseMeta([]);
+    setTogglingCaseId(null);
     setLastSavedAt(null);
     setEditError(null);
     setEditNotice(null);
@@ -502,6 +526,34 @@ export function RulesMeta() {
 
   const hasUnsavedChanges =
     !!selected && yamlText.trimEnd() !== baselineYamlText.trimEnd();
+
+  const caseMetaById = useMemo(
+    () =>
+      Object.fromEntries(
+        caseMeta.map((item) => [item.case_id, item] as const),
+      ),
+    [caseMeta],
+  );
+
+  const syncEditorCases = useCallback((editor: ServiceRuleEditorCasesDto) => {
+    setYamlText(editor.yaml_text);
+    setBaselineYamlText(editor.yaml_text);
+    setCaseMeta(editor.case_meta ?? []);
+    setSelected((prev) =>
+      prev
+        ? {
+            ...prev,
+            bundleId: editor.bundle_id,
+            bundleVersion: editor.is_active ? 1 : 0,
+            status: editor.status,
+            rules: editor.rules.length,
+            sourceVersion: editor.source_version ?? "—",
+            hasDraft: editor.has_draft,
+            isActive: editor.is_active,
+          }
+        : prev,
+    );
+  }, []);
 
   const requestClosePanel = () => {
     if (editSaving) return;
@@ -584,6 +636,7 @@ export function RulesMeta() {
         : await createServiceRulesDraft(selected.serviceCode, draftPayload());
       const items = await reloadRegistry();
       applySavedBundle(bundle, "작업본에 저장되었습니다.", items);
+      await refreshCaseMeta(selected.serviceCode);
       return true;
     } catch (e) {
       setEditError(
@@ -603,19 +656,71 @@ export function RulesMeta() {
       const bundle = await activateServiceRulesBundle(
         selected.serviceCode,
         selected.bundleId,
+        { autoMaterializeMissing: true },
       );
       const items = await reloadRegistry();
-      applySavedBundle(
-        bundle,
-        "버전이 확정되었습니다. 시나리오에서 활성 케이스를 참조할 수 있습니다.",
-        items,
-      );
+      const notice =
+        bulkActivatePreview.missingTcCount > 0
+          ? `작업본 ${bulkActivatePreview.draftCount}건을 확정했습니다. 테스트케이스 ${bulkActivatePreview.missingTcCount}건을 자동 생성했습니다.`
+          : "모든 작업본 규칙 케이스가 확정되었습니다. 시나리오에서 참조할 수 있습니다.";
+      applySavedBundle(bundle, notice, items);
+      await refreshCaseMeta(selected.serviceCode);
+      await refreshPoolRows();
     } catch (e) {
       setEditError(
         e instanceof ApiError ? e.message : "적용에 실패했습니다.",
       );
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleToggleCaseApplied = async (caseId: string) => {
+    if (!selected) return;
+    const meta = caseMetaById[caseId];
+    if (!meta) return;
+
+    if (!meta.is_applied) {
+      if (hasUnsavedChanges) {
+        setEditError("확정하려면 먼저 저장하세요.");
+        return;
+      }
+      if (!meta.has_draft) {
+        setEditError("확정하려면 먼저 저장하세요.");
+        return;
+      }
+      if (!meta.has_pool_testcase) {
+        setEditError(
+          "확정하려면 먼저 ▶ 실행 또는 TC 풀·실행 탭에서 테스트케이스를 생성하세요.",
+        );
+        return;
+      }
+    }
+
+    setTogglingCaseId(caseId);
+    setEditError(null);
+    setEditNotice(null);
+    try {
+      const editor = meta.is_applied
+        ? await deactivateServiceRuleCase(selected.serviceCode, caseId)
+        : await applyServiceRuleCase(selected.serviceCode, caseId);
+      syncEditorCases(editor);
+      const items = await reloadRegistry();
+      const row = items?.find((r) => r.serviceCode === selected.serviceCode);
+      if (row) {
+        setSelected((prev) => (prev ? { ...prev, ...row } : prev));
+      }
+      setEditNotice(
+        meta.is_applied
+          ? `${caseId} 규칙 케이스 확정이 해제되었습니다.`
+          : `${caseId} 규칙 케이스가 확정되었습니다.`,
+      );
+    } catch (e) {
+      setEditError(
+        e instanceof ApiError ? e.message : "케이스 확정 상태 변경에 실패했습니다.",
+      );
+    } finally {
+      setTogglingCaseId(null);
     }
   };
 
@@ -687,6 +792,16 @@ export function RulesMeta() {
   const selectedStatus = (selected?.status || "draft").toLowerCase();
   const hasWorkingDraft = Boolean(selected?.hasDraft) || selectedStatus === "draft";
   const canApply = hasWorkingDraft && !hasUnsavedChanges;
+
+  const bulkActivatePreview = useMemo(() => {
+    const draftCases = caseMeta.filter((item) => item.has_draft);
+    const missingTcCases = draftCases.filter((item) => !item.has_pool_testcase);
+    return {
+      draftCount: draftCases.length,
+      missingTcCount: missingTcCases.length,
+      missingTcIds: missingTcCases.map((item) => item.case_id),
+    };
+  }, [caseMeta]);
 
   return (
     <PageShell
@@ -1107,7 +1222,10 @@ export function RulesMeta() {
                     active={activeTab === "testcases"}
                     disabled={editLoading}
                     runningSingleId={runningCaseId}
-                    onRowsChange={setPoolRows}
+                    onRowsChange={(rows) => {
+                      setPoolRows(rows);
+                      void refreshCaseMeta(selected.serviceCode);
+                    }}
                     registerRefresh={registerPoolRefresh}
                     onRunSessionChange={setRunSession}
                   />
@@ -1116,7 +1234,7 @@ export function RulesMeta() {
                     serviceCode={selected.serviceCode}
                     yamlText={yamlText}
                     onYamlChange={setYamlText}
-                    disabled={editLoading}
+                    disabled={editLoading || editSaving}
                     yamlCopyDone={yamlCopyDone}
                     onCopy={() => void copyYamlToClipboard()}
                     onExport={exportYaml}
@@ -1125,6 +1243,10 @@ export function RulesMeta() {
                     onFocusEditChange={setYamlRuleFocusEdit}
                     runningCaseId={runningCaseId}
                     onRunCase={openEditorCaseRun}
+                    caseMetaById={caseMetaById}
+                    applyNeedsSave={hasUnsavedChanges}
+                    togglingCaseId={togglingCaseId}
+                    onToggleCaseApplied={(caseId) => void handleToggleCaseApplied(caseId)}
                   />
                 )}
               </div>
@@ -1144,12 +1266,16 @@ export function RulesMeta() {
 
               {!yamlRuleFocusEdit ? (
               <SheetFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-row flex-wrap justify-end gap-2">
-                {editNotice ? (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300 w-full text-left">{editNotice}</p>
-                ) : null}
-                {editError ? (
-                  <p className="text-xs text-destructive w-full text-left">{editError}</p>
-                ) : null}
+                <RulesMetaFooterMessage
+                  message={editNotice}
+                  className="text-emerald-700 dark:text-emerald-300"
+                  autoDismissMs={EDIT_NOTICE_DISMISS_MS}
+                  onDismiss={() => setEditNotice(null)}
+                />
+                <RulesMetaFooterMessage
+                  message={editError}
+                  className="text-destructive"
+                />
                 {(() => {
                   const saveDisabledReason = getSaveDraftDisabledReason(
                     editSaving,
@@ -1188,14 +1314,14 @@ export function RulesMeta() {
                       </RulesMetaHintButton>
 
                       {hasWorkingDraft ? (
-                        <RulesMetaHintButton hint="작업중인 케이스를 활성(공식)으로 확정합니다. 시나리오에서 참조할 수 있습니다.">
+                        <RulesMetaHintButton hint="작업중인 모든 규칙 케이스를 한 번에 공식(확정)으로 올립니다. 개별 케이스는 재생(▶) 옆 버튼으로 켜고 끌 수 있습니다.">
                           <button
                             type="button"
                             className={SECONDARY_BTN_CLASS}
                             disabled={applyDisabled}
                             onClick={() => setActivateConfirmOpen(true)}
                           >
-                            확정
+                            전체 확정
                           </button>
                         </RulesMetaHintButton>
                       ) : null}
@@ -1262,7 +1388,7 @@ export function RulesMeta() {
       >
         <AlertDialogContent className="z-[100] sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>작업본을 확정할까요?</AlertDialogTitle>
+            <AlertDialogTitle>작업본을 전체 확정할까요?</AlertDialogTitle>
             <AlertDialogDescription className="text-left space-y-2">
               {selected ? (
                 <>
@@ -1272,8 +1398,26 @@ export function RulesMeta() {
                     </span>
                   </span>
                   <span className="block text-xs">
-                    확정하면 작업중인 케이스가 활성(공식)이 됩니다. 시나리오에서
-                    참조할 수 있으며, 케이스 ▶ 실행에는 필요하지 않습니다.
+                    저장된 작업본{" "}
+                    <span className="font-medium text-foreground">
+                      {bulkActivatePreview.draftCount}건
+                    </span>
+                    을 공식(applied)으로 올립니다.
+                  </span>
+                  {bulkActivatePreview.missingTcCount > 0 ? (
+                    <span className="block text-xs">
+                      테스트케이스가 없는{" "}
+                      <span className="font-medium text-foreground">
+                        {bulkActivatePreview.missingTcCount}건
+                      </span>
+                      은 풀에 자동 생성한 뒤 확정합니다.
+                      <span className="mt-1 block font-mono text-[11px] text-muted-foreground break-all">
+                        {bulkActivatePreview.missingTcIds.join(", ")}
+                      </span>
+                    </span>
+                  ) : null}
+                  <span className="block text-xs text-muted-foreground">
+                    일부만 확정하려면 케이스 목록 ▶ 옆 확정 버튼을 사용하세요.
                   </span>
                 </>
               ) : null}
@@ -1293,7 +1437,7 @@ export function RulesMeta() {
                 void runActivate();
               }}
             >
-              확정
+              전체 확정
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

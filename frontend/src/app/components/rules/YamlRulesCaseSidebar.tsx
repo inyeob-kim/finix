@@ -1,13 +1,16 @@
 import { Play } from "lucide-react";
+import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import { getCaseId, type YamlRuleRecord } from "@/lib/yamlRulesDocument";
 import { FINIX_YAML_CASE_SIDEBAR_WIDTH } from "@/lib/finixModalLayout";
 import { cn } from "../ui/utils";
 import { CaseTypeBadge, ruleListLabel } from "./yamlCaseListUi";
+import { YamlRulesCaseApplyToggle } from "./YamlRulesCaseApplyToggle";
 
 type Props = {
   rules: YamlRuleRecord[];
   /** Document indices in display order (N then E). Defaults to 0..n-1. */
   displayIndices?: number[];
+  caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
   disabled?: boolean;
   runningCaseId?: string | null;
   editingDocument: boolean;
@@ -16,11 +19,15 @@ type Props = {
   onSelectDocument: () => void;
   onSelectRule: (index: number) => void;
   onRunCase?: (caseId: string, ruleIndex: number) => void;
+  applyNeedsSave?: boolean;
+  togglingCaseId?: string | null;
+  onToggleCaseApplied?: (caseId: string) => void;
 };
 
 export function YamlRulesCaseSidebar({
   rules,
   displayIndices,
+  caseMetaById,
   disabled = false,
   runningCaseId = null,
   editingDocument,
@@ -29,6 +36,9 @@ export function YamlRulesCaseSidebar({
   onSelectDocument,
   onSelectRule,
   onRunCase,
+  applyNeedsSave = false,
+  togglingCaseId = null,
+  onToggleCaseApplied,
 }: Props) {
   const indices =
     displayIndices && displayIndices.length === rules.length
@@ -99,7 +109,7 @@ export function YamlRulesCaseSidebar({
                             aria-hidden
                           />
                         ) : null}
-                        {ruleListLabel(rule, index)}
+                        <span className="truncate">{ruleListLabel(rule, index)}</span>
                       </p>
                       <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
                         {caseId || `#${index + 1}`}
@@ -108,27 +118,39 @@ export function YamlRulesCaseSidebar({
                     </div>
                   </div>
                 </button>
-                {onRunCase && caseId ? (
-                  <button
-                    type="button"
-                    disabled={disabled || isRunning}
-                    title="이 케이스 테스트 실행"
-                    aria-label={`${caseId} 실행`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRunCase(caseId, index);
-                    }}
-                    className={cn(
-                      "shrink-0 px-2 text-muted-foreground hover:text-primary disabled:opacity-40",
-                      isRunning && "text-primary",
-                    )}
-                  >
-                    <Play
-                      className={cn("size-3.5", isRunning && "animate-pulse")}
-                      fill="currentColor"
+                <div className="flex shrink-0 items-center">
+                  {onRunCase && caseId ? (
+                    <button
+                      type="button"
+                      disabled={disabled || isRunning}
+                      title="이 케이스 테스트 실행"
+                      aria-label={`${caseId} 실행`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRunCase(caseId, index);
+                      }}
+                      className={cn(
+                        "shrink-0 px-2 text-muted-foreground hover:text-primary disabled:opacity-40",
+                        isRunning && "text-primary",
+                      )}
+                    >
+                      <Play
+                        className={cn("size-3.5", isRunning && "animate-pulse")}
+                        fill="currentColor"
+                      />
+                    </button>
+                  ) : null}
+                  {onToggleCaseApplied && caseId ? (
+                    <YamlRulesCaseApplyToggle
+                      caseId={caseId}
+                      meta={caseMetaById?.[caseId]}
+                      disabled={disabled}
+                      toggling={togglingCaseId === caseId}
+                      applyNeedsSave={applyNeedsSave}
+                      onToggle={onToggleCaseApplied}
                     />
-                  </button>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </li>
           );

@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.models  # noqa: F401 ??register ORM mappers
+from app.core.exceptions import InvalidInputError
 from app.db.base import Base
 from app.domain.inst_scope import DEFAULT_INST_CD
 from app.domain.rule_case_codec import (
@@ -143,6 +145,209 @@ async def _dual_write_apply_creates_case_hist() -> None:
 
 def test_dual_write_apply_creates_case_hist():
     asyncio.run(_dual_write_apply_creates_case_hist())
+
+
+async def _apply_single_draft_case_only() -> None:
+    session = await _build_session()
+    try:
+        rules_repo = ServiceRulesRepository(session)
+        case_repo = FnxRuleCaseRepository(session)
+        svc = ServiceRulesService(repo=rules_repo, case_repo=case_repo)
+
+        await svc.upsert_draft(
+            service_code="CU008",
+            yaml_text=_VALID_YAML,
+            source_version="v1",
+            created_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        bundle = await svc.apply_draft_case(
+            service_code="CU008",
+            case_id="CU008-N-001",
+            applied_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        meta = {m["case_id"]: m for m in bundle["case_meta"]}
+        assert meta["CU008-N-001"]["is_applied"] is True
+        assert meta["CU008-N-001"]["has_draft"] is False
+        assert meta["CU008-E-001"]["is_applied"] is False
+        assert meta["CU008-E-001"]["has_draft"] is True
+
+        applied = await case_repo.list_applied_cases("CU008", inst_cd=DEFAULT_INST_CD)
+        assert [c.rule_case_id for c in applied] == ["CU008-N-001"]
+    finally:
+        await session.close()
+
+
+def test_apply_single_draft_case_only():
+    asyncio.run(_apply_single_draft_case_only())
+
+
+async def _apply_single_draft_case_requires_pool_testcase() -> None:
+    session = await _build_session()
+    try:
+        rules_repo = ServiceRulesRepository(session)
+        case_repo = FnxRuleCaseRepository(session)
+        tc_repo = FnxTestcaseRepository(session)
+        svc = ServiceRulesService(
+            repo=rules_repo, case_repo=case_repo, tc_repo=tc_repo
+        )
+
+        await svc.upsert_draft(
+            service_code="CU008",
+            yaml_text=_VALID_YAML,
+            source_version="v1",
+            created_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        with pytest.raises(InvalidInputError, match="테스트케이스"):
+            await svc.apply_draft_case(
+                service_code="CU008",
+                case_id="CU008-N-001",
+                applied_by="qa",
+                inst_cd=DEFAULT_INST_CD,
+            )
+    finally:
+        await session.close()
+
+
+def test_apply_single_draft_case_requires_pool_testcase():
+    asyncio.run(_apply_single_draft_case_requires_pool_testcase())
+
+
+async def _apply_single_draft_case_after_pool_materialize() -> None:
+    session = await _build_session()
+    try:
+        rules_repo = ServiceRulesRepository(session)
+        case_repo = FnxRuleCaseRepository(session)
+        tc_repo = FnxTestcaseRepository(session)
+        meta = MetadataRepository(session)
+        rules_svc = ServiceRulesService(
+            repo=rules_repo, case_repo=case_repo, tc_repo=tc_repo
+        )
+        tc_svc = RuleCaseTestCaseService(
+            metadata_repo=meta,
+            registry_repo=_FakeRegistry(),  # type: ignore[arg-type]
+            cbs_catalog_repo=_FakeCbs(),  # type: ignore[arg-type]
+            service_rules_repo=rules_repo,
+            case_repo=case_repo,
+            tc_repo=tc_repo,
+        )
+
+        await rules_svc.upsert_draft(
+            service_code="CU008",
+            yaml_text=_VALID_YAML,
+            source_version="v1",
+            created_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        await tc_svc.materialize_one_case(
+            "CU008",
+            "CU008-N-001",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        bundle = await rules_svc.apply_draft_case(
+            service_code="CU008",
+            case_id="CU008-N-001",
+            applied_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        meta_by_id = {m["case_id"]: m for m in bundle["case_meta"]}
+        assert meta_by_id["CU008-N-001"]["is_applied"] is True
+        assert meta_by_id["CU008-N-001"]["has_pool_testcase"] is True
+    finally:
+        await session.close()
+
+
+def test_apply_single_draft_case_after_pool_materialize():
+    asyncio.run(_apply_single_draft_case_after_pool_materialize())
+
+
+async def _activate_auto_materializes_missing_draft_cases() -> None:
+    session = await _build_session()
+    try:
+        rules_repo = ServiceRulesRepository(session)
+        case_repo = FnxRuleCaseRepository(session)
+        tc_repo = FnxTestcaseRepository(session)
+        meta = MetadataRepository(session)
+        rules_svc = ServiceRulesService(
+            repo=rules_repo, case_repo=case_repo, tc_repo=tc_repo
+        )
+        tc_svc = RuleCaseTestCaseService(
+            metadata_repo=meta,
+            registry_repo=_FakeRegistry(),  # type: ignore[arg-type]
+            cbs_catalog_repo=_FakeCbs(),  # type: ignore[arg-type]
+            service_rules_repo=rules_repo,
+            case_repo=case_repo,
+            tc_repo=tc_repo,
+        )
+
+        await rules_svc.upsert_draft(
+            service_code="CU008",
+            yaml_text=_VALID_YAML,
+            source_version="v1",
+            created_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        created = await tc_svc.materialize_missing_draft_cases(
+            "CU008", inst_cd=DEFAULT_INST_CD
+        )
+        assert len(created) == 2
+        row = await rules_svc.apply_draft(
+            service_code="CU008",
+            applied_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        assert row.has_applied is True
+        assert row.has_draft is False
+        applied = await case_repo.list_applied_cases("CU008", inst_cd=DEFAULT_INST_CD)
+        assert {c.rule_case_id for c in applied} == {"CU008-N-001", "CU008-E-001"}
+    finally:
+        await session.close()
+
+
+def test_activate_auto_materializes_missing_draft_cases():
+    asyncio.run(_activate_auto_materializes_missing_draft_cases())
+
+
+async def _deactivate_applied_case_only() -> None:
+    session = await _build_session()
+    try:
+        rules_repo = ServiceRulesRepository(session)
+        case_repo = FnxRuleCaseRepository(session)
+        svc = ServiceRulesService(repo=rules_repo, case_repo=case_repo)
+
+        await svc.upsert_draft(
+            service_code="CU008",
+            yaml_text=_VALID_YAML,
+            source_version="v1",
+            created_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        await svc.apply_draft_case(
+            service_code="CU008",
+            case_id="CU008-N-001",
+            applied_by="qa",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        bundle = await svc.deactivate_applied_case(
+            service_code="CU008",
+            case_id="CU008-N-001",
+            inst_cd=DEFAULT_INST_CD,
+        )
+        meta = {m["case_id"]: m for m in bundle["case_meta"]}
+        assert meta["CU008-N-001"]["is_applied"] is False
+        assert meta["CU008-N-001"]["has_draft"] is True
+        assert meta["CU008-E-001"]["has_draft"] is True
+
+        applied = await case_repo.list_applied_cases("CU008", inst_cd=DEFAULT_INST_CD)
+        assert applied == []
+    finally:
+        await session.close()
+
+
+def test_deactivate_applied_case_only():
+    asyncio.run(_deactivate_applied_case_only())
 
 
 class _FakeCbs:

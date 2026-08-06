@@ -400,6 +400,107 @@ class FnxRuleCaseRepository:
         await self._session.flush()
         return result
 
+    async def list_case_meta(
+        self, svc_code: str, *, inst_cd: str
+    ) -> list[dict[str, Any]]:
+        """Per-case applied/draft flags for editor UI."""
+        return [
+            {
+                "case_id": row.rule_case_id,
+                "is_applied": self.is_case_applied(row),
+                "has_draft": row.has_draft,
+            }
+            for row in await self.list_cases(svc_code, inst_cd=inst_cd)
+        ]
+
+    async def _apply_one_draft_case(
+        self,
+        row: FnxRuleCase,
+        *,
+        applied_by: str | None,
+        change_kind: str,
+        note: str,
+    ) -> FnxRuleCaseHist | None:
+        draft_rule = draft_rule_dict_from_row(row)
+        if draft_rule is None:
+            return None
+        prev_checksum = (row.checksum or "").strip()
+        self._apply_applied_fields(
+            row,
+            draft_rule,
+            sort_order=row.sort_order,
+            updated_by=applied_by,
+        )
+        self._clear_draft_fields(row)
+        if row.checksum != prev_checksum or not prev_checksum:
+            return await self.add_case_hist(
+                rule_case=row,
+                rule=draft_rule,
+                change_kind=change_kind,
+                created_by=applied_by,
+                note=note,
+            )
+        return None
+
+    async def apply_draft_case(
+        self,
+        *,
+        svc_code: str,
+        case_id: str,
+        applied_by: str | None,
+        change_kind: str = "apply_case",
+        inst_cd: str,
+    ) -> FnxRuleCaseHist | None:
+        code = (svc_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        row = await self.get_case_by_case_id(code, cid, inst_cd=inst)
+        if row is None:
+            return None
+        hist = await self._apply_one_draft_case(
+            row,
+            applied_by=applied_by,
+            change_kind=change_kind,
+            note=f"applied case snapshot ({cid})",
+        )
+        await self._session.flush()
+        return hist
+
+    async def deactivate_applied_case(
+        self,
+        *,
+        svc_code: str,
+        case_id: str,
+        updated_by: str | None,
+        change_kind: str = "deactivate",
+        inst_cd: str,
+    ) -> FnxRuleCase | None:
+        """Clear applied snapshot so the case is excluded from scenario attachment."""
+        code = (svc_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        row = await self.get_case_by_case_id(code, cid, inst_cd=inst)
+        if row is None:
+            return None
+        if not self.is_case_applied(row):
+            return row
+
+        if not row.has_draft:
+            applied_rule = applied_rule_dict_from_row(row)
+            if applied_rule:
+                now = datetime.now(timezone.utc)
+                self._apply_draft_fields(
+                    row,
+                    applied_rule,
+                    updated_by=updated_by,
+                    now=now,
+                )
+
+        row.checksum = ""
+        row.updated_by = updated_by
+        await self._session.flush()
+        return row
+
     async def apply_draft_cases(
         self,
         *,
@@ -413,25 +514,13 @@ class FnxRuleCaseRepository:
         cases = await self.list_cases(code, inst_cd=inst)
         hists: list[FnxRuleCaseHist] = []
         for row in cases:
-            draft_rule = draft_rule_dict_from_row(row)
-            if draft_rule is None:
-                continue
-            prev_checksum = (row.checksum or "").strip()
-            self._apply_applied_fields(
+            hist = await self._apply_one_draft_case(
                 row,
-                draft_rule,
-                sort_order=row.sort_order,
-                updated_by=applied_by,
+                applied_by=applied_by,
+                change_kind=change_kind,
+                note="applied case snapshot",
             )
-            self._clear_draft_fields(row)
-            if row.checksum != prev_checksum or not prev_checksum:
-                hist = await self.add_case_hist(
-                    rule_case=row,
-                    rule=draft_rule,
-                    change_kind=change_kind,
-                    created_by=applied_by,
-                    note="applied case snapshot",
-                )
+            if hist is not None:
                 hists.append(hist)
         await self._session.flush()
         return hists
@@ -509,6 +598,7 @@ class FnxRuleCaseRepository:
         svc_code: str,
         service_name: str | None = None,
         inst_cd: str,
+        source_version: str | None = None,
     ) -> tuple[str, dict[str, Any]] | None:
         cases = await self.list_cases(svc_code, inst_cd=inst_cd)
         rules = [
@@ -518,10 +608,16 @@ class FnxRuleCaseRepository:
         ]
         if not rules:
             return None
+        svc = await self.get_svc(svc_code, inst_cd=inst_cd)
+        name = service_name or (svc.service_name_snapshot if svc else None)
+        version = source_version
+        if version is None and svc is not None:
+            version = svc.source_version
         return assemble_yaml_from_rules(
             svc_code=svc_code,
-            service_name=service_name,
+            service_name=name,
             rules=rules,
+            source_version=version,
         )
 
     async def map_case_ids_to_latest_hist(

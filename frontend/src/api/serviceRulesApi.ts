@@ -233,11 +233,51 @@ export async function validateServiceRulesYaml(
 export async function activateServiceRulesBundle(
   serviceCode: string,
   bundleId: number,
-  instCd?: string | null,
+  options?: {
+    instCd?: string | null;
+    autoMaterializeMissing?: boolean;
+  },
 ): Promise<ServiceRuleBundleReadDto> {
+  const instCd = options?.instCd;
+  const autoMaterializeMissing = options?.autoMaterializeMissing ?? false;
   return apiRequest<ServiceRuleBundleReadDto>(
     withInstCdQuery(
       `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/${bundleId}/activate`,
+      instCd,
+    ),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        auto_materialize_missing: autoMaterializeMissing,
+      }),
+    },
+  );
+}
+
+/** Apply one rule case draft → applied (partial 확정). */
+export async function applyServiceRuleCase(
+  serviceCode: string,
+  caseId: string,
+  instCd?: string | null,
+): Promise<ServiceRuleEditorCasesDto> {
+  return apiRequest<ServiceRuleEditorCasesDto>(
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/cases/${encodeURIComponent(caseId)}/apply`,
+      instCd,
+    ),
+    { method: "POST" },
+  );
+}
+
+/** Remove one rule case from applied (partial 비확정). */
+export async function deactivateServiceRuleCase(
+  serviceCode: string,
+  caseId: string,
+  instCd?: string | null,
+): Promise<ServiceRuleEditorCasesDto> {
+  return apiRequest<ServiceRuleEditorCasesDto>(
+    withInstCdQuery(
+      `/api/v1/service-rules/${encodeURIComponent(serviceCode)}/cases/${encodeURIComponent(caseId)}/deactivate`,
       instCd,
     ),
     { method: "POST" },

@@ -11,6 +11,7 @@ from app.core.deps import (
     get_postman_rules_import_service,
     get_service_rules_ai_service,
     get_service_rules_service,
+    get_testcase_service,
     require_active_inst_cd,
 )
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
@@ -21,10 +22,12 @@ from app.schemas.service_rules_schema import (
     PostmanRulesImportResponse,
     PostmanServiceImportResultRead,
     PostmanUnmatchedRequestRead,
+    ServiceRuleActivateRequest,
     ServiceRuleBundleRead,
     ServiceRuleDraftCreate,
     ServiceRuleDraftUpdate,
     ServiceRuleEditorCasesRead,
+    ServiceRuleCaseMetaRead,
     ServiceRuleGenerateDraftRequest,
     ServiceRuleGenerateFromSourceRequest,
     ServiceRuleRegistryItemRead,
@@ -37,6 +40,7 @@ from app.services.institution_service import InstitutionService
 from app.services.postman_rules_import_service import PostmanRulesImportService
 from app.services.service_rules_ai_service import ServiceRulesAiService
 from app.services.service_rules_service import ServiceRulesService, _editor_view
+from app.services.testcase_service import TestCaseService
 
 router = APIRouter(prefix="/service-rules")
 
@@ -96,6 +100,23 @@ def _editor_rules_list(payload: dict) -> list[dict]:
 
 def _editor_dict_to_cases(payload: dict) -> ServiceRuleEditorCasesRead:
     """Map case-first editor dict to cases API response."""
+    raw_meta = payload.get("case_meta")
+    case_meta = []
+    if isinstance(raw_meta, list):
+        for item in raw_meta:
+            if not isinstance(item, dict):
+                continue
+            case_id = str(item.get("case_id") or "").strip()
+            if not case_id:
+                continue
+            case_meta.append(
+                ServiceRuleCaseMetaRead(
+                    case_id=case_id,
+                    is_applied=bool(item.get("is_applied")),
+                    has_draft=bool(item.get("has_draft")),
+                    has_pool_testcase=bool(item.get("has_pool_testcase")),
+                )
+            )
     return ServiceRuleEditorCasesRead(
         service_code=str(payload["service_code"]),
         service_name=payload.get("service_name_snapshot"),
@@ -109,6 +130,7 @@ def _editor_dict_to_cases(payload: dict) -> ServiceRuleEditorCasesRead:
         updated_by=payload.get("created_by"),
         rules=_editor_rules_list(payload),
         yaml_text=str(payload.get("yaml_text") or ""),
+        case_meta=case_meta,
     )
 
 
@@ -339,6 +361,50 @@ async def list_editor_cases(
     return await _read_editor_cases(service, service_code, inst_cd=inst_cd)
 
 
+@router.post(
+    "/{service_code}/cases/{case_id}/apply",
+    response_model=ServiceRuleEditorCasesRead,
+    summary="Apply one rule case draft to applied (partial 확정)",
+)
+async def apply_editor_case(
+    service_code: str,
+    case_id: str,
+    inst_cd: str = Depends(require_active_inst_cd),
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleEditorCasesRead:
+    await service.apply_draft_case(
+        service_code=service_code,
+        case_id=case_id,
+        inst_cd=inst_cd,
+    )
+    payload = await _read_editor_cases(service, service_code, inst_cd=inst_cd)
+    if payload is None:
+        raise InvalidInputError("편집 문서를 불러오지 못했습니다.")
+    return payload
+
+
+@router.post(
+    "/{service_code}/cases/{case_id}/deactivate",
+    response_model=ServiceRuleEditorCasesRead,
+    summary="Remove one rule case from applied (partial 비확정)",
+)
+async def deactivate_editor_case(
+    service_code: str,
+    case_id: str,
+    inst_cd: str = Depends(require_active_inst_cd),
+    service: ServiceRulesService = Depends(get_service_rules_service),
+) -> ServiceRuleEditorCasesRead:
+    await service.deactivate_applied_case(
+        service_code=service_code,
+        case_id=case_id,
+        inst_cd=inst_cd,
+    )
+    payload = await _read_editor_cases(service, service_code, inst_cd=inst_cd)
+    if payload is None:
+        raise InvalidInputError("편집 문서를 불러오지 못했습니다.")
+    return payload
+
+
 @router.get(
     "/{service_code}",
     response_model=ServiceRuleBundleRead | None,
@@ -497,11 +563,16 @@ async def generate_draft_from_source(
 async def activate_bundle(
     service_code: str,
     bundle_id: int,
+    payload: ServiceRuleActivateRequest | None = None,
     inst_cd: str = Depends(require_active_inst_cd),
     service: ServiceRulesService = Depends(get_service_rules_service),
+    testcase_service: TestCaseService = Depends(get_testcase_service),
 ) -> ServiceRuleBundleRead:
+    code = (service_code or "").strip()
+    if payload is not None and payload.auto_materialize_missing:
+        await testcase_service.materialize_missing_draft_cases(code, inst_cd=inst_cd)
     row = await service.activate(bundle_id, inst_cd=inst_cd)
-    if row.service_code != (service_code or "").strip():
+    if row.service_code != code:
         raise InvalidInputError("service_code mismatch")
     bundle = await _read_editor_bundle(service, service_code, inst_cd=inst_cd)
     if bundle is not None:

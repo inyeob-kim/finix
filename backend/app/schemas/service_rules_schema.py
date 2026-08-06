@@ -38,6 +38,15 @@ class ServiceRuleRegistryListResponse(BaseModel):
     offset: int
 
 
+class ServiceRuleCaseMetaRead(BaseModel):
+    """Per-case draft/applied state for the rules editor."""
+
+    case_id: str
+    is_applied: bool = False
+    has_draft: bool = False
+    has_pool_testcase: bool = False
+
+
 class ServiceRuleEditorCasesRead(BaseModel):
     """Case-first editor payload (SoT: fnx_rule_case; yaml_text is assembled)."""
 
@@ -53,6 +62,7 @@ class ServiceRuleEditorCasesRead(BaseModel):
     updated_by: str | None = None
     rules: list[dict[str, Any]] = Field(default_factory=list)
     yaml_text: str = ""
+    case_meta: list[ServiceRuleCaseMetaRead] = Field(default_factory=list)
 
 
 class ServiceRuleBundleRead(BaseModel):
@@ -101,6 +111,15 @@ class ServiceRuleRollbackRequest(BaseModel):
     """Restore from history. ``to_version`` is history_id (legacy field name)."""
 
     to_version: int = Field(ge=1, description="History snapshot id")
+
+
+class ServiceRuleActivateRequest(BaseModel):
+    """Bulk apply working draft to applied (전체 확정)."""
+
+    auto_materialize_missing: bool = Field(
+        default=False,
+        description="When true, materialize pool test cases for draft cases missing from the pool before apply.",
+    )
 
 
 
