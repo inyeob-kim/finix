@@ -7,9 +7,9 @@ import { cn } from "./ui/utils";
 
 type Phase = "compact" | "expand" | "done";
 
-const COMPACT_HOLD_MS = 1_800;
+const COMPACT_HOLD_MS = 500;
 /** CSS spread duration + tail buffer */
-const EXPAND_MS = 4_600;
+const EXPAND_MS = 4_000;
 
 /** Slow start & end — avoids the “snap open” feel on gap / margin. */
 const SPREAD_MOTION =

@@ -532,7 +532,7 @@ export function YamlRulesFieldsForm({
 
       {isEditing && editingRule && editingDisplayIndex !== null ? (
         <div
-          className="absolute inset-0 z-10 flex flex-col min-h-0 bg-background animate-in slide-in-from-right-4 fade-in duration-200"
+          className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-background animate-in slide-in-from-right-4 fade-in duration-200"
           role="dialog"
           aria-label="규칙 필드 편집"
         >
@@ -601,11 +601,12 @@ export function YamlRulesFieldsForm({
                     {fieldError}
                   </div>
                 ) : null}
-                <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-4 pb-2">
+                <div className="flex flex-1 min-h-0 flex-col overflow-hidden px-3 pb-2 pt-1">
                   <YamlRuleFieldEditor
                     rule={r}
                     draft={draft}
                     disabled={disabled}
+                    fitViewport
                     onDraftChange={(next) =>
                       setDrafts((prev) => ({ ...prev, [editingDisplayIndex]: next }))
                     }

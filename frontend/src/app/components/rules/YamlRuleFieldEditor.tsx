@@ -23,6 +23,8 @@ type YamlRuleFieldEditorProps = {
   rule: YamlRuleRecord;
   draft: RuleFieldDraft;
   disabled?: boolean;
+  /** Fill parent height without panel scroll (case edit overlay). */
+  fitViewport?: boolean;
   onDraftChange: (draft: RuleFieldDraft) => void;
   onApply: () => void;
   /** Register insert callback for the parent macro side panel. */
@@ -38,6 +40,7 @@ export function YamlRuleFieldEditor({
   rule,
   draft,
   disabled = false,
+  fitViewport = false,
   onDraftChange,
   onApply,
   onRegisterMacroInsert,
@@ -135,6 +138,199 @@ export function YamlRuleFieldEditor({
     onRegisterMacroInsert(insertMacro);
     return () => onRegisterMacroInsert(null);
   }, [insertMacro, onRegisterMacroInsert]);
+
+  if (fitViewport) {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden pb-1 pt-0.5">
+        <div className="shrink-0 space-y-3">
+          <FinixField label="title">
+            <FinixUnderlineInput
+              value={draft.title}
+              onChange={(e) => onDraftChange({ ...draft, title: e.target.value })}
+              onBlur={onApply}
+              disabled={disabled}
+              placeholder="케이스 제목"
+            />
+          </FinixField>
+          <FinixField label="description">
+            <FinixUnderlineInput
+              value={draft.description}
+              onChange={(e) =>
+                onDraftChange({ ...draft, description: e.target.value })
+              }
+              onBlur={onApply}
+              disabled={disabled}
+              placeholder="케이스 설명"
+            />
+          </FinixField>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="shrink-0 text-xs text-muted-foreground">input (JSON)</div>
+          <div className="mb-1.5 mt-1.5 flex shrink-0 items-center justify-end gap-1.5">
+            <button
+              type="button"
+              disabled={disabled || !canUndoInput}
+              title="input 변경 되돌리기 (Ctrl+Z)"
+              className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-sm border border-border text-xs font-medium bg-background hover:bg-muted disabled:opacity-40"
+              onClick={undoInput}
+            >
+              <Undo2 className="size-3.5" />
+              되돌리기
+            </button>
+            {onToggleMacroPanel ? (
+              <YamlInputMacroToggle
+                disabled={disabled}
+                active={macroPanelOpen}
+                onClick={onToggleMacroPanel}
+              />
+            ) : null}
+          </div>
+          <textarea
+            ref={inputRef}
+            placeholder={'{\n  "fieldName": "value"\n}'}
+            value={draft.inputJson}
+            onChange={(e) => setInputJson(e.target.value)}
+            onKeyDown={(e) => {
+              if (
+                (e.ctrlKey || e.metaKey) &&
+                e.key.toLowerCase() === "z" &&
+                !e.shiftKey
+              ) {
+                if (inputUndoStackRef.current.length === 0) return;
+                e.preventDefault();
+                undoInput();
+              }
+            }}
+            onBlur={onApply}
+            disabled={disabled}
+            spellCheck={false}
+            className="min-h-0 w-full flex-1 resize-none overflow-y-auto font-mono text-xs bg-background border border-border rounded-sm p-3 outline-none focus:ring-2 focus:ring-primary/25"
+          />
+          <p className="mt-1 shrink-0 text-[11px] text-muted-foreground">
+            테스트케이스 request_body로 사용됩니다 · 변경은 Ctrl+Z / 되돌리기로 취소
+          </p>
+        </div>
+
+        <div className="shrink-0 space-y-3">
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.tagInput}
+                disabled={disabled}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, tagInput: e.target.checked })
+                }
+                onBlur={onApply}
+              />
+              tag: input
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.tagBusiness}
+                disabled={disabled}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, tagBusiness: e.target.checked })
+                }
+                onBlur={onApply}
+              />
+              tag: business
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <FinixField label="expect.http_status">
+              <FinixUnderlineInput
+                value={draft.httpStatus}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, httpStatus: e.target.value })
+                }
+                onBlur={onApply}
+                disabled={disabled}
+                placeholder={showErrorFields ? "400" : "200"}
+              />
+            </FinixField>
+            <FinixField label="expect.outcome">
+              <FinixUnderlineSelect
+                value={draft.outcome}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, outcome: e.target.value })
+                }
+                onBlur={onApply}
+                disabled={disabled}
+              >
+                <option value="">—</option>
+                <option value="success">success</option>
+                <option value="error">error</option>
+              </FinixUnderlineSelect>
+            </FinixField>
+            {showErrorFields ? (
+              <div className="sm:col-span-2">
+                <FinixField label="expect.error_code" helperText="Error 케이스(E) 필수">
+                  <FinixUnderlineInput
+                    value={draft.errorCode}
+                    onChange={(e) =>
+                      onDraftChange({ ...draft, errorCode: e.target.value })
+                    }
+                    onBlur={onApply}
+                    disabled={disabled}
+                    placeholder="AAPARE0001"
+                    className="font-mono"
+                  />
+                </FinixField>
+              </div>
+            ) : null}
+            {showNormalFields ? (
+              <div className="sm:col-span-2">
+                <FinixField
+                  label="expect.validation_target"
+                  helperText="Normal 케이스(N) — 성공 시 검증할 응답 동작"
+                >
+                  <FinixUnderlineInput
+                    value={draft.validationTarget}
+                    onChange={(e) =>
+                      onDraftChange({ ...draft, validationTarget: e.target.value })
+                    }
+                    onBlur={onApply}
+                    disabled={disabled}
+                    placeholder="transaction date/time fields are populated"
+                  />
+                </FinixField>
+              </div>
+            ) : null}
+          </div>
+
+          {showErrorFields ? (
+            <FinixField label="expect.error_args (JSON, 선택)" helperText="없으면 비워 두세요">
+              <textarea
+                placeholder="{}"
+                value={draft.errorArgsJson}
+                onChange={(e) =>
+                  onDraftChange({ ...draft, errorArgsJson: e.target.value })
+                }
+                onBlur={onApply}
+                disabled={disabled}
+                spellCheck={false}
+                rows={3}
+                className="w-full resize-none font-mono text-xs bg-background border border-border rounded-sm p-3 outline-none focus:ring-2 focus:ring-primary/25"
+              />
+            </FinixField>
+          ) : null}
+
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline disabled:opacity-50"
+            disabled={disabled}
+            onClick={onApply}
+          >
+            이 규칙 반영
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-2 pt-1">
