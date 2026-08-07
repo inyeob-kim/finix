@@ -44,7 +44,7 @@ function headerSummary(jobs: YamlAiJob[]): string {
 export function YamlAiJobBanner() {
   const jobs = useYamlAiJobStore((s) => s.jobs);
   const dismissJob = useYamlAiJobStore((s) => s.dismissJob);
-  const retryPostmanOverwrite = useYamlAiJobStore((s) => s.retryPostmanOverwrite);
+  const retryOverwrite = useYamlAiJobStore((s) => s.retryOverwrite);
   const [detailOpen, setDetailOpen] = useState(false);
   const openedOverwriteIds = useRef(new Set<string>());
   const autoOpenedJobIds = useRef(new Set<string>());
@@ -140,7 +140,7 @@ export function YamlAiJobBanner() {
                 <YamlAiJobProgressPanel
                   job={job}
                   onDismiss={dismissJob}
-                  onRetryOverwrite={retryPostmanOverwrite}
+                  onRetryOverwrite={retryOverwrite}
                 />
               </li>
             ))}

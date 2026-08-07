@@ -148,6 +148,13 @@ class ServiceRuleGenerateFromSourceRequest(BaseModel):
         default=False,
         description="Optional: inject OpenAPI operation hints (Graceful Skip if empty).",
     )
+    overwrite_draft: bool = Field(
+        default=False,
+        description=(
+            "When a working draft already exists, require true to proceed. "
+            "Generation still merges into the existing editor base (not a blind wipe)."
+        ),
+    )
 
 
 class PostmanRulesImportRequest(BaseModel):

@@ -311,6 +311,7 @@ export async function generateServiceRulesDraftFromSource(
     created_by?: string | null;
     use_data_pool?: boolean;
     use_swagger?: boolean;
+    overwrite_draft?: boolean;
   },
   instCd?: string | null,
 ): Promise<ServiceRuleBundleReadDto> {
@@ -327,6 +328,7 @@ export async function generateServiceRulesDraftFromSource(
       created_by: payload.created_by ?? null,
       use_data_pool: payload.use_data_pool ?? false,
       use_swagger: payload.use_swagger ?? false,
+      overwrite_draft: payload.overwrite_draft ?? false,
     }),
   });
 }

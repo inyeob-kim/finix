@@ -578,6 +578,7 @@ async def generate_draft_from_source(
         created_by=payload.created_by,
         use_data_pool=payload.use_data_pool,
         use_swagger=payload.use_swagger,
+        overwrite_draft=payload.overwrite_draft,
         inst_cd=inst_cd,
     )
     return await _read_editor_bundle_after_write(

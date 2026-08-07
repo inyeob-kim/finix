@@ -35,6 +35,17 @@ export type YamlAiJobLogLine = {
   text: string;
 };
 
+export type YamlAiJobStartPayload = {
+  serviceCode: string;
+  source_code: string;
+  source_version?: string | null;
+  hints?: string | null;
+  created_by?: string | null;
+  use_data_pool?: boolean;
+  use_swagger?: boolean;
+  overwrite_draft?: boolean;
+};
+
 export type YamlAiJob = {
   id: string;
   kind: YamlAiJobKind;
@@ -43,8 +54,10 @@ export type YamlAiJob = {
   error?: string;
   bundle?: ServiceRuleBundleReadDto;
   postmanResult?: PostmanRulesImportResultDto;
-  /** Set when import failed because drafts exist; allows banner retry. */
+  /** Set when import/generate failed because drafts exist; allows banner retry. */
   needsOverwrite?: boolean;
+  /** Source→YAML payload kept for overwrite/merge retry. */
+  sourcePayload?: YamlAiJobStartPayload;
   postmanCollection?: unknown;
   postmanEnvironment?: unknown | null;
   postmanFileName?: string | null;
@@ -60,16 +73,6 @@ export type YamlAiJob = {
   useSwagger: boolean;
 };
 
-export type YamlAiJobStartPayload = {
-  serviceCode: string;
-  source_code: string;
-  source_version?: string | null;
-  hints?: string | null;
-  created_by?: string | null;
-  use_data_pool?: boolean;
-  use_swagger?: boolean;
-};
-
 export type PostmanImportJobStartPayload = {
   collection: unknown;
   environment?: unknown | null;
@@ -83,7 +86,8 @@ type YamlAiJobState = {
   jobs: YamlAiJob[];
   startJob: (payload: YamlAiJobStartPayload) => string;
   startPostmanJob: (payload: PostmanImportJobStartPayload) => string;
-  retryPostmanOverwrite: (id: string) => void;
+  /** Retry Postman import or source→YAML after draft-overwrite confirmation. */
+  retryOverwrite: (id: string) => void;
   dismissJob: (id: string) => void;
   clearFinished: () => void;
 };
@@ -275,6 +279,10 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     const serviceCode = payload.serviceCode.trim();
     const stages = buildYamlAiJobStages(payload);
     const first = stages[0];
+    const storedPayload: YamlAiJobStartPayload = {
+      ...payload,
+      serviceCode,
+    };
     const job: YamlAiJob = {
       id,
       kind: "source",
@@ -286,8 +294,14 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       progress: 8,
       useDataPool: Boolean(payload.use_data_pool),
       useSwagger: Boolean(payload.use_swagger),
+      sourcePayload: storedPayload,
+      needsOverwrite: false,
       log: [
-        logLine(`${serviceCode} 소스에서 YAML 초안을 만들기 시작합니다.`),
+        logLine(
+          payload.overwrite_draft
+            ? `${serviceCode} 소스→YAML을 다시 시작합니다 (기존 작업본에 병합).`
+            : `${serviceCode} 소스에서 YAML 초안을 만들기 시작합니다.`,
+        ),
         logLine(first?.detail?.trim() || `${first?.label ?? "작업"} 진행 중…`),
       ],
     };
@@ -303,6 +317,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
           created_by: payload.created_by ?? null,
           use_data_pool: payload.use_data_pool ?? false,
           use_swagger: payload.use_swagger ?? false,
+          overwrite_draft: payload.overwrite_draft ?? false,
         });
         if (!get().jobs.some((j) => j.id === id)) return;
         clearStageTimer(id);
@@ -320,7 +335,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
         });
         get().appendLog(
           id,
-          validateStage?.detail?.trim() || "기존 규칙과 맞춰 검증합니다.",
+          validateStage?.detail?.trim() || "기존 규칙과 맞춰 병합·검증합니다.",
         );
         await new Promise((r) => window.setTimeout(r, 280));
         if (!get().jobs.some((j) => j.id === id)) return;
@@ -343,12 +358,18 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
                   ...j,
                   status: "success" as const,
                   bundle,
+                  needsOverwrite: false,
                   error: undefined,
                   stageIndex: j.stages.length - 1,
                   progress: 100,
                   log: [
                     ...j.log,
-                    logLine(`작업본 저장 완료 · v${bundle.version ?? "—"}.`),
+                    logLine(
+                      `작업본 저장 완료 · v${bundle.version ?? "—"}` +
+                        (payload.overwrite_draft
+                          ? " (기존 케이스와 병합)."
+                          : "."),
+                    ),
                   ],
                 }
               : j,
@@ -357,6 +378,24 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       } catch (e) {
         if (!get().jobs.some((j) => j.id === id)) return;
         clearStageTimer(id);
+        if (!payload.overwrite_draft && needsOverwriteConfirm(e)) {
+          const msg =
+            "이미 작업본이 있습니다. 확인 후 기존 작업본에 병합하세요.";
+          set((s) => ({
+            jobs: s.jobs.map((j) =>
+              j.id === id
+                ? {
+                    ...j,
+                    status: "error" as const,
+                    needsOverwrite: true,
+                    error: msg,
+                    log: [...j.log, logLine(msg)],
+                  }
+                : j,
+            ),
+          }));
+          return;
+        }
         const message =
           e instanceof ApiError ? e.message : "YAML 등록에 실패했습니다.";
         set((s) => ({
@@ -365,6 +404,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
               ? {
                   ...j,
                   status: "error" as const,
+                  needsOverwrite: false,
                   error: message,
                   log: [...j.log, logLine(message)],
                 }
@@ -546,9 +586,100 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     return id;
   },
 
-  retryPostmanOverwrite: (id) => {
+  retryOverwrite: (id) => {
     const job = get().jobs.find((j) => j.id === id);
-    if (!job || job.kind !== "postman" || job.postmanCollection == null) {
+    if (!job) return;
+
+    if (job.kind === "source") {
+      const payload = job.sourcePayload;
+      if (!payload?.source_code) return;
+      clearStageTimer(id);
+      const stages = buildYamlAiJobStages(payload);
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === id
+            ? {
+                ...j,
+                status: "running" as const,
+                error: undefined,
+                needsOverwrite: false,
+                stageIndex: 0,
+                progress: 8,
+                stages,
+                bundle: undefined,
+                sourcePayload: { ...payload, overwrite_draft: true },
+                log: [
+                  ...j.log,
+                  logLine("기존 작업본에 병합하여 다시 생성합니다."),
+                  logLine(stages[0]?.detail?.trim() || "카탈로그를 확인합니다."),
+                ],
+              }
+            : j,
+        ),
+      }));
+      scheduleStageTick(id, 900);
+      // Re-enter startJob flow by calling generate with overwrite; keep same job id.
+      void (async () => {
+        try {
+          const bundle = await generateServiceRulesDraftFromSource(
+            payload.serviceCode.trim(),
+            {
+              source_code: payload.source_code,
+              source_version: payload.source_version ?? null,
+              hints: payload.hints ?? null,
+              created_by: payload.created_by ?? null,
+              use_data_pool: payload.use_data_pool ?? false,
+              use_swagger: payload.use_swagger ?? false,
+              overwrite_draft: true,
+            },
+          );
+          if (!get().jobs.some((j) => j.id === id)) return;
+          clearStageTimer(id);
+          set((s) => ({
+            jobs: s.jobs.map((j) =>
+              j.id === id
+                ? {
+                    ...j,
+                    status: "success" as const,
+                    bundle,
+                    needsOverwrite: false,
+                    error: undefined,
+                    stageIndex: j.stages.length - 1,
+                    progress: 100,
+                    log: [
+                      ...j.log,
+                      logLine(
+                        `작업본 저장 완료 · v${bundle.version ?? "—"} (기존 케이스와 병합).`,
+                      ),
+                    ],
+                  }
+                : j,
+            ),
+          }));
+        } catch (e) {
+          if (!get().jobs.some((j) => j.id === id)) return;
+          clearStageTimer(id);
+          const message =
+            e instanceof ApiError ? e.message : "YAML 등록에 실패했습니다.";
+          set((s) => ({
+            jobs: s.jobs.map((j) =>
+              j.id === id
+                ? {
+                    ...j,
+                    status: "error" as const,
+                    needsOverwrite: false,
+                    error: message,
+                    log: [...j.log, logLine(message)],
+                  }
+                : j,
+            ),
+          }));
+        }
+      })();
+      return;
+    }
+
+    if (job.kind !== "postman" || job.postmanCollection == null) {
       return;
     }
     clearStageTimer(id);

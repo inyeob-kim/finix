@@ -311,6 +311,7 @@ class ServiceRulesAiService:
         created_by: str | None,
         use_data_pool: bool = False,
         use_swagger: bool = False,
+        overwrite_draft: bool = False,
         inst_cd: str,
     ):
         """
@@ -318,10 +319,20 @@ class ServiceRulesAiService:
 
         When a working draft or applied YAML already exists, merge generated
         cases into that base (same match/add plan as Postman import).
+
+        If a working draft already exists, ``overwrite_draft`` must be true
+        (UI confirmation) before the draft is rewritten.
         """
         code = (service_code or "").strip()
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
+
+        if await self._rules.has_working_draft(code, inst_cd=inst_cd):
+            if not overwrite_draft:
+                raise InvalidInputError(
+                    "작업본이 이미 있습니다. 기존 작업본에 병합하려면 "
+                    "overwrite_draft=true 로 다시 요청하세요."
+                )
 
         raw_src = (source_code or "").strip()
         if len(raw_src) < 16:

@@ -155,7 +155,9 @@ export function YamlAiJobProgressPanel({
             <div className="flex gap-2">
               <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                이미 작업본이 있는 서비스가 있습니다. 덮어쓸지 확인하세요.
+                {job.kind === "source"
+                  ? "이미 작업본이 있습니다. 확인하면 기존 케이스에 소스 규칙을 병합합니다."
+                  : "이미 작업본이 있는 서비스가 있습니다. 덮어쓸지 확인하세요."}
               </p>
             </div>
             <FinixPrimaryButton
@@ -163,7 +165,9 @@ export function YamlAiJobProgressPanel({
               className="h-8 w-full text-xs"
               onClick={() => onRetryOverwrite(job.id)}
             >
-              작업본 덮어쓰기
+              {job.kind === "source"
+                ? "기존 작업본에 병합"
+                : "작업본 덮어쓰기"}
             </FinixPrimaryButton>
           </div>
         ) : null}
