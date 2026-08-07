@@ -305,6 +305,47 @@ class FnxRuleCaseRepository:
         row.checksum = case_checksum_from_rule(rule)
         row.updated_by = updated_by
 
+    async def refresh_applied_from_rule(
+        self,
+        *,
+        svc_code: str,
+        case_id: str,
+        rule: dict[str, Any],
+        updated_by: str | None = None,
+        inst_cd: str,
+        change_kind: str = "materialize_sync",
+    ) -> FnxRuleCaseHist | None:
+        """
+        Update the applied (확정) snapshot from ``rule`` when the case is already applied.
+
+        Draft fields are left intact. Used when rematerializing pool TCs so scenarios
+        that resolve via applied rules see the same body without a separate 확정 click.
+        """
+        code = (svc_code or "").strip()
+        cid = (case_id or "").strip()
+        inst = require_inst_cd(inst_cd)
+        row = await self.get_case_by_case_id(code, cid, inst_cd=inst)
+        if row is None or not self.is_case_applied(row):
+            return None
+        prev_checksum = row.checksum or ""
+        self._apply_applied_fields(
+            row,
+            rule,
+            sort_order=row.sort_order,
+            updated_by=updated_by,
+        )
+        hist: FnxRuleCaseHist | None = None
+        if row.checksum != prev_checksum:
+            hist = await self.add_case_hist(
+                rule_case=row,
+                rule=rule,
+                change_kind=change_kind,
+                created_by=updated_by,
+                note=f"applied synced from TC materialize ({cid})",
+            )
+        await self._session.flush()
+        return hist
+
     def _clear_draft_fields(self, row: FnxRuleCase) -> None:
         row.draft_input_json = None
         row.draft_expect_json = None

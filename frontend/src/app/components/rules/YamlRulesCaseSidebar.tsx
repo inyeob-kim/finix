@@ -1,10 +1,13 @@
-import { Play } from "lucide-react";
+import { Play, Plus } from "lucide-react";
 import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import { getCaseId, type YamlRuleRecord } from "@/lib/yamlRulesDocument";
 import { FINIX_YAML_CASE_SIDEBAR_WIDTH } from "@/lib/finixModalLayout";
 import { cn } from "../ui/utils";
 import { CaseTypeBadge, ruleListLabel } from "./yamlCaseListUi";
 import { YamlRulesCaseApplyToggle } from "./YamlRulesCaseApplyToggle";
+
+const CASE_ICON_BTN =
+  "self-stretch w-8 shrink-0 inline-flex items-center justify-center border-l border-border text-muted-foreground hover:bg-muted/70 hover:text-primary transition-colors disabled:pointer-events-none disabled:text-muted-foreground/40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/40";
 
 type Props = {
   rules: YamlRuleRecord[];
@@ -19,6 +22,8 @@ type Props = {
   onSelectDocument: () => void;
   onSelectRule: (index: number) => void;
   onRunCase?: (caseId: string, ruleIndex: number) => void;
+  materializingCaseId?: string | null;
+  onMaterializeCase?: (caseId: string) => void;
   applyNeedsSave?: boolean;
   togglingCaseId?: string | null;
   onToggleCaseApplied?: (caseId: string) => void;
@@ -36,6 +41,8 @@ export function YamlRulesCaseSidebar({
   onSelectDocument,
   onSelectRule,
   onRunCase,
+  materializingCaseId = null,
+  onMaterializeCase,
   applyNeedsSave = false,
   togglingCaseId = null,
   onToggleCaseApplied,
@@ -77,6 +84,9 @@ export function YamlRulesCaseSidebar({
             ? rule.tags.map((t) => String(t)).filter(Boolean).slice(0, 2)
             : [];
           const isRunning = Boolean(caseId && runningCaseId === caseId);
+          const isMaterializing = Boolean(
+            caseId && materializingCaseId === caseId,
+          );
           return (
             <li key={`${caseId || "rule"}-${index}`}>
               <div
@@ -118,36 +128,52 @@ export function YamlRulesCaseSidebar({
                     </div>
                   </div>
                 </button>
-                <div className="flex shrink-0 items-center">
+                <div className="flex shrink-0 items-stretch">
                   {onRunCase && caseId ? (
                     <button
                       type="button"
-                      disabled={disabled || isRunning}
-                      title="이 케이스 테스트 실행"
+                      disabled={disabled || isRunning || isMaterializing}
+                      title="이 케이스 테스트 실행 (풀·버전 유지)"
                       aria-label={`${caseId} 실행`}
                       onClick={(e) => {
                         e.stopPropagation();
                         onRunCase(caseId, index);
                       }}
                       className={cn(
-                        "shrink-0 px-2 text-muted-foreground hover:text-primary disabled:opacity-40",
-                        isRunning && "text-primary",
+                        CASE_ICON_BTN,
+                        isRunning && "text-primary animate-pulse",
                       )}
                     >
-                      <Play
-                        className={cn("size-3.5", isRunning && "animate-pulse")}
-                        fill="currentColor"
-                      />
+                      <Play className="size-3.5" aria-hidden />
+                    </button>
+                  ) : null}
+                  {onMaterializeCase && caseId ? (
+                    <button
+                      type="button"
+                      disabled={disabled || isRunning || isMaterializing}
+                      title="이 케이스만 풀에 반영 (버전 갱신)"
+                      aria-label={`${caseId} 풀에 반영`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMaterializeCase(caseId);
+                      }}
+                      className={cn(
+                        CASE_ICON_BTN,
+                        isMaterializing && "text-primary animate-pulse",
+                      )}
+                    >
+                      <Plus className="size-3.5" aria-hidden />
                     </button>
                   ) : null}
                   {onToggleCaseApplied && caseId ? (
                     <YamlRulesCaseApplyToggle
                       caseId={caseId}
                       meta={caseMetaById?.[caseId]}
-                      disabled={disabled}
+                      disabled={disabled || isMaterializing}
                       toggling={togglingCaseId === caseId}
                       applyNeedsSave={applyNeedsSave}
                       onToggle={onToggleCaseApplied}
+                      className={CASE_ICON_BTN}
                     />
                   ) : null}
                 </div>

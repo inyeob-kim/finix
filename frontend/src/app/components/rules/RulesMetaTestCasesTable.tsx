@@ -28,7 +28,7 @@ import { FinixLoading } from "../ui/finix-loading";
 import { FinixStatusBadge } from "../ui/finix-status-badge";
 import { CaseTypeBadge } from "./yamlCaseListUi";
 
-const COL_COUNT = 8;
+const COL_COUNT = 9;
 
 type RulesMetaTestCasesTableProps = {
   rows: TestCaseReadDto[];
@@ -64,6 +64,7 @@ export function RulesMetaTestCasesTable({
                 <FinixDataTableHead className="min-w-[180px]">
                   이름
                 </FinixDataTableHead>
+                <FinixDataTableHead className="w-[64px]">버전</FinixDataTableHead>
                 <FinixDataTableHead className="w-[72px]">상태</FinixDataTableHead>
                 <FinixDataTableHead className="w-[88px]">
                   메서드
@@ -162,6 +163,11 @@ function TestCaseRow({
           <span className="line-clamp-2 text-sm">
             {meta.shortLabel || test.name}
           </span>
+        </FinixDataTableCell>
+        <FinixDataTableCell className="font-mono text-xs tabular-nums">
+          {test.tc_hist_version != null && test.tc_hist_version > 0
+            ? `v${test.tc_hist_version}`
+            : "—"}
         </FinixDataTableCell>
         <FinixDataTableCell>
           {test.expected_status == null ? (

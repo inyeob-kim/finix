@@ -19,6 +19,7 @@ import {
   runStepShortDescription,
   type ScenarioRunStep,
 } from "@/lib/scenarioRunSequence";
+import { formatPinFlowLabel } from "@/lib/poolCaseLiveRef";
 
 export type BindingCanvasNodeKind = "start" | "step" | "end";
 
@@ -88,16 +89,18 @@ export function buildBindingCanvasGraph(
   ];
 
   runSteps.forEach((step, stepIndex) => {
+    const desc =
+      runStepShortDescription(step) ||
+      step.title?.trim() ||
+      step.serviceCode;
+    const pinMeta = formatPinFlowLabel(step.tcHistVersion);
     nodes.push({
       id: bindingCanvasStepNodeId(stepIndex),
       kind: "step",
       // Header: short case id (avoids truncating long titles on the blue bar).
       label: runStepCaseIdLabel(step),
-      // Body: human-readable test title.
-      subtitle:
-        runStepShortDescription(step) ||
-        step.title?.trim() ||
-        step.serviceCode,
+      // Body: human-readable test title + pinned TC hist version.
+      subtitle: `${desc} · ${pinMeta}`,
       stepIndex,
       stepKey: step.stepKey,
     });

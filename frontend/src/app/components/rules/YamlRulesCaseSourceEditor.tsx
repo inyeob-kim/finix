@@ -37,6 +37,8 @@ type YamlRulesCaseSourceEditorProps = {
   onRunCase?: (caseId: string, ruleIndex: number) => void;
   caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
   applyNeedsSave?: boolean;
+  materializingCaseId?: string | null;
+  onMaterializeCase?: (caseId: string) => void;
   togglingCaseId?: string | null;
   onToggleCaseApplied?: (caseId: string) => void;
 };
@@ -55,6 +57,8 @@ export const YamlRulesCaseSourceEditor = forwardRef<
     onRunCase,
     caseMetaById,
     applyNeedsSave,
+    materializingCaseId,
+    onMaterializeCase,
     togglingCaseId,
     onToggleCaseApplied,
   },
@@ -243,6 +247,8 @@ export const YamlRulesCaseSourceEditor = forwardRef<
         onSelectDocument={selectDocument}
         onSelectRule={selectRule}
         onRunCase={onRunCase}
+        materializingCaseId={materializingCaseId}
+        onMaterializeCase={onMaterializeCase}
         applyNeedsSave={applyNeedsSave}
         togglingCaseId={togglingCaseId}
         onToggleCaseApplied={onToggleCaseApplied}

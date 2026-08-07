@@ -228,8 +228,11 @@ class FnxTestcaseRepository:
         pool_sample_id: int | None = None,
         updated_by: str | None = None,
         change_kind: str = "materialize",
-    ) -> FnxTestcase:
-        """Upsert current TC and append hist when checksum changes."""
+    ) -> tuple[FnxTestcase, bool, bool]:
+        """Upsert current TC and append hist when checksum changes.
+
+        Returns ``(row, created, version_bumped)``.
+        """
         inst = require_inst_cd(inst_cd)
         svc = (svc_code or "").strip()
         cid = (rule_case_id or "").strip()
@@ -243,7 +246,8 @@ class FnxTestcaseRepository:
             assertions_json=assertions_json,
         )
         row = await self.get(inst_cd=inst, svc_code=svc, rule_case_id=cid)
-        changed = row is None or (row.checksum or "") != checksum
+        created = row is None
+        version_bumped = created or (row.checksum or "") != checksum
         if row is None:
             row = FnxTestcase(
                 inst_cd=inst,
@@ -278,7 +282,7 @@ class FnxTestcaseRepository:
 
         await self._session.flush()
 
-        if changed:
+        if version_bumped:
             version = await self.next_hist_version(
                 inst_cd=inst, svc_code=svc, rule_case_id=cid
             )
@@ -307,7 +311,7 @@ class FnxTestcaseRepository:
             await self._session.flush()
 
         await self._session.refresh(row)
-        return row
+        return row, created, version_bumped
 
     async def delete(
         self, *, inst_cd: str, svc_code: str, rule_case_id: str

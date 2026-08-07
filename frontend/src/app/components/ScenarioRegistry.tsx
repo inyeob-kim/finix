@@ -77,16 +77,18 @@ import {
     type DragEvent,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { listTestCasesByServiceCode } from "../../api/testcaseApi";
+import { listTestCasesByServiceCode, getTestCase } from "../../api/testcaseApi";
 import type { TestCaseReadDto } from "../../api/types";
 import { parseMaterializedTestcaseName } from "../../lib/materializedTestcaseName";
 import {
   fingerprintRequestBody,
   hydratePickFingerprints,
+  normalizeLegacyPinsToLatest,
   anyPickBlocksRun,
   evaluatePickLiveHealth,
   rebindPicksToLivePool,
   acknowledgePickFingerprint,
+  applyLivePoolRowToPick,
   type PoolCaseLiveHealth,
 } from "@/lib/poolCaseLiveRef";
 import { useAuthStore } from "../auth/authStore";
@@ -196,6 +198,10 @@ function mapPersistedTestcaseToRef(
     tcHistVersion:
       row.tc_hist_version != null && row.tc_hist_version > 0
         ? row.tc_hist_version
+        : undefined,
+    requestBody:
+      row.request_body && typeof row.request_body === "object"
+        ? row.request_body
         : undefined,
   };
 }
@@ -344,11 +350,66 @@ export function ScenarioRegistry() {
   }, [selectedRulePicks, allYamlRuleRefs]);
 
   const acknowledgeSelectedPick = (id: string) => {
-    setSelectedRulePicks((prev) =>
-      prev.map((p) =>
-        p.id === id ? acknowledgePickFingerprint(p, allYamlRuleRefs) : p,
-      ),
-    );
+    const pick = selectedRulePicks.find((p) => p.id === id);
+    if (!pick) return;
+    const caseId = pick.ruleId?.trim();
+    if (!caseId) {
+      setSelectedRulePicks((prev) =>
+        prev.map((p) =>
+          p.id === id ? acknowledgePickFingerprint(p, allYamlRuleRefs) : p,
+        ),
+      );
+      clearStepOverrides(id);
+      return;
+    }
+
+    void (async () => {
+      let liveRow: ScenarioRuleTestcaseRef | undefined;
+      try {
+        const dto = await getTestCase(pick.serviceCode, caseId);
+        liveRow = {
+          ...mapPersistedTestcaseToRef(
+            dto,
+            pick.serviceCode,
+            pick.serviceName || pick.serviceCode,
+          ),
+        };
+        setAllYamlRuleRefs((prev) => {
+          const key = `${liveRow!.serviceCode}/${caseId}`;
+          const idx = prev.findIndex(
+            (r) =>
+              r.serviceCode === liveRow!.serviceCode &&
+              (r.ruleId?.trim() || "") === caseId,
+          );
+          if (idx < 0) return [...prev, liveRow!];
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...liveRow, id: next[idx].id };
+          return next;
+        });
+      } catch {
+        liveRow = undefined;
+      }
+
+      setSelectedRulePicks((prev) =>
+        prev.map((p) => {
+          if (p.id !== id) return p;
+          if (liveRow) return applyLivePoolRowToPick(p, liveRow);
+          return acknowledgePickFingerprint(p, allYamlRuleRefs);
+        }),
+      );
+      clearStepOverrides(id);
+    })();
+  };
+
+  const clearStepOverrides = (stepKey: string) => {
+    setStepBindingsByStepKey((prev) => {
+      const cfg = prev[stepKey];
+      if (!cfg || !(cfg.overrides?.length > 0)) return prev;
+      return {
+        ...prev,
+        [stepKey]: { ...cfg, overrides: [] },
+      };
+    });
   };
 
   const wizardBindingStats = useMemo(
@@ -857,8 +918,22 @@ export function ScenarioRegistry() {
     }
     const bindingsForSave = flushed?.bindings ?? stepBindingsByStepKey;
 
+    // Legacy unpinned steps → pin current pool latest (same as backend attach).
+    const picksForSave = normalizeLegacyPinsToLatest(
+      selectedRulePicks,
+      allYamlRuleRefs,
+    );
+    if (picksForSave !== selectedRulePicks) {
+      const changed = picksForSave.some(
+        (p, i) =>
+          p.tcHistVersion !== selectedRulePicks[i]?.tcHistVersion ||
+          p.pinnedFingerprint !== selectedRulePicks[i]?.pinnedFingerprint,
+      );
+      if (changed) setSelectedRulePicks(picksForSave);
+    }
+
     if (mode === "ready") {
-      const liveBlock = anyPickBlocksRun(selectedRulePicks, allYamlRuleRefs);
+      const liveBlock = anyPickBlocksRun(picksForSave, allYamlRuleRefs);
       if (liveBlock) {
         setError(liveBlock);
         setScenarioWizardStep(1);
@@ -881,7 +956,7 @@ export function ScenarioRegistry() {
       selectedFolderId,
       folders,
       serviceDrafts,
-      selectedRulePicks,
+      selectedRulePicks: picksForSave,
       stepBindingsByStepKey: bindingsForSave,
       postmanConfig,
       updatedBy,

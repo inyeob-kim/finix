@@ -4,7 +4,12 @@ import {
   type ExecutionStreamEvent,
 } from "./executionApi";
 import { getRequiredInstCd, withInstCdQuery } from "@/lib/instScope";
-import type { ExecutionDetailDto, TestCaseReadDto, TestCaseRefDto } from "./types";
+import type {
+  ExecutionDetailDto,
+  MaterializeOneCaseResultDto,
+  TestCaseReadDto,
+  TestCaseRefDto,
+} from "./types";
 
 type TestCaseExecutionRequest = {
   base_url?: string;
@@ -104,8 +109,8 @@ export async function materializeOneRuleCase(
     yaml_text?: string | null;
     instCd?: string | null;
   },
-): Promise<TestCaseReadDto> {
-  return apiRequest<TestCaseReadDto>(
+): Promise<MaterializeOneCaseResultDto> {
+  return apiRequest<MaterializeOneCaseResultDto>(
     withInstCdQuery(
       `/api/v1/services/${encodeURIComponent(serviceCode)}/cases/${encodeURIComponent(caseId)}/materialize`,
       payload?.instCd,
@@ -126,7 +131,7 @@ export type RunRuleCaseResultDto = {
   execution: ExecutionDetailDto;
 };
 
-/** Upsert TC for one rule case and execute (primary Rules path). */
+/** Trial-run one rule case from editor YAML (does not write pool/hist). */
 export async function runRuleCase(
   serviceCode: string,
   caseId: string,

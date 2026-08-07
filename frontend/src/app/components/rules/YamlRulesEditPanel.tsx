@@ -38,6 +38,8 @@ type YamlRulesEditPanelProps = {
   onRunCase?: (caseId: string, ruleIndex: number) => void;
   caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
   applyNeedsSave?: boolean;
+  materializingCaseId?: string | null;
+  onMaterializeCase?: (caseId: string) => void;
   togglingCaseId?: string | null;
   onToggleCaseApplied?: (caseId: string) => void;
 };
@@ -57,6 +59,8 @@ export function YamlRulesEditPanel({
   onRunCase,
   caseMetaById,
   applyNeedsSave = false,
+  materializingCaseId = null,
+  onMaterializeCase,
   togglingCaseId = null,
   onToggleCaseApplied,
 }: YamlRulesEditPanelProps) {
@@ -341,6 +345,8 @@ export function YamlRulesEditPanel({
               onRunCase={onRunCase}
               caseMetaById={caseMetaById}
               applyNeedsSave={applyNeedsSave}
+              materializingCaseId={materializingCaseId}
+              onMaterializeCase={onMaterializeCase}
               togglingCaseId={togglingCaseId}
               onToggleCaseApplied={onToggleCaseApplied}
             />
@@ -357,6 +363,8 @@ export function YamlRulesEditPanel({
               onToggleMacroPanel={toggleMacroPanel}
               caseMetaById={caseMetaById}
               applyNeedsSave={applyNeedsSave}
+              materializingCaseId={materializingCaseId}
+              onMaterializeCase={onMaterializeCase}
               togglingCaseId={togglingCaseId}
               onToggleCaseApplied={onToggleCaseApplied}
             />

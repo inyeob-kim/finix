@@ -40,6 +40,10 @@ export type ScenarioRunStep = {
   title: string;
   /** Pinned fnx_testcase_hist.version for scenario freeze. */
   tcHistVersion?: number;
+  /** Live body snapshot after refresh-to-latest (Input template override). */
+  requestBody?: Record<string, unknown>;
+  /** Changes when pick is refreshed — forces Input draft reset. */
+  bodyRevision?: string;
 };
 
 /** Label for run-step chips (``PY023-N-001`` style). */
@@ -69,6 +73,8 @@ export function buildRunStepsFromPicks(
       ruleId,
       title,
       tcHistVersion: p.tcHistVersion,
+      requestBody: p.requestBody,
+      bodyRevision: p.pinnedFingerprint,
     };
   });
 }

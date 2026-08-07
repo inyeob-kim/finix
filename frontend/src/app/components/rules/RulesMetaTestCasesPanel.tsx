@@ -122,7 +122,7 @@ export function RulesMetaTestCasesPanel({
       return "YAML이 없습니다. 케이스 편집 탭에서 작성·저장한 뒤 생성하세요.";
     }
     if (disabled) return "다른 작업이 진행 중입니다.";
-    if (generateLoading) return "일괄 생성 중입니다.";
+    if (generateLoading) return "풀에 반영 중입니다.";
     return null;
   })();
 
@@ -136,7 +136,7 @@ export function RulesMetaTestCasesPanel({
         bundle_id: resumeBundleId,
         yaml_text: yamlText.trim() ? yamlText : null,
       });
-      toast.success(`풀에 ${created.length}건을 일괄 생성했습니다.`);
+      toast.success(`풀에 ${created.length}건을 반영했습니다.`);
       setRows(created);
       onRowsChangeRef.current?.(created);
       try {
@@ -195,9 +195,9 @@ export function RulesMetaTestCasesPanel({
   };
 
   const emptyMessage = !yamlText.trim() && !hasActiveYaml
-    ? "YAML이 없어 일괄 생성할 수 없습니다. 케이스 편집 탭에서 작성하세요."
+    ? "YAML이 없어 풀에 반영할 수 없습니다. 케이스 편집 탭에서 작성하세요."
     : rows.length === 0
-      ? "풀에 적재된 테스트케이스가 없습니다. 케이스 편집 ▶ 로 생성·실행하거나, 여기서 「풀 일괄 생성」을 하세요."
+      ? "풀에 적재된 테스트케이스가 없습니다. 「풀에 반영」으로 현재 YAML을 올리거나, 케이스 편집 ▶ 로 시험 실행하세요."
       : "검색 조건에 맞는 테스트케이스가 없습니다.";
 
   return (
@@ -221,7 +221,7 @@ export function RulesMetaTestCasesPanel({
               {editingDraft && yamlText.trim() ? (
                 <span>
                   {" "}
-                  · 에디터 YAML로 일괄 생성합니다 (케이스 ▶ 가 기본 경로)
+                  · 「풀에 반영」 시 버전 갱신 · ▶ 는 시험 실행만 (버전 유지)
                 </span>
               ) : null}
             </p>
@@ -277,9 +277,9 @@ export function RulesMetaTestCasesPanel({
               onOpenChange={setReplaceConfirmOpen}
               align="end"
               title="기존 테스트케이스를 교체할까요?"
-              description={`현재 풀 ${rows.length}건을 삭제한 뒤 지금 편집 중인 YAML로 다시 일괄 생성합니다. 일상 실행은 케이스 ▶ 를 권장합니다.`}
+              description={`현재 풀 ${rows.length}건을 삭제한 뒤 지금 편집 중인 YAML로 다시 반영합니다. ▶ 실행은 풀·버전을 바꾸지 않습니다.`}
               cancelLabel="취소"
-              confirmLabel="풀 교체 생성"
+              confirmLabel="풀에 반영"
               confirmClassName="h-8 px-3 rounded-sm bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90"
               onCancel={() => setReplaceConfirmOpen(false)}
               onConfirm={() => void runGenerate()}
@@ -289,13 +289,16 @@ export function RulesMetaTestCasesPanel({
                     type="button"
                     className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5"
                     disabled={Boolean(generateDisabledReason)}
-                    title={generateDisabledReason ?? undefined}
+                    title={
+                      generateDisabledReason ??
+                      "현재 YAML을 풀에 반영합니다 (버전 갱신)."
+                    }
                     onClick={requestGenerate}
                   >
                     {generateLoading ? (
                       <FinixLoading size="sm" inline />
                     ) : null}
-                    풀 일괄 생성
+                    풀에 반영
                   </FinixPrimaryButton>
                 </span>
               }

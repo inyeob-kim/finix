@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Copy,
   GripVertical,
+  Plus,
   Trash2,
 } from "lucide-react";
 import type { ServiceRuleCaseMetaDto } from "@/api/types";
@@ -53,6 +54,8 @@ type YamlRulesFieldsFormProps = {
   onToggleMacroPanel?: () => void;
   caseMetaById?: Record<string, ServiceRuleCaseMetaDto>;
   applyNeedsSave?: boolean;
+  materializingCaseId?: string | null;
+  onMaterializeCase?: (caseId: string) => void;
   togglingCaseId?: string | null;
   onToggleCaseApplied?: (caseId: string) => void;
 };
@@ -185,6 +188,8 @@ export function YamlRulesFieldsForm({
   onToggleMacroPanel,
   caseMetaById,
   applyNeedsSave = false,
+  materializingCaseId = null,
+  onMaterializeCase,
   togglingCaseId = null,
   onToggleCaseApplied,
 }: YamlRulesFieldsFormProps) {
@@ -500,11 +505,34 @@ export function YamlRulesFieldsForm({
                           )}
                         </span>
                       </button>
+                      {onMaterializeCase && getCaseId(r) ? (
+                        <button
+                          type="button"
+                          title="이 케이스만 풀에 반영 (버전 갱신)"
+                          aria-label={`${getCaseId(r)} 풀에 반영`}
+                          disabled={
+                            disabled || materializingCaseId === getCaseId(r)
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMaterializeCase(getCaseId(r));
+                          }}
+                          className={cn(
+                            "h-8 w-8 shrink-0 rounded-sm border border-border text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center justify-center disabled:opacity-50",
+                            materializingCaseId === getCaseId(r) &&
+                              "text-primary animate-pulse",
+                          )}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      ) : null}
                       {onToggleCaseApplied && getCaseId(r) ? (
                         <YamlRulesCaseApplyToggle
                           caseId={getCaseId(r)}
                           meta={caseMetaById?.[getCaseId(r)]}
-                          disabled={disabled}
+                          disabled={
+                            disabled || materializingCaseId === getCaseId(r)
+                          }
                           toggling={togglingCaseId === getCaseId(r)}
                           applyNeedsSave={applyNeedsSave}
                           onToggle={onToggleCaseApplied}

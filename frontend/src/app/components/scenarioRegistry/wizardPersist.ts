@@ -97,7 +97,10 @@ export function buildScenarioRegistryItem(
     trimmedTitle ||
     input.existing?.title?.trim() ||
     draftFallbackTitle(input.serviceDrafts);
-  const picks = [...input.selectedRulePicks];
+  // Do not persist live body snapshots into local registry (size + staleness).
+  const picks = input.selectedRulePicks.map(
+    ({ requestBody: _body, ...rest }) => rest,
+  );
   // Always persist the current binding map (including empty) so draft updates
   // cannot wipe prior inject/override rows via `undefined` overwrite.
   const bindings = input.stepBindingsByStepKey;

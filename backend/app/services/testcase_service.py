@@ -61,14 +61,10 @@ class TestCaseService:
         pin = getattr(row, "scenario_tc_hist_version", None)
         if isinstance(pin, int) and pin > 0:
             return testcase_entity_to_read(row, tc_hist_version=pin)
-        hist = await tc_repo.latest_hist(
-            inst_cd=row.inst_cd,
-            svc_code=row.svc_code,
-            rule_case_id=row.rule_case_id,
-        )
-        return testcase_entity_to_read(
-            row, tc_hist_version=hist.version if hist is not None else None
-        )
+        # Keep hist version aligned with live body so scenario pin/preview match
+        # the request_body clients fingerprint for change detection.
+        version = await tc_repo.ensure_latest_hist_version(row)
+        return testcase_entity_to_read(row, tc_hist_version=version)
 
     async def to_reads(self, rows: list[FnxTestcase]) -> list[TestCaseRead]:
         return [await self.to_read(row) for row in rows]
@@ -325,7 +321,7 @@ class TestCaseService:
                 rule=rule,
                 instruction=instruction,
             )
-            row = await tc_repo.upsert(
+            row, _created, _bumped = await tc_repo.upsert(
                 inst_cd=inst,
                 svc_code=rule_svc_code,
                 rule_case_id=rule_case_id,
@@ -337,6 +333,21 @@ class TestCaseService:
                 expected_body_json=dumps_json(expected_body),
                 rule_case_hist_version=rule_case_hist_version,
             )
+            if self._case_repo is not None:
+                try:
+                    await self._case_repo.refresh_applied_from_rule(
+                        svc_code=code,
+                        case_id=case_id,
+                        rule=rule,
+                        inst_cd=inst,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to sync applied rule after pool materialize %s/%s",
+                        code,
+                        case_id,
+                        exc_info=True,
+                    )
             created.append(row)
         return created
 
@@ -391,19 +402,121 @@ class TestCaseService:
         yaml_text: str | None = None,
         inst_cd: str,
         require_applied: bool = False,
-    ) -> FnxTestcase:
-        """Upsert one pool test case for a single rule case_id (other TCs untouched)."""
+    ) -> tuple[FnxTestcase, bool, bool]:
+        """Upsert one pool test case for a single rule case_id (other TCs untouched).
+
+        Returns ``(row, created, version_bumped)``.
+        """
         from app.domain.inst_scope import require_inst_cd
+
+        tc_repo = self._require_tc_repo()
+        await self._registry.ensure_default_runner_stub()
+        inst = require_inst_cd(inst_cd)
+        built = await self._build_testcase_from_rule(
+            service_code,
+            case_id,
+            instruction=instruction,
+            bundle_id=bundle_id,
+            yaml_text=yaml_text,
+            inst_cd=inst,
+            require_applied=require_applied,
+        )
+        row, created, version_bumped = await tc_repo.upsert(
+            inst_cd=inst,
+            svc_code=built.svc_code,
+            rule_case_id=built.rule_case_id,
+            name=built.name,
+            http_method=built.http_method,
+            endpoint=built.endpoint,
+            request_body_json=built.request_body_json,
+            expected_status=built.expected_status,
+            expected_body_json=built.expected_body_json,
+            assertions_json=built.assertions_json,
+            rule_case_hist_version=built.rule_case_hist_version,
+        )
+        # Already-확정 cases: keep applied snapshot aligned with the body just
+        # written to the pool so scenarios do not require a separate 확정 click.
+        if not require_applied and self._case_repo is not None and built.rule is not None:
+            try:
+                await self._case_repo.refresh_applied_from_rule(
+                    svc_code=service_code.strip(),
+                    case_id=case_id.strip(),
+                    rule=built.rule,
+                    inst_cd=inst,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to sync applied rule after materialize %s/%s",
+                    service_code,
+                    case_id,
+                    exc_info=True,
+                )
+        logger.info(
+            "Test case upserted",
+            extra={
+                "service_code": service_code,
+                "case_id": case_id,
+                "rule_case_id": row.rule_case_id,
+                "pool_created": created,
+                "version_bumped": version_bumped,
+            },
+        )
+        return row, created, version_bumped
+
+    async def build_ephemeral_testcase(
+        self,
+        service_code: str,
+        case_id: str,
+        *,
+        instruction: str | None = None,
+        bundle_id: int | None = None,
+        yaml_text: str | None = None,
+        inst_cd: str,
+    ) -> FnxTestcase:
+        """
+        Build an in-memory TC from editor YAML without writing the pool or hist.
+
+        Used by Rules ▶ so users can trial-run without bumping versions.
+        """
+        from app.domain.inst_scope import require_inst_cd
+
+        await self._registry.ensure_default_runner_stub()
+        inst = require_inst_cd(inst_cd)
+        built = await self._build_testcase_from_rule(
+            service_code,
+            case_id,
+            instruction=instruction,
+            bundle_id=bundle_id,
+            yaml_text=yaml_text,
+            inst_cd=inst,
+            require_applied=False,
+        )
+        return built.testcase
+
+    async def _build_testcase_from_rule(
+        self,
+        service_code: str,
+        case_id: str,
+        *,
+        instruction: str | None,
+        bundle_id: int | None,
+        yaml_text: str | None,
+        inst_cd: str,
+        require_applied: bool,
+    ) -> Any:
+        """Resolve rule + HTTP fields into an unsaved FnxTestcase (+ rule dict)."""
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
         from app.domain.rule_case_codec import (
             applied_rule_dict_from_row,
             draft_rule_dict_from_row,
         )
+        from app.models.fnx_testcase import FnxTestcase
+        from app.utils.json_text import dumps_json
 
-        tc_repo = self._require_tc_repo()
-        await self._registry.ensure_default_runner_stub()
         code = (service_code or "").strip()
         cid = (case_id or "").strip()
-        inst = require_inst_cd(inst_cd)
         if not code:
             raise InvalidInputError("service_code가 필요합니다.")
         if not cid:
@@ -414,7 +527,7 @@ class TestCaseService:
             if self._case_repo is None:
                 raise InvalidInputError("규칙 케이스 저장소가 설정되지 않았습니다.")
             case_row = await self._case_repo.get_case_by_case_id(
-                code, cid, inst_cd=inst
+                code, cid, inst_cd=inst_cd
             )
             if case_row is None or not self._case_repo.is_case_applied(case_row):
                 raise InvalidInputError(
@@ -441,7 +554,7 @@ class TestCaseService:
 
             if rule is None and self._case_repo is not None:
                 case_row = await self._case_repo.get_case_by_case_id(
-                    code, cid, inst_cd=inst
+                    code, cid, inst_cd=inst_cd
                 )
                 if case_row is not None:
                     rule = draft_rule_dict_from_row(
@@ -468,7 +581,7 @@ class TestCaseService:
         if self._case_repo is not None:
             try:
                 case_map = await self._case_repo.map_case_ids_to_latest_hist(
-                    code, inst_cd=inst
+                    code, inst_cd=inst_cd
                 )
                 mapped = case_map.get(cid)
                 if mapped is not None:
@@ -483,12 +596,13 @@ class TestCaseService:
                     "Failed to stamp hist for %s/%s inst=%s",
                     code,
                     cid,
-                    inst,
+                    inst_cd,
                     exc_info=True,
                 )
 
-        row = await tc_repo.upsert(
-            inst_cd=inst,
+        now = datetime.now(timezone.utc)
+        tc = FnxTestcase(
+            inst_cd=inst_cd,
             svc_code=rule_svc_code,
             rule_case_id=rule_case_id,
             name=name,
@@ -497,13 +611,26 @@ class TestCaseService:
             request_body_json=dumps_json(rule_input),
             expected_status=expected_status,
             expected_body_json=dumps_json(expected_body),
+            assertions_json=None,
+            rule_case_hist_version=rule_case_hist_version,
+            checksum="",
+            created_at=now,
+            updated_at=now,
+        )
+        return SimpleNamespace(
+            testcase=tc,
+            rule=rule,
+            svc_code=rule_svc_code,
+            rule_case_id=rule_case_id,
+            name=name,
+            http_method=method,
+            endpoint=endpoint,
+            request_body_json=tc.request_body_json,
+            expected_status=expected_status,
+            expected_body_json=tc.expected_body_json,
+            assertions_json=None,
             rule_case_hist_version=rule_case_hist_version,
         )
-        logger.info(
-            "Test case upserted",
-            extra={"service_code": code, "case_id": cid, "rule_case_id": row.rule_case_id},
-        )
-        return row
 
     async def materialize_missing_draft_cases(
         self,
@@ -535,12 +662,14 @@ class TestCaseService:
             if existing is not None:
                 continue
             created.append(
-                await self.materialize_one_case(
-                    code,
-                    cid,
-                    inst_cd=inst,
-                    require_applied=False,
-                )
+                (
+                    await self.materialize_one_case(
+                        code,
+                        cid,
+                        inst_cd=inst,
+                        require_applied=False,
+                    )
+                )[0]
             )
         return created
 
@@ -596,12 +725,35 @@ class TestCaseService:
                     tc = tc_repo.testcase_from_hist(hist)
                     pin_version = ref.tc_hist_version
                 else:
-                    tc = await self.materialize_one_case(
-                        ref.svc_code,
-                        ref.rule_case_id,
+                    # Prefer the live pool body (updated by ▶ / 풀 생성). Rematerializing
+                    # from applied would overwrite a newer pool when the user has not
+                    # clicked 확정 again after regenerating TCs.
+                    if self._case_repo is not None:
+                        case_row = await self._case_repo.get_case_by_case_id(
+                            ref.svc_code,
+                            ref.rule_case_id,
+                            inst_cd=inst,
+                        )
+                        if case_row is None or not self._case_repo.is_case_applied(
+                            case_row
+                        ):
+                            raise InvalidInputError(
+                                f"{ref.svc_code}/{ref.rule_case_id}: "
+                                "확정(활성)된 케이스만 시나리오에 사용할 수 있습니다. "
+                                "규칙 편집에서 확정한 뒤 다시 시도하세요."
+                            )
+                    tc = await tc_repo.get(
                         inst_cd=inst,
-                        require_applied=True,
+                        svc_code=ref.svc_code,
+                        rule_case_id=ref.rule_case_id,
                     )
+                    if tc is None:
+                        tc, _created, _bumped = await self.materialize_one_case(
+                            ref.svc_code,
+                            ref.rule_case_id,
+                            inst_cd=inst,
+                            require_applied=True,
+                        )
                     pin_version = await tc_repo.ensure_latest_hist_version(tc)
                 body = loads_json(tc.request_body_json, {})
                 if not isinstance(body, dict) or len(body) == 0:
@@ -763,12 +915,14 @@ class TestCaseService:
                 code, inst_cd=inst
             ):
                 rows.append(
-                    await self.materialize_one_case(
-                        code,
-                        case_row.rule_case_id,
-                        inst_cd=inst,
-                        require_applied=True,
-                    )
+                    (
+                        await self.materialize_one_case(
+                            code,
+                            case_row.rule_case_id,
+                            inst_cd=inst,
+                            require_applied=True,
+                        )
+                    )[0]
                 )
             return rows[:limit] if limit is not None else rows
 
@@ -815,7 +969,7 @@ class TestCaseService:
         if existing is None:
             raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
 
-        updated = await tc_repo.upsert(
+        updated, _created, _bumped = await tc_repo.upsert(
             inst_cd=inst,
             svc_code=svc_code,
             rule_case_id=rule_case_id,

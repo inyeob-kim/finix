@@ -108,7 +108,7 @@ class PoolPromoteService:
         exp_status, exp_body = _expected_for_sample(sample)
         name = _display_name(sample)
 
-        tc = await self._tc_repo.upsert(
+        tc, _created, _bumped = await self._tc_repo.upsert(
             inst_cd=inst,
             svc_code=code,
             rule_case_id=_pool_rule_case_id(sample),

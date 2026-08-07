@@ -80,7 +80,7 @@ def test_materialize_require_applied_uses_applied_rule():
             case_repo=_FakeCaseRepo(applied=True),  # type: ignore[arg-type]
             tc_repo=tc_repo,  # type: ignore[arg-type]
         )
-        row = await svc.materialize_one_case(
+        row, _created, _bumped = await svc.materialize_one_case(
             "PY016",
             "PY016-N-001",
             inst_cd=DEFAULT_INST_CD,

@@ -5,7 +5,10 @@ import {
   anyPickBlocksRun,
   evaluatePickLiveHealth,
   fingerprintRequestBody,
+  formatPinFlowLabel,
+  formatPinnedVersionLine,
   hydratePickFingerprints,
+  resolveTcPinBadge,
 } from "@/lib/poolCaseLiveRef";
 
 function pick(
@@ -112,21 +115,79 @@ describe("poolCaseLiveRef", () => {
         title: "[N] CU008-N-001 · ok",
         pinnedFingerprint: fpB,
         tcHistVersion: 2,
+        requestBody: bodyB,
       }),
     ];
     const acked = acknowledgePickFingerprint(selected, changedPool);
     expect(acked.tcHistVersion).toBe(2);
     expect(acked.pinnedFingerprint).toBe(fpB);
+    expect(acked.requestBody).toEqual(bodyB);
   });
 
-  it("hydrates missing fingerprint from live pool", () => {
+  it("acknowledge copies live requestBody even when version already matches", () => {
+    const selected = pick({
+      id: "p1",
+      serviceCode: "CU008",
+      ruleId: "CU008-N-001",
+      title: "x",
+      pinnedFingerprint: fpA,
+      tcHistVersion: 1,
+    });
+    const sameVersionNewBody = [
+      pick({
+        id: "tc-1",
+        serviceCode: "CU008",
+        ruleId: "CU008-N-001",
+        title: "[N] CU008-N-001 · ok",
+        pinnedFingerprint: fpB,
+        tcHistVersion: 1,
+        requestBody: bodyB,
+      }),
+    ];
+    const acked = acknowledgePickFingerprint(selected, sameVersionNewBody);
+    expect(acked.tcHistVersion).toBe(1);
+    expect(acked.pinnedFingerprint).toBe(fpB);
+    expect(acked.requestBody).toEqual(bodyB);
+  });
+
+  it("hydrates missing fingerprint and version from live pool", () => {
     const selected = pick({
       id: "p1",
       serviceCode: "CU008",
       ruleId: "CU008-N-001",
       title: "x",
     });
-    const next = hydratePickFingerprints([selected], pool);
+    const poolWithVersion = [
+      pick({
+        id: "tc-1",
+        serviceCode: "CU008",
+        ruleId: "CU008-N-001",
+        title: "[N] CU008-N-001 · ok",
+        pinnedFingerprint: fpA,
+        tcHistVersion: 3,
+      }),
+    ];
+    const next = hydratePickFingerprints([selected], poolWithVersion);
     expect(next[0]?.pinnedFingerprint).toBe(fpA);
+    expect(next[0]?.tcHistVersion).toBe(3);
+  });
+
+  it("formatPinnedVersionLine shows pool drift", () => {
+    expect(formatPinnedVersionLine(3, 5)).toBe("v3 (최신 v5)");
+    expect(formatPinnedVersionLine(3, 3)).toBe("v3");
+    expect(formatPinnedVersionLine(undefined, 5)).toBe("미핀");
+    expect(formatPinFlowLabel(2)).toBe("현재 v2");
+    expect(formatPinFlowLabel(undefined)).toBe("미핀 · 실행 시 라이브 풀");
+    expect(
+      resolveTcPinBadge(
+        pick({
+          id: "p1",
+          serviceCode: "CU008",
+          title: "x",
+          tcHistVersion: 1,
+        }),
+        { status: "changed", message: "x", liveVersion: 2, pinnedVersion: 1 },
+      ),
+    ).toBeNull();
   });
 });

@@ -26,6 +26,7 @@ type FinixStatusBadgeProps = {
   tone: FinixStatusTone;
   children: ReactNode;
   className?: string;
+  title?: string;
 };
 
 /** Shared grid/list status badge (scenario registry visual system). */
@@ -33,9 +34,13 @@ export function FinixStatusBadge({
   tone,
   children,
   className,
+  title,
 }: FinixStatusBadgeProps) {
   return (
-    <span className={cn(FINIX_STATUS_BADGE_BASE_CLASS, TONE_CLASS[tone], className)}>
+    <span
+      title={title}
+      className={cn(FINIX_STATUS_BADGE_BASE_CLASS, TONE_CLASS[tone], className)}
+    >
       {children}
     </span>
   );

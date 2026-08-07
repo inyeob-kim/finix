@@ -29,6 +29,10 @@ function mapPoolRow(
       row.tc_hist_version != null && row.tc_hist_version > 0
         ? row.tc_hist_version
         : undefined,
+    requestBody:
+      row.request_body && typeof row.request_body === "object"
+        ? row.request_body
+        : undefined,
   };
 }
 

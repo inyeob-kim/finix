@@ -29,6 +29,11 @@ export type ScenarioRuleTestcaseRef = {
   pinnedFingerprint?: string;
   /** Pinned fnx_testcase_hist.version; scenario runs this snapshot until refreshed. */
   tcHistVersion?: number;
+  /**
+   * Optional live request body snapshot after「최신으로 갱신」.
+   * Preferred over resolve-preview template so Input updates immediately.
+   */
+  requestBody?: Record<string, unknown>;
 };
 
 export type ScenarioRegistryFolder = {

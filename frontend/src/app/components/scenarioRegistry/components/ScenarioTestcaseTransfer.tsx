@@ -17,9 +17,19 @@ import {
   type ScenarioCaseTypeFilter,
 } from "@/lib/scenarioCaseTypeFilter";
 import type { PoolCaseLiveHealth } from "@/lib/poolCaseLiveRef";
-import { isBlockingLiveStatus } from "@/lib/poolCaseLiveRef";
+import {
+  formatPinFlowLabel,
+  formatPoolLatestLabel,
+  isBlockingLiveStatus,
+  resolveTcPinBadge,
+} from "@/lib/poolCaseLiveRef";
 import { FinixLoading } from "../../ui/finix-loading";
 import { FinixStatusBadge } from "../../ui/finix-status-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../../ui/tooltip";
 import {
   countPicksBySourceKey,
   scenarioPickOccurrence,
@@ -137,6 +147,38 @@ function TestcasePickRow({
     variant === "selected" && health && isBlockingLiveStatus(health.status);
   const showChanged =
     variant === "selected" && health?.status === "changed";
+  const pinBadge =
+    variant === "selected" ? resolveTcPinBadge(row, health) : null;
+  const poolLatest = formatPoolLatestLabel(row.tcHistVersion);
+  const showUnpinnedHint =
+    variant === "selected" &&
+    (row.tcHistVersion == null || row.tcHistVersion <= 0) &&
+    !warn &&
+    !showChanged;
+  const versionMeta =
+    variant === "selected"
+      ? row.tcHistVersion != null && row.tcHistVersion > 0
+        ? [
+            formatPinFlowLabel(row.tcHistVersion),
+            showChanged &&
+            health?.liveVersion != null &&
+            health.liveVersion > 0 &&
+            row.tcHistVersion !== health.liveVersion
+              ? `최신 v${health.liveVersion}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "미핀"
+      : null;
+  const versionHint = showChanged
+    ? health?.message
+    : showUnpinnedHint
+      ? "미핀 · 실행 시 라이브 풀"
+      : pinBadge?.title ??
+        (row.tcHistVersion != null
+          ? "실행 시 이 버전 스냅샷을 사용합니다."
+          : undefined);
 
   return (
     <li
@@ -176,91 +218,110 @@ function TestcasePickRow({
                 : "border-border bg-background hover:bg-muted/40",
         )}
       >
-        <button
-          type="button"
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.setData(
-              "application/json",
-              JSON.stringify({ id: row.id, from }),
-            );
-            if (variant === "selected" && index != null) {
-              e.dataTransfer.setData("text/plain", String(index));
-            }
-            e.dataTransfer.effectAllowed = "move";
-          }}
-          onDoubleClick={onDoubleClick}
-          className="w-full text-left"
-        >
-          <div className="flex items-center gap-1">
-            {variant === "selected" ? (
+        <div className="flex items-start gap-1">
+          {variant === "selected" ? (
+            <span
+              className="shrink-0 self-center text-muted-foreground cursor-grab active:cursor-grabbing"
+              title="드래그로 순서 변경"
+              aria-hidden
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </span>
+          ) : null}
+          <button
+            type="button"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(
+                "application/json",
+                JSON.stringify({ id: row.id, from }),
+              );
+              if (variant === "selected" && index != null) {
+                e.dataTransfer.setData("text/plain", String(index));
+              }
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDoubleClick={onDoubleClick}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
+                {row.ruleId?.trim() ? row.ruleId : row.serviceCode}
+                {showOccurrence ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {occurrence}회
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="font-medium text-foreground mt-0.5 line-clamp-2">
+              {row.description?.trim() || row.title}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span>{row.serviceCode}</span>
+              {variant === "selected" && versionMeta ? (
+                versionHint ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={cn(
+                          "tabular-nums cursor-help underline decoration-dotted underline-offset-2",
+                          showChanged &&
+                            "text-amber-700 dark:text-amber-300",
+                        )}
+                      >
+                        {versionMeta}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[16rem]">
+                      {versionHint}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span className="tabular-nums">{versionMeta}</span>
+                )
+              ) : null}
+            </div>
+          </button>
+          <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end pt-0.5">
+            {warn ? (
               <span
-                className="shrink-0 self-center text-muted-foreground cursor-grab active:cursor-grabbing"
-                title="드래그로 순서 변경"
-                aria-hidden
+                className="inline-flex text-destructive"
+                title={health?.message}
               >
-                <GripVertical className="w-3.5 h-3.5" />
+                <AlertCircle className="w-3.5 h-3.5" />
               </span>
             ) : null}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <span className="font-mono text-[11px] text-primary shrink-0 min-w-0 truncate">
-                  {row.ruleId?.trim() ? row.ruleId : row.serviceCode}
-                  {showOccurrence ? (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {occurrence}회
-                    </span>
-                  ) : null}
-                </span>
-                <div className="flex items-center gap-1 shrink-0">
-                  {warn ? (
-                    <span
-                      className="inline-flex text-destructive"
-                      title={health?.message}
-                    >
-                      <AlertCircle className="w-3.5 h-3.5" />
-                    </span>
-                  ) : null}
-                  {variant === "pool" &&
-                  includeCount != null &&
-                  includeCount > 0 ? (
-                    <span
-                      className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
-                      title="시나리오에 포함된 횟수 · 더블클릭하면 추가"
-                    >
-                      {includeCount}
-                    </span>
-                  ) : null}
-                  <CaseTypeBadge caseType={caseType} />
-                  {variant === "selected" ? (
-                    <ChevronLeft className="w-3 h-3 text-muted-foreground mt-0.5" />
-                  ) : null}
-                </div>
-              </div>
-              <div className="font-medium text-foreground mt-0.5 line-clamp-2">
-                {row.description?.trim() || row.title}
-              </div>
-              <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                {row.serviceCode}
-              </div>
-            </div>
-          </div>
-        </button>
-        {warn || showChanged ? (
-          <div className="mt-1.5 flex items-start justify-between gap-2 pl-5">
-            <p
-              className={cn(
-                "text-[10px] leading-snug",
-                warn ? "text-destructive" : "text-amber-700 dark:text-amber-300",
-              )}
-            >
-              {health?.message}
-            </p>
-            {health?.status === "changed" && onAcknowledge ? (
+            {pinBadge ? (
+              <FinixStatusBadge tone={pinBadge.tone} title={pinBadge.title}>
+                {pinBadge.label}
+              </FinixStatusBadge>
+            ) : null}
+            {variant === "pool" && poolLatest ? (
+              <span
+                className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground font-mono"
+                title="풀 테스트케이스 hist 최신 버전"
+              >
+                {poolLatest}
+              </span>
+            ) : null}
+            {variant === "pool" &&
+            includeCount != null &&
+            includeCount > 0 ? (
+              <span
+                className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
+                title="시나리오에 포함된 횟수 · 더블클릭하면 추가"
+              >
+                {includeCount}
+              </span>
+            ) : null}
+            <CaseTypeBadge caseType={caseType} />
+            {showChanged && onAcknowledge ? (
               <button
                 type="button"
-                className="shrink-0 inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted"
+                className="inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted"
+                title={health?.message}
                 onClick={(e) => {
                   e.stopPropagation();
                   onAcknowledge();
@@ -270,6 +331,22 @@ function TestcasePickRow({
                 최신으로 갱신
               </button>
             ) : null}
+            {variant === "selected" ? (
+              <ChevronLeft className="w-3 h-3 text-muted-foreground" />
+            ) : null}
+          </div>
+        </div>
+        {warn || showUnpinnedHint ? (
+          <div className="mt-1.5 pl-5">
+            {warn ? (
+              <p className="text-[10px] leading-snug text-destructive">
+                {health?.message}
+              </p>
+            ) : (
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                미핀 · 실행 시 라이브 풀
+              </p>
+            )}
           </div>
         ) : null}
       </div>

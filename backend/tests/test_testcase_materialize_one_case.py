@@ -78,8 +78,9 @@ class _FakeTcRepo:
         svc_code: str,
         rule_case_id: str,
         **kwargs,
-    ) -> SimpleNamespace:
+    ) -> tuple[SimpleNamespace, bool, bool]:
         key = (inst_cd, svc_code, rule_case_id)
+        created = key not in self.rows
         row = self.rows.get(key)
         if row is None:
             row = SimpleNamespace(
@@ -89,7 +90,7 @@ class _FakeTcRepo:
             for k, v in kwargs.items():
                 setattr(row, k, v)
         self.rows[key] = row
-        return row
+        return row, created, created or True
 
 
 def _svc(tc_repo: _FakeTcRepo) -> TestCaseService:
@@ -114,7 +115,7 @@ def test_materialize_one_case_creates_without_touching_others():
     )
     tc_repo.rows[("1001", "PY016", "PY016-E-001")] = other
 
-    row = asyncio.run(
+    row, created, _bumped = asyncio.run(
         _svc(tc_repo).materialize_one_case(
             "PY016",
             "PY016-N-001",
@@ -123,6 +124,7 @@ def test_materialize_one_case_creates_without_touching_others():
         )
     )
 
+    assert created is True
     assert row.rule_case_id == "PY016-N-001"
     assert row.svc_code == "PY016"
     assert row.expected_status == 200
@@ -141,7 +143,7 @@ def test_materialize_one_case_updates_existing():
     )
     tc_repo.rows[("1001", "PY016", "PY016-N-001")] = existing
 
-    row = asyncio.run(
+    row, created, _bumped = asyncio.run(
         _svc(tc_repo).materialize_one_case(
             "PY016",
             "PY016-N-001",
@@ -150,6 +152,7 @@ def test_materialize_one_case_updates_existing():
         )
     )
 
+    assert created is False
     assert row is existing
     assert row.rule_case_id == "PY016-N-001"
     assert '"custId": "C1"' in row.request_body_json or (

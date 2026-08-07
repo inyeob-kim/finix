@@ -31,6 +31,16 @@ class TestCaseRead(BaseModel):
     )
 
 
+class MaterializeOneCaseResult(BaseModel):
+    """Single-case pool materialize result with change flags for UI messaging."""
+
+    testcase: TestCaseRead
+    created: bool = Field(description="True when the pool row did not exist before.")
+    version_bumped: bool = Field(
+        description="True when a new hist version was written (create or content change).",
+    )
+
+
 class TestCaseRefV1(BaseModel):
     """Natural-key reference to a pool test case."""
 

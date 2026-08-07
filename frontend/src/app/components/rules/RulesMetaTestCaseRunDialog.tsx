@@ -1,7 +1,7 @@
 import { ApiError } from "@/api/client";
 import { getExecution } from "@/api/executionApi";
 import {
-  materializeOneRuleCase,
+  runRuleCase,
   runTestCaseExecution,
   streamServiceTestCasesExecution,
 } from "@/api/testcaseApi";
@@ -81,9 +81,6 @@ export function RulesMetaTestCaseRunDialog({
   const [runFocus, setRunFocus] = useState<ExecutionRunProgressState | null>(
     null,
   );
-  /** Editor path: set after first materialize; reruns execute the same pool TC. */
-  const [editorMaterializedTest, setEditorMaterializedTest] =
-    useState<TestCaseReadDto | null>(null);
 
   const code = serviceCode.trim();
 
@@ -92,7 +89,6 @@ export function RulesMetaTestCaseRunDialog({
     setRunError(null);
     setRunResult(null);
     setRunFocus(null);
-    setEditorMaterializedTest(null);
     setRunHeaderOpen(false);
     setRunDraft(loadExecutionPostmanDefaults());
   }, [session]);
@@ -152,16 +148,13 @@ export function RulesMetaTestCaseRunDialog({
       if (session.kind === "all") {
         exec = await runAllWithProgress(payload);
       } else if (session.kind === "editor") {
-        let tc = editorMaterializedTest;
-        if (!tc) {
-          tc = await materializeOneRuleCase(code, session.caseId, {
-            yaml_text: yamlText.trim() ? yamlText : null,
-            bundle_id: resumeBundleId,
-          });
-          setEditorMaterializedTest(tc);
-          await onPoolRowsRefresh?.();
-        }
-        exec = await runTestCaseExecution(tc.svc_code, tc.rule_case_id, payload);
+        // Trial run from editor YAML — does not upsert pool or bump hist.
+        const result = await runRuleCase(code, session.caseId, {
+          ...payload,
+          yaml_text: yamlText.trim() ? yamlText : null,
+          bundle_id: resumeBundleId,
+        });
+        exec = result.execution;
       } else {
         exec = await runTestCaseExecution(
           session.test.svc_code,
@@ -209,28 +202,23 @@ export function RulesMetaTestCaseRunDialog({
           ? session.caseId
           : "";
 
-  const editorNeedsMaterialize =
-    session?.kind === "editor" && editorMaterializedTest === null;
+  const isEditorTrial = session?.kind === "editor";
 
   const runDialogTitle = runResult
     ? "실행 결과"
     : session?.kind === "all"
       ? "테스트케이스 전체 실행"
-      : session?.kind === "editor"
-        ? editorNeedsMaterialize
-          ? "테스트케이스 생성 및 실행"
-          : "테스트케이스 실행"
+      : isEditorTrial
+        ? "테스트케이스 실행"
         : "테스트케이스 실행";
 
-  const confirmLabel = editorNeedsMaterialize ? "생성 및 실행" : "실행";
+  const confirmLabel = "실행";
 
   const runDescription =
     session?.kind === "all"
       ? "풀에 적재된 테스트케이스를 한 번에 실행합니다."
-      : session?.kind === "editor"
-        ? editorNeedsMaterialize
-          ? "현재 편집 중인 YAML로 테스트케이스를 생성(갱신)한 뒤 실행합니다."
-          : "풀에 있는 테스트케이스를 실행합니다."
+      : isEditorTrial
+        ? "현재 편집 중인 YAML로 실행합니다. 풀·버전은 변경되지 않습니다. 이 케이스만 올리려면 케이스 옆 올리기 아이콘을, 전체를 올리려면 TC 풀·실행 탭 「풀에 반영」을 사용하세요."
         : "공용 baseUrl·헤더 변수로 단건 실행합니다.";
 
   return (
@@ -285,9 +273,7 @@ export function RulesMetaTestCaseRunDialog({
                   label={
                     session?.kind === "all"
                       ? `전체 ${poolRows.length}건 실행 중…`
-                      : editorNeedsMaterialize
-                        ? "생성 및 실행 중…"
-                        : "실행 중…"
+                      : "실행 중…"
                   }
                 />
               </div>

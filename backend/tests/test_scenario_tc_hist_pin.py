@@ -29,7 +29,7 @@ async def _session() -> AsyncSession:
 
 
 async def _seed_tc_with_hist(repo: FnxTestcaseRepository):
-    row = await repo.upsert(
+    row, _created, _bumped = await repo.upsert(
         inst_cd=DEFAULT_INST_CD,
         svc_code="CU008",
         rule_case_id="CU008-N-001",

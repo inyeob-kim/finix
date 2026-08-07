@@ -116,13 +116,20 @@ export const ScenarioStepPostmanPanel = forwardRef<
     : emptyStepBinding();
 
   const previewRow = preview?.steps?.[stepIndex];
-  const templateBody =
+  const previewTemplate =
     previewRow?.template_request_body &&
     typeof previewRow.template_request_body === "object"
       ? (previewRow.template_request_body as Record<string, unknown>)
       : {};
+  // After「최신으로 갱신」, prefer the pick's live body so Input updates even if
+  // resolve-preview still has a stale hist snapshot briefly.
+  const templateBody =
+    step?.requestBody && typeof step.requestBody === "object"
+      ? step.requestBody
+      : previewTemplate;
   const templateBodyRef = useRef(templateBody);
   templateBodyRef.current = templateBody;
+  const templateRevision = `${step?.stepKey ?? ""}:${step?.tcHistVersion ?? ""}:${step?.bodyRevision ?? ""}`;
 
   const editorBody = useMemo(
     () => bodyForPostmanEditor(templateBody, cfg.overrides, cfg.injects),
@@ -252,6 +259,18 @@ export const ScenarioStepPostmanPanel = forwardRef<
     setJsonDirty(false);
     setJsonError(null);
   }, [step?.stepKey]);
+
+  // Force Input draft to follow template after「최신으로 갱신」 / pin bump.
+  useEffect(() => {
+    clearApplyTimer();
+    revertSnapshotRef.current = null;
+    setCanRevert(false);
+    setJsonDirty(false);
+    setJsonError(null);
+    setJsonDraft(JSON.stringify(editorBody, null, 2));
+    // editorBody intentionally read for the new draft; revision is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset on revision
+  }, [templateRevision]);
 
   useEffect(() => {
     const stepChanged = prevStepKeyRef.current !== step?.stepKey;

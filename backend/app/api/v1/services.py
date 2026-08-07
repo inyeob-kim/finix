@@ -18,7 +18,11 @@ from app.schemas.execution_schema import (
     TestCaseExecutionCreateV1,
     execution_run_to_detail,
 )
-from app.schemas.testcase_schema import TestCaseRead, testcase_entity_to_read
+from app.schemas.testcase_schema import (
+    MaterializeOneCaseResult,
+    TestCaseRead,
+    testcase_entity_to_read,
+)
 from app.services.execution_service import ExecutionService
 from app.services.testcase_service import TestCaseService
 from app.utils.sse import SSE_HEADERS, sse_stream_events
@@ -50,7 +54,7 @@ class RunRuleCaseRequest(BaseModel):
     bundle_id: int | None = Field(default=None, ge=1)
     yaml_text: str | None = Field(
         default=None,
-        description="Editor YAML used to upsert TC before run (apply not required).",
+        description="Editor YAML used for trial run (pool/hist not written).",
     )
     base_url: str = Field(default="", max_length=2048)
     mode: Literal["simulate", "live"] = "simulate"
@@ -87,7 +91,7 @@ async def materialize_test_case_pool(
 
 @router.post(
     "/{service_code}/cases/{case_id}/materialize",
-    response_model=TestCaseRead,
+    response_model=MaterializeOneCaseResult,
     summary="Upsert one pool test case for a rule case_id",
 )
 async def materialize_one_rule_case(
@@ -96,8 +100,8 @@ async def materialize_one_rule_case(
     payload: MaterializeCaseRequest = MaterializeCaseRequest(),
     inst_cd: str = Depends(require_active_inst_cd),
     testcase_service: TestCaseService = Depends(get_testcase_service),
-) -> TestCaseRead:
-    row = await testcase_service.materialize_one_case(
+) -> MaterializeOneCaseResult:
+    row, created, version_bumped = await testcase_service.materialize_one_case(
         service_code,
         case_id,
         instruction=payload.instruction,
@@ -105,13 +109,17 @@ async def materialize_one_rule_case(
         yaml_text=payload.yaml_text,
         inst_cd=inst_cd,
     )
-    return await testcase_service.to_read(row)
+    return MaterializeOneCaseResult(
+        testcase=await testcase_service.to_read(row),
+        created=created,
+        version_bumped=version_bumped,
+    )
 
 
 @router.post(
     "/{service_code}/cases/{case_id}/run",
     response_model=RunRuleCaseResponse,
-    summary="Upsert TC for one rule case and execute it",
+    summary="Trial-run one rule case from editor YAML (does not write pool/hist)",
 )
 async def run_one_rule_case(
     service_code: str,
@@ -121,8 +129,12 @@ async def run_one_rule_case(
     testcase_service: TestCaseService = Depends(get_testcase_service),
     execution_service: ExecutionService = Depends(get_execution_service),
 ) -> RunRuleCaseResponse:
-    """Primary Rules UX path: case → TC upsert → HTTP execution (no apply required)."""
-    tc = await testcase_service.materialize_one_case(
+    """
+    Rules ▶ path: execute current editor YAML without upserting the pool.
+
+    Version bumps happen only via materialize / 「풀에 반영」.
+    """
+    tc = await testcase_service.build_ephemeral_testcase(
         service_code,
         case_id,
         instruction=payload.instruction,
@@ -130,16 +142,15 @@ async def run_one_rule_case(
         yaml_text=payload.yaml_text,
         inst_cd=inst_cd,
     )
-    run = await execution_service.create_run_for_testcase(
-        inst_cd=inst_cd,
-        svc_code=tc.svc_code,
-        rule_case_id=tc.rule_case_id,
+    run = await execution_service.create_run_for_inline_testcase(
+        testcase=tc,
         base_url=payload.base_url,
         mode=payload.mode,
         postman_config=payload.postman,
+        inst_cd=inst_cd,
     )
     return RunRuleCaseResponse(
-        testcase=testcase_entity_to_read(tc),
+        testcase=testcase_entity_to_read(tc, tc_hist_version=None),
         execution=execution_run_to_detail(run),
     )
 

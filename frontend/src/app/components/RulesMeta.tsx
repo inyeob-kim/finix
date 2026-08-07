@@ -78,6 +78,7 @@ import {
   updateServiceRulesDraft,
 } from "@/api/serviceRulesApi";
 import { ApiError } from "@/api/client";
+import { materializeOneRuleCase } from "@/api/testcaseApi";
 import type {
   ServiceRuleBundleReadDto,
   ServiceRuleCaseMetaDto,
@@ -198,6 +199,12 @@ export function RulesMeta() {
   const [baselineYamlText, setBaselineYamlText] = useState("");
   const [caseMeta, setCaseMeta] = useState<ServiceRuleCaseMetaDto[]>([]);
   const [togglingCaseId, setTogglingCaseId] = useState<string | null>(null);
+  const [materializingCaseId, setMaterializingCaseId] = useState<string | null>(
+    null,
+  );
+  const [materializeConfirmCaseId, setMaterializeConfirmCaseId] = useState<
+    string | null
+  >(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"" | "active" | "draft">(() =>
     statusFilterFromSearch(searchParams.get("status")),
@@ -499,6 +506,56 @@ export function RulesMeta() {
     setRunSession({ kind: "editor", caseId: caseId.trim() });
   }, []);
 
+  const handleMaterializeOneCase = useCallback(
+    async (caseId: string) => {
+      if (!selected || !caseId.trim()) return;
+      setMaterializeConfirmCaseId(null);
+      setMaterializingCaseId(caseId);
+      setEditError(null);
+      setEditNotice(null);
+      try {
+        const result = await materializeOneRuleCase(selected.serviceCode, caseId, {
+          bundle_id: selected.bundleId,
+          yaml_text: yamlText.trim() ? yamlText : null,
+        });
+        await refreshCaseMeta(selected.serviceCode);
+        await refreshPoolRows();
+        const version = result.testcase.tc_hist_version;
+        const versionLabel =
+          version != null && version > 0 ? ` (v${version})` : "";
+        let msg: string;
+        if (result.created) {
+          msg = `${caseId}을(를) 풀에 올렸습니다.${versionLabel}`;
+        } else if (result.version_bumped) {
+          msg = `${caseId}을(를) 풀에 반영했습니다.${versionLabel}`;
+        } else {
+          msg = `${caseId}: 변경 사항이 없어 버전을 유지했습니다.${versionLabel}`;
+        }
+        if (result.created || result.version_bumped) {
+          toast.success(msg);
+        } else {
+          toast.message(msg);
+        }
+        setEditNotice(msg);
+      } catch (e) {
+        const msg =
+          e instanceof ApiError
+            ? e.message
+            : "케이스 풀 반영에 실패했습니다.";
+        setEditError(msg);
+        toast.error(msg);
+      } finally {
+        setMaterializingCaseId(null);
+      }
+    },
+    [selected, yamlText, refreshCaseMeta, refreshPoolRows],
+  );
+
+  const requestMaterializeOneCase = useCallback((caseId: string) => {
+    if (!caseId.trim()) return;
+    setMaterializeConfirmCaseId(caseId.trim());
+  }, []);
+
   const closePanel = () => {
     clearRulesMetaResume();
     setSelected(null);
@@ -506,6 +563,8 @@ export function RulesMeta() {
     setBaselineYamlText("");
     setCaseMeta([]);
     setTogglingCaseId(null);
+    setMaterializingCaseId(null);
+    setMaterializeConfirmCaseId(null);
     setLastSavedAt(null);
     setEditError(null);
     setEditNotice(null);
@@ -684,7 +743,7 @@ export function RulesMeta() {
       }
       if (!meta.has_pool_testcase) {
         setEditError(
-          "확정하려면 먼저 ▶ 실행 또는 TC 풀·실행 탭에서 테스트케이스를 생성하세요.",
+          "확정하려면 먼저 케이스 옆 올리기 또는 TC 풀·실행 탭 「풀에 반영」을 하세요.",
         );
         return;
       }
@@ -1226,6 +1285,8 @@ export function RulesMeta() {
                     onRunCase={openEditorCaseRun}
                     caseMetaById={caseMetaById}
                     applyNeedsSave={hasUnsavedChanges}
+                    materializingCaseId={materializingCaseId}
+                    onMaterializeCase={requestMaterializeOneCase}
                     togglingCaseId={togglingCaseId}
                     onToggleCaseApplied={(caseId) => void handleToggleCaseApplied(caseId)}
                   />
@@ -1281,7 +1342,7 @@ export function RulesMeta() {
                       <RulesMetaHintButton
                         hint={
                           saveDisabledReason ??
-                          "작업본으로 저장합니다. 일상 실행은 케이스 ▶ 로 바로 가능합니다."
+                          "작업본으로 저장합니다. ▶ 는 시험 실행만 하며 풀·버전은 바꾸지 않습니다."
                         }
                       >
                         <button
@@ -1315,6 +1376,49 @@ export function RulesMeta() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={materializeConfirmCaseId != null}
+        onOpenChange={(open) => {
+          if (!open && !materializingCaseId) {
+            setMaterializeConfirmCaseId(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="z-[110] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>이 케이스를 풀에 반영할까요?</AlertDialogTitle>
+            <AlertDialogDescription className="text-left space-y-2">
+              <span className="block font-mono text-xs text-foreground">
+                {materializeConfirmCaseId}
+              </span>
+              <span className="block text-xs">
+                현재 편집 중인 YAML 기준으로 이 케이스만 풀에 올리고 버전이
+                갱신됩니다. 다른 케이스는 그대로 둡니다.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              type="button"
+              disabled={Boolean(materializingCaseId)}
+            >
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              disabled={Boolean(materializingCaseId)}
+              onClick={() => {
+                if (materializeConfirmCaseId) {
+                  void handleMaterializeOneCase(materializeConfirmCaseId);
+                }
+              }}
+            >
+              풀에 반영
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={closeConfirmOpen}

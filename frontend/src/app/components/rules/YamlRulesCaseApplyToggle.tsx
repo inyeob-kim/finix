@@ -1,4 +1,5 @@
 import type { ServiceRuleCaseMetaDto } from "@/api/types";
+import { Check } from "lucide-react";
 import { cn } from "../ui/utils";
 
 type YamlRulesCaseApplyToggleProps = {
@@ -35,7 +36,7 @@ export function YamlRulesCaseApplyToggle({
     : applyNeedsSave || !canActivate
       ? "저장 후 확정할 수 있습니다"
       : !hasPoolTestcase
-        ? "▶ 실행 또는 TC 풀 생성 후 확정할 수 있습니다"
+        ? "케이스 옆 올리기 또는 TC 풀·실행 탭 「풀에 반영」 후 확정할 수 있습니다"
         : "시나리오에서 사용 (확정)";
 
   return (
@@ -50,17 +51,18 @@ export function YamlRulesCaseApplyToggle({
         onToggle?.(caseId);
       }}
       className={cn(
-        "mr-2 shrink-0 h-6 px-1.5 rounded-sm text-[10px] font-medium leading-none",
-        "inline-flex items-center justify-center transition-colors",
-        "disabled:opacity-40 disabled:pointer-events-none",
-        isApplied
-          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-          : "border border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary",
-        toggling && "animate-pulse",
+        "shrink-0 inline-flex items-center justify-center transition-colors",
+        "disabled:pointer-events-none disabled:hover:bg-transparent",
         className,
+        toggleDisabled
+          ? "text-muted-foreground/40"
+          : isApplied
+            ? "text-primary"
+            : "text-muted-foreground hover:text-primary",
+        toggling && "animate-pulse",
       )}
     >
-      확정
+      <Check className="size-3.5" aria-hidden />
     </button>
   );
 }

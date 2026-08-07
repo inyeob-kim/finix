@@ -198,8 +198,6 @@ class ExecutionService:
     ) -> ExecutionRun:
         """Execute one pool/standalone test case (no scenario required)."""
         from app.domain.inst_scope import require_inst_cd
-        from app.domain.postman_collection_config import PostmanCollectionConfig
-        from app.utils.scenario_steps_document import parse_postman_config
 
         await self._registry.ensure_default_runner_stub()
         inst = require_inst_cd(inst_cd)
@@ -208,6 +206,31 @@ class ExecutionService:
         )
         if testcase is None:
             raise EntityNotFoundError("TestCase", f"{svc_code}/{rule_case_id}")
+
+        return await self.create_run_for_inline_testcase(
+            testcase=testcase,
+            base_url=base_url,
+            mode=mode,
+            postman_config=postman_config,
+            inst_cd=inst,
+        )
+
+    async def create_run_for_inline_testcase(
+        self,
+        *,
+        testcase: FnxTestcase,
+        base_url: str = "",
+        mode: str = "simulate",
+        postman_config: object | None = None,
+        inst_cd: str,
+    ) -> ExecutionRun:
+        """Execute an in-memory or pool TC without requiring a prior upsert."""
+        from app.domain.inst_scope import require_inst_cd
+        from app.domain.postman_collection_config import PostmanCollectionConfig
+        from app.utils.scenario_steps_document import parse_postman_config
+
+        await self._registry.ensure_default_runner_stub()
+        inst = require_inst_cd(inst_cd)
 
         parsed: PostmanCollectionConfig | None = None
         if isinstance(postman_config, PostmanCollectionConfig):

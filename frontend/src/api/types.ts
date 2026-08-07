@@ -207,6 +207,12 @@ export interface TestCaseReadDto {
   tc_hist_version?: number | null;
 }
 
+export interface MaterializeOneCaseResultDto {
+  testcase: TestCaseReadDto;
+  created: boolean;
+  version_bumped: boolean;
+}
+
 export interface ExecutionStepDto {
   step_index: number;
   step_label: string;

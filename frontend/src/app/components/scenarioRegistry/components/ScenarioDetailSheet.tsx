@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pencil, X } from "lucide-react";
+import { listTestCasesByServiceCode } from "@/api/testcaseApi";
 import type { ScenarioRegistryItem } from "../types";
 import {
   countBindingRows,
   type StepBindingConfig,
 } from "@/lib/scenarioBindings";
+import {
+  formatPinFlowLabel,
+  formatPinnedVersionLine,
+  resolveTcPinBadge,
+} from "@/lib/poolCaseLiveRef";
 import {
   buildRunStepsFromPicks,
   runStepCaseIdLabel,
@@ -30,6 +36,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../../ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../../ui/tooltip";
 import { cn } from "../../ui/utils";
 import {
   resolveScenarioSaveStatus,
@@ -197,12 +208,58 @@ export function ScenarioDetailSheet({
   onEdit,
 }: ScenarioDetailSheetProps) {
   const [section, setSection] = useState<DetailSection>("overview");
+  /** `svc/rule_case_id` → pool latest tc hist version */
+  const [poolLatestByKey, setPoolLatestByKey] = useState<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     if (open) setSection("overview");
   }, [open, scenario?.id]);
 
   const picks = scenario?.selectedRuleTestcases ?? [];
+
+  useEffect(() => {
+    if (!open || !scenario) {
+      setPoolLatestByKey({});
+      return;
+    }
+    const codes = [
+      ...new Set(
+        (scenario.selectedRuleTestcases ?? []).map((p) => p.serviceCode.trim()).filter(Boolean),
+      ),
+    ];
+    if (codes.length === 0) {
+      setPoolLatestByKey({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const map: Record<string, number> = {};
+      for (const code of codes) {
+        try {
+          const rows = await listTestCasesByServiceCode(code, 500, undefined, {
+            scenarioEligible: true,
+          });
+          if (cancelled) return;
+          for (const row of rows) {
+            const caseId = row.rule_case_id?.trim();
+            if (!caseId) continue;
+            if (row.tc_hist_version != null && row.tc_hist_version > 0) {
+              map[`${code}/${caseId}`] = row.tc_hist_version;
+            }
+          }
+        } catch {
+          // ignore per-service fetch errors in detail view
+        }
+      }
+      if (!cancelled) setPoolLatestByKey(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, scenario]);
+
   const steps = useMemo(
     () =>
       scenario
@@ -424,7 +481,7 @@ export function ScenarioDetailSheet({
               <div className="space-y-4 max-w-4xl">
                 <SectionTitle
                   title="테스트케이스 목록"
-                  hint="시나리오에 고정된 테스트케이스입니다. 핀 버전이 있으면 실행 시 해당 스냅샷을 사용합니다."
+                  hint="시나리오에 고정된 테스트케이스입니다. 현재 버전이 있으면 실행 시 해당 스냅샷을 사용합니다. 풀이 앞서면 ‘최신’이 함께 표시됩니다."
                 />
                 {picks.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
@@ -439,13 +496,45 @@ export function ScenarioDetailSheet({
                           <th className="px-3 py-2 font-medium w-12">유형</th>
                           <th className="px-3 py-2 font-medium">케이스</th>
                           <th className="px-3 py-2 font-medium">서비스</th>
-                          <th className="px-3 py-2 font-medium">핀 버전</th>
+                          <th className="px-3 py-2 font-medium">버전</th>
                         </tr>
                       </thead>
                       <tbody>
                         {picks.map((pick, idx) => {
                           const caseId = pick.ruleId?.trim() || "—";
                           const ruleType = (pick.ruleType || "").toUpperCase();
+                          const liveKey = pick.ruleId?.trim()
+                            ? `${pick.serviceCode}/${pick.ruleId.trim()}`
+                            : "";
+                          const liveVersion = liveKey
+                            ? poolLatestByKey[liveKey]
+                            : undefined;
+                          const pinLine = formatPinnedVersionLine(
+                            pick.tcHistVersion,
+                            liveVersion,
+                          );
+                          const drifted =
+                            pick.tcHistVersion != null &&
+                            pick.tcHistVersion > 0 &&
+                            liveVersion != null &&
+                            liveVersion > 0 &&
+                            liveVersion !== pick.tcHistVersion;
+                          const unpinned =
+                            pick.tcHistVersion == null ||
+                            pick.tcHistVersion <= 0;
+                          const driftHint =
+                            "원본 풀이 최신화되었습니다. 시나리오는 기존 버전을 유지합니다.";
+                          const badge = resolveTcPinBadge(pick, {
+                            status: drifted ? "changed" : "ok",
+                            message: drifted ? driftHint : "",
+                            liveVersion,
+                            pinnedVersion: pick.tcHistVersion,
+                          });
+                          const versionHint = unpinned
+                            ? "미핀 · 실행 시 라이브 풀"
+                            : drifted
+                              ? driftHint
+                              : "실행 시 이 버전 스냅샷을 사용합니다.";
                           return (
                             <tr
                               key={pick.id}
@@ -489,10 +578,37 @@ export function ScenarioDetailSheet({
                                   </p>
                                 ) : null}
                               </td>
-                              <td className="px-3 py-2.5 tabular-nums font-mono text-muted-foreground">
-                                {pick.tcHistVersion != null
-                                  ? `v${pick.tcHistVersion}`
-                                  : "미핀"}
+                              <td className="px-3 py-2.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span
+                                        className={cn(
+                                          "tabular-nums font-mono cursor-help underline decoration-dotted underline-offset-2",
+                                          drifted
+                                            ? "text-amber-700 dark:text-amber-300"
+                                            : "text-muted-foreground",
+                                        )}
+                                      >
+                                        {pinLine}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent
+                                      side="top"
+                                      className="max-w-[16rem]"
+                                    >
+                                      {versionHint}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  {badge ? (
+                                    <FinixStatusBadge
+                                      tone={badge.tone}
+                                      title={badge.title}
+                                    >
+                                      {badge.label}
+                                    </FinixStatusBadge>
+                                  ) : null}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -529,6 +645,9 @@ export function ScenarioDetailSheet({
                             (binding?.extracts?.length ?? 0) +
                             (binding?.injects?.length ?? 0) +
                             (binding?.overrides?.length ?? 0);
+                          const pinMeta = formatPinFlowLabel(
+                            pick?.tcHistVersion ?? step.tcHistVersion,
+                          );
                           return (
                             <div
                               key={step.stepKey}
@@ -541,9 +660,7 @@ export function ScenarioDetailSheet({
                                   runStepShortDescription(step) ||
                                     step.title?.trim() ||
                                     step.serviceCode,
-                                  pick?.tcHistVersion != null
-                                    ? `핀 v${pick.tcHistVersion}`
-                                    : null,
+                                  pinMeta,
                                   linkCount > 0
                                     ? `연결 ${linkCount}`
                                     : null,

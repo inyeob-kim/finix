@@ -1072,8 +1072,8 @@ class ServiceRulesService:
         )
         if tc is None:
             raise InvalidInputError(
-                f"{case_id}: 확정하려면 먼저 ▶ 실행 또는 TC 풀·실행 탭에서 "
-                "테스트케이스를 생성하세요."
+                f"{case_id}: 확정하려면 먼저 TC 풀·실행 탭에서 "
+                "「풀에 반영」하세요."
             )
 
     async def _assert_pool_testcases_for_draft_cases(
@@ -1098,7 +1098,7 @@ class ServiceRulesService:
         if missing:
             joined = ", ".join(missing)
             raise InvalidInputError(
-                f"확정하려면 먼저 테스트케이스를 생성하세요: {joined}"
+                f"확정하려면 먼저 「풀에 반영」하세요: {joined}"
             )
 
     async def apply_draft_case(
