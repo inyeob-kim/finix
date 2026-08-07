@@ -165,6 +165,42 @@ def test_apply_merge_plan_match_keeps_expect():
     assert rule["input"]["b"] == 9
 
 
+def test_postman_channel_forces_overlay_over_ai_fill_nulls():
+    """Postman import entry point overlays incoming body even if AI said fill_nulls."""
+    base = [
+        {
+            "case_id": "SVC-N-001",
+            "rule_type": "N",
+            "title": "base",
+            "input": {"a": "old", "b": 1},
+            "expect": {"outcome": "success"},
+        }
+    ]
+    candidates = [_cand(0, name="upd", body={"a": "from_postman", "b": 9})]
+    plan = MergePlan(
+        decisions=[
+            MergeDecision(
+                candidate_index=0,
+                action="match",
+                match_case_id="SVC-N-001",
+                input_strategy="fill_nulls_only",
+            )
+        ]
+    )
+    payload, _diff = apply_merge_plan(
+        service_code="SVC",
+        service_name="Service",
+        base_rules=base,
+        candidates=candidates,
+        plan=plan,
+        skeleton={"a": None, "b": None},
+        match_input_strategy="overlay_postman_values",
+    )
+    rule = payload.rules[0]
+    assert rule["input"]["a"] == "from_postman"
+    assert rule["input"]["b"] == 9
+
+
 def test_apply_merge_plan_keep_base_macros():
     base = [
         {

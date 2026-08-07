@@ -475,7 +475,12 @@ def apply_merge_plan(
     candidates: list[PostmanRequestCandidate],
     plan: MergePlan | None,
     skeleton: dict[str, Any] | None,
+    match_input_strategy: InputStrategy | None = None,
 ) -> tuple[RulesPayload, MergeDiff]:
+    """
+    When *match_input_strategy* is set (recommended for Postman import), it
+    overrides any per-decision strategy from the AI plan.
+    """
     skel = skeleton if isinstance(skeleton, dict) else {}
     base_by_id: dict[str, dict[str, Any]] = {}
     for r in base_rules:
@@ -517,7 +522,11 @@ def apply_merge_plan(
             else:
                 base = working[match_id]
                 base_input = base.get("input") if isinstance(base.get("input"), dict) else {}
-                strategy: InputStrategy = dec.input_strategy
+                strategy: InputStrategy = (
+                    match_input_strategy
+                    if match_input_strategy is not None
+                    else dec.input_strategy
+                )
                 if strategy not in {
                     "overlay_postman_values",
                     "keep_base_macros",

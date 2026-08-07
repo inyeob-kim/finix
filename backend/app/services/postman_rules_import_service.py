@@ -26,7 +26,11 @@ from app.domain.postman_script_import import (
     build_script_import_plan,
     extract_script_assignments,
 )
-from app.domain.postman_rules_plans import CreatePlan, MergePlan
+from app.domain.postman_rules_plans import (
+    CreatePlan,
+    MergePlan,
+    POSTMAN_MATCH_INPUT_STRATEGY,
+)
 from app.domain.service_uri_match import match_service_code
 from app.repositories.service_catalog_repo import ServiceCatalogRepository
 from app.domain.collection_var_generators import summarize_generator_for_ai
@@ -169,6 +173,14 @@ class _ServiceWork:
     service_name: str
     skeleton: dict[str, Any]
     base_rules: list[dict[str, Any]]
+
+
+def resolve_postman_import_mode(base_rules: list[dict[str, Any]] | None) -> str:
+    """
+    ``merge`` when editor already has cases (draft or applied);
+    ``create`` only when there is no base to preserve.
+    """
+    return "merge" if base_rules else "create"
 
 
 class PostmanRulesImportService:
@@ -522,9 +534,10 @@ class PostmanRulesImportService:
                 (row.service_name if row and row.service_name else None) or code
             )
             skeleton = self._skeleton_for(row)
+            # Prefer draft/applied editor base. Merge whenever any base cases exist
+            # (draft-only from source→YAML must not be wiped by Postman create).
             base_rules = await self._rules.get_editor_base_rules(code, inst_cd=inst)
-            has_applied = await self._rules.has_applied_rules(code, inst_cd=inst)
-            mode = "merge" if has_applied and base_rules else "create"
+            mode = resolve_postman_import_mode(base_rules)
             if mode == "create":
                 base_rules = []
             work.append(
@@ -595,6 +608,8 @@ class PostmanRulesImportService:
                     candidates=w.items,
                     plan=merge_plan,
                     skeleton=w.skeleton,
+                    # Postman import: incoming request body is the curated source of truth.
+                    match_input_strategy=POSTMAN_MATCH_INPUT_STRATEGY,
                 )
 
             yaml_text = dump_finix_yaml(payload.as_dict())

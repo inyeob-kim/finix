@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROMPT_VERSION = "postman_rules_merge_v3"
+PROMPT_VERSION = "postman_rules_merge_v4"
 
 _SYSTEM = """You are an expert CBS QA Automation Assistant.
 Your task is to compare incoming rule candidates against an EXISTING YAML rule set for ONE service and produce a JSON "merge plan".
 
 Incoming candidates may come from Postman requests OR from source-code AI extraction. Treat both the same: match when the business case is the same, otherwise add.
+
+IMPORTANT: You decide ONLY match vs add (and match_case_id / titles).
+Do NOT choose how inputs are merged. The system applies a fixed input strategy per entry point
+(Postman overlay vs source fill-nulls). Any `input_strategy` you emit is ignored.
 
 ### DECISION RULES
 1. Determine Action:
@@ -21,19 +25,14 @@ Incoming candidates may come from Postman requests OR from source-code AI extrac
 2. Strict Field Rules by Action:
    - IF action == "match":
      * `match_case_id`: MUST be provided (e.g., "PY027-N-001").
-     * `input_strategy`: MUST be specified.
+     * `input_strategy`: set to null (system overrides).
      * `title` & `description`: MUST be set to null (System preserves existing base rule metadata).
      * NEVER alter expected outcomes or assertions.
    - IF action == "add":
      * `title` & `description`: MUST be provided in Korean describing the new case.
      * `match_case_id` & `input_strategy`: MUST be set to null.
 
-3. Input Strategy Selection Guide:
-   - "overlay_postman_values": Select when candidate values should override existing base values.
-   - "keep_base_macros": Select when base rules contain dynamic macros (e.g., {{$generator.name()}}, {{$date.today()}}) that must be preserved. Prefer this when merging source-inferred cases onto Postman-built bases.
-   - "fill_nulls_only": Select when candidate values should only fill empty/null fields in base rules.
-
-4. Strict Output Formatting:
+3. Strict Output Formatting:
    - Output MUST be valid JSON only.
    - Do NOT include markdown formatting, code block backticks (```json), or conversational filler.
 
@@ -44,7 +43,7 @@ Incoming candidates may come from Postman requests OR from source-code AI extrac
       "candidate_index": 0,
       "action": "match",
       "match_case_id": "PY027-N-001",
-      "input_strategy": "keep_base_macros",
+      "input_strategy": null,
       "title": null,
       "description": null,
       "rationale": "Short reasoning for match/add decision"

@@ -4,6 +4,9 @@ Shared YAML rule merge helpers (Postman import + source AI generation).
 Input strategies and case_id allocation are reused by Postman apply paths.
 Source generation uses ``apply_yaml_rules_merge_plan`` to merge LLM-emitted
 rules into an existing base without dropping Postman macros / expects.
+
+Match input strategy is fixed by entry point (see POSTMAN_MATCH_INPUT_STRATEGY /
+SOURCE_MATCH_INPUT_STRATEGY); the AI merge plan decides match vs add only.
 """
 
 from __future__ import annotations
@@ -142,12 +145,16 @@ def apply_yaml_rules_merge_plan(
     generated_rules: list[dict[str, Any]],
     plan: MergePlan | None,
     skeleton: dict[str, Any] | None,
+    match_input_strategy: InputStrategy | None = None,
 ) -> tuple[RulesPayload, MergeDiff]:
     """
     Merge source-generated rules into *base_rules*.
 
     - ``match``: update input only (preserve expect / case_id / title).
     - ``add``: append generated rule with a new case_id (keep E/N + expect).
+
+    When *match_input_strategy* is set (recommended for source→YAML), it overrides
+    any per-decision strategy from the AI plan.
     """
     skel = skeleton if isinstance(skeleton, dict) else {}
     base_by_id: dict[str, dict[str, Any]] = {}
@@ -197,13 +204,17 @@ def apply_yaml_rules_merge_plan(
                 base_input = (
                     base.get("input") if isinstance(base.get("input"), dict) else {}
                 )
-                strategy: InputStrategy = dec.input_strategy
+                strategy: InputStrategy = (
+                    match_input_strategy
+                    if match_input_strategy is not None
+                    else dec.input_strategy
+                )
                 if strategy not in {
                     "overlay_postman_values",
                     "keep_base_macros",
                     "fill_nulls_only",
                 }:
-                    strategy = "keep_base_macros"
+                    strategy = "fill_nulls_only"
                 base["input"] = apply_input_strategy(
                     strategy=strategy,
                     skeleton=skel,

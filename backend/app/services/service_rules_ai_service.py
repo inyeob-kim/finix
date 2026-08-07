@@ -13,6 +13,7 @@ import yaml
 from app.core.config import get_settings
 from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.domain.draft_enrichment import build_draft_enrichment_hints
+from app.domain.postman_rules_plans import SOURCE_MATCH_INPUT_STRATEGY
 from app.domain.yaml_rules_merge import (
     apply_yaml_rules_merge_plan,
     extract_rules_list,
@@ -285,6 +286,8 @@ class ServiceRulesAiService:
             generated_rules=generated_rules,
             plan=plan,
             skeleton=skeleton,
+            # Source re-run: keep curated/Postman base values; fill empties only.
+            match_input_strategy=SOURCE_MATCH_INPUT_STRATEGY,
         )
         logger.info(
             "source_rules_merge service=%s updated=%s added=%s kept=%s",

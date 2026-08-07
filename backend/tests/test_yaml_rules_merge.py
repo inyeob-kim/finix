@@ -57,6 +57,47 @@ def test_apply_yaml_merge_match_keeps_expect_and_macros():
     assert rule["assertions"] == [{"path": "$.ok", "equals": True}]
 
 
+def test_source_channel_forces_fill_nulls_over_ai_overlay():
+    """Source→YAML entry point ignores AI overlay and preserves curated base values."""
+    base = [
+        {
+            "case_id": "SVC-N-001",
+            "rule_type": "N",
+            "title": "curated",
+            "input": {"nm": "손본값", "dt": None},
+            "expect": {"outcome": "success"},
+        }
+    ]
+    generated = [
+        {
+            "rule_type": "N",
+            "title": "소스",
+            "input": {"nm": "소스덮기", "dt": "20260101"},
+        }
+    ]
+    plan = MergePlan(
+        decisions=[
+            MergeDecision(
+                candidate_index=0,
+                action="match",
+                match_case_id="SVC-N-001",
+                input_strategy="overlay_postman_values",
+            )
+        ]
+    )
+    payload, _diff = apply_yaml_rules_merge_plan(
+        service_code="SVC",
+        service_name="Service",
+        base_rules=base,
+        generated_rules=generated,
+        plan=plan,
+        skeleton={"nm": None, "dt": None},
+        match_input_strategy="fill_nulls_only",
+    )
+    rule = payload.rules[0]
+    assert rule["input"]["nm"] == "손본값"
+    assert rule["input"]["dt"] == "20260101"
+
 def test_apply_yaml_merge_add_preserves_error_rule():
     base = [
         {

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
-  ChevronDown,
-  ChevronUp,
   Layers,
   RotateCw,
   Search,
@@ -111,7 +109,10 @@ import {
   type RulesMetaResumeState,
 } from "@/lib/rulesMetaResume";
 import { useAuthStore } from "../auth/authStore";
-import { FINIX_STANDARD_SHEET_CONTENT } from "@/lib/finixModalLayout";
+import {
+  FINIX_STANDARD_SHEET_CONTENT,
+  FINIX_STANDARD_SHEET_WITH_RAIL_CONTENT,
+} from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
 
 type SortKey =
@@ -255,7 +256,6 @@ export function RulesMeta() {
   const [yamlAiHints, setYamlAiHints] = useState("");
   const [yamlAiUseDataPool, setYamlAiUseDataPool] = useState(false);
   const [yamlAiUseSwagger, setYamlAiUseSwagger] = useState(false);
-  const [yamlAiAdvancedOpen, setYamlAiAdvancedOpen] = useState(false);
   const [yamlAiError, setYamlAiError] = useState<string | null>(null);
   const yamlAiServiceInputRef = useRef<HTMLInputElement>(null);
   const yamlAiJobs = useYamlAiJobStore((s) => s.jobs);
@@ -811,7 +811,6 @@ export function RulesMeta() {
     setYamlAiSourceVersion("");
     setYamlAiUseDataPool(false);
     setYamlAiUseSwagger(false);
-    setYamlAiAdvancedOpen(false);
   };
 
   const closeYamlAi = (open: boolean) => {
@@ -823,7 +822,6 @@ export function RulesMeta() {
   const openYamlAiDialog = () => {
     setYamlAiService("");
     setYamlAiPickerKey((k) => k + 1);
-    setYamlAiAdvancedOpen(false);
     setYamlAiOpen(true);
     setYamlAiError(null);
   };
@@ -1531,7 +1529,7 @@ export function RulesMeta() {
       <Sheet open={yamlAiOpen} onOpenChange={closeYamlAi}>
         <SheetContent
           side="right"
-          className={FINIX_STANDARD_SHEET_CONTENT}
+          className={FINIX_STANDARD_SHEET_WITH_RAIL_CONTENT}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             focusYamlAiServiceSearch();
@@ -1543,144 +1541,130 @@ export function RulesMeta() {
             </SheetTitle>
           </SheetHeader>
 
-          <div className="relative flex-1 min-h-0 flex flex-col">
-            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1 min-h-0">
-              {yamlAiError || yamlAiCatalogError ? (
-                <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2">
-                  {yamlAiError ?? yamlAiCatalogError}
-                </div>
-              ) : null}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {yamlAiError || yamlAiCatalogError ? (
+              <div className="shrink-0 mx-6 mt-4 rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2">
+                {yamlAiError ?? yamlAiCatalogError}
+              </div>
+            ) : null}
 
-              <FinixField
-                label="서비스"
-                helperText="코드 또는 이름으로 검색 후 선택 (검색 결과 최대 50건)"
-              >
-                <ServiceCatalogCombobox
-                  key={yamlAiPickerKey}
-                  options={yamlAiCatalog}
-                  value={yamlAiService}
-                  onValueChange={setYamlAiService}
-                  loading={yamlAiCatalogLoading}
-                  inputRef={yamlAiServiceInputRef}
-                />
-              </FinixField>
-
-              <div className="space-y-1.5">
+            <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+              <aside className="shrink-0 lg:w-[min(24rem,100%)] px-6 py-4 space-y-4 border-b lg:border-b-0 lg:border-r border-border overflow-hidden">
                 <FinixField
-                  label="소스 코드"
-                  helperText="Java/Kotlin/Spring 등 백엔드 소스. 최대 약 12만 자."
+                  label="서비스"
+                  helperText="코드 또는 이름으로 검색 후 선택 (검색 결과 최대 50건)"
                 >
-                  <FinixUnderlineTextarea
-                    value={yamlAiSource}
-                    onChange={(e) => setYamlAiSource(e.target.value)}
-                    rows={14}
-                    spellCheck={false}
-                    className="min-h-[220px] font-mono text-[12px]"
-                    placeholder="여기에 관련 소스를 붙여넣으세요…"
+                  <ServiceCatalogCombobox
+                    key={yamlAiPickerKey}
+                    options={yamlAiCatalog}
+                    value={yamlAiService}
+                    onValueChange={setYamlAiService}
+                    loading={yamlAiCatalogLoading}
+                    inputRef={yamlAiServiceInputRef}
                   />
                 </FinixField>
-                <p
-                  className={cn(
-                    "text-[11px] tabular-nums",
-                    yamlAiSourceLen === 0
-                      ? "text-muted-foreground"
-                      : yamlAiSourceReady
-                        ? "text-emerald-700 dark:text-emerald-400"
-                        : "text-amber-700 dark:text-amber-400",
-                  )}
-                >
-                  {yamlAiSourceLen === 0
-                    ? `최소 ${YAML_AI_MIN_SOURCE_LENGTH}자 필요`
-                    : yamlAiSourceReady
-                      ? `${yamlAiSourceLen.toLocaleString("ko-KR")}자 · 생성 가능`
-                      : `${yamlAiSourceLen.toLocaleString("ko-KR")}자 / 최소 ${YAML_AI_MIN_SOURCE_LENGTH}자`}
-                </p>
-              </div>
 
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={yamlAiUseDataPool}
-                      onChange={(e) => setYamlAiUseDataPool(e.target.checked)}
-                    />
-                    <span>
-                      <span className="font-medium">Data Pool 참조</span>
-                      <span className="block text-[11px] text-muted-foreground">
-                        Happy 샘플 필드를 힌트로만 주입합니다.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={yamlAiUseSwagger}
-                      onChange={(e) => setYamlAiUseSwagger(e.target.checked)}
-                    />
-                    <span>
-                      <span className="font-medium">Swagger/OpenAPI 참조</span>
-                      <span className="block text-[11px] text-muted-foreground">
-                        등록된 operation 힌트만 추가합니다.{" "}
-                        <a
-                          href="/openapi"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline underline-offset-2 hover:text-foreground"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          스펙 등록 (새 탭)
-                        </a>
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="rounded-sm border border-border bg-muted/20 overflow-hidden">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/40"
-                  onClick={() => setYamlAiAdvancedOpen((o) => !o)}
-                  aria-expanded={yamlAiAdvancedOpen}
-                >
-                  <span>옵션</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                    소스 버전 · 힌트
-                    {yamlAiAdvancedOpen ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    )}
-                  </span>
-                </button>
-                {yamlAiAdvancedOpen ? (
-                  <div className="px-3 pb-3 pt-1 space-y-4 border-t border-border">
-                    <FinixField
-                      label="소스 버전"
-                      helperText="번들에 기록되는 문자열 (브랜치명, 커밋, 티켓 등, 선택)"
-                    >
-                      <FinixUnderlineInput
-                        value={yamlAiSourceVersion}
-                        onChange={(e) => setYamlAiSourceVersion(e.target.value)}
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-3">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={yamlAiUseDataPool}
+                        onChange={(e) => setYamlAiUseDataPool(e.target.checked)}
                       />
-                    </FinixField>
-
-                    <FinixField
-                      label="추가 힌트 (선택)"
-                      helperText="포커스할 클래스명, 엔드포인트, 에러코드 규칙 등"
-                    >
-                      <FinixUnderlineTextarea
-                        value={yamlAiHints}
-                        onChange={(e) => setYamlAiHints(e.target.value)}
-                        rows={2}
-                        className="min-h-[3rem]"
+                      <span>
+                        <span className="font-medium">Data Pool 참조</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          Happy 샘플 필드를 힌트로만 주입합니다.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={yamlAiUseSwagger}
+                        onChange={(e) => setYamlAiUseSwagger(e.target.checked)}
                       />
-                    </FinixField>
+                      <span>
+                        <span className="font-medium">Swagger/OpenAPI 참조</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          등록된 operation 힌트만 추가합니다.{" "}
+                          <a
+                            href="/openapi"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline underline-offset-2 hover:text-foreground"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            스펙 등록 (새 탭)
+                          </a>
+                        </span>
+                      </span>
+                    </label>
                   </div>
-                ) : null}
+                </div>
+
+                <FinixField
+                  label="소스 버전"
+                  helperText="번들에 기록되는 문자열 (브랜치명, 커밋, 티켓 등, 선택)"
+                >
+                  <FinixUnderlineInput
+                    value={yamlAiSourceVersion}
+                    onChange={(e) => setYamlAiSourceVersion(e.target.value)}
+                  />
+                </FinixField>
+
+                <FinixField
+                  label="추가 힌트 (선택)"
+                  helperText="포커스할 클래스명, 엔드포인트, 에러코드 규칙 등"
+                >
+                  <FinixUnderlineTextarea
+                    value={yamlAiHints}
+                    onChange={(e) => setYamlAiHints(e.target.value)}
+                    rows={3}
+                    className="min-h-[4.5rem]"
+                  />
+                </FinixField>
+              </aside>
+
+              <div className="flex-1 min-h-0 min-w-0 flex flex-col px-6 py-4 overflow-hidden">
+                <div className="flex flex-col flex-1 min-h-0">
+                  <div className="text-xs text-muted-foreground shrink-0">
+                    소스 코드
+                  </div>
+                  <div className="flex-1 min-h-0 mt-2 relative rounded-sm border border-border bg-background overflow-hidden">
+                    <FinixUnderlineTextarea
+                      value={yamlAiSource}
+                      onChange={(e) => setYamlAiSource(e.target.value)}
+                      spellCheck={false}
+                      className="absolute inset-0 w-full h-full overflow-y-auto resize-none border-0 px-3 py-2 font-mono text-[12px] leading-relaxed focus:border-0"
+                      placeholder="여기에 관련 소스를 붙여넣으세요…"
+                    />
+                  </div>
+                  <div className="mt-1.5 shrink-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <p className="text-[11px] text-muted-foreground">
+                      Java/Kotlin/Spring 등 백엔드 소스. 최대 약 12만 자.
+                    </p>
+                    <p
+                      className={cn(
+                        "text-[11px] tabular-nums",
+                        yamlAiSourceLen === 0
+                          ? "text-muted-foreground"
+                          : yamlAiSourceReady
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400",
+                      )}
+                    >
+                      {yamlAiSourceLen === 0
+                        ? `최소 ${YAML_AI_MIN_SOURCE_LENGTH}자 필요`
+                        : yamlAiSourceReady
+                          ? `${yamlAiSourceLen.toLocaleString("ko-KR")}자 · 생성 가능`
+                          : `${yamlAiSourceLen.toLocaleString("ko-KR")}자 / 최소 ${YAML_AI_MIN_SOURCE_LENGTH}자`}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

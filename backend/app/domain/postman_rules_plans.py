@@ -13,6 +13,10 @@ InputStrategy = Literal[
 RuleType = Literal["E", "N"]
 MergeAction = Literal["match", "add"]
 
+# Channel-fixed match strategies (AI decides match/add only; apply forces these).
+POSTMAN_MATCH_INPUT_STRATEGY: InputStrategy = "overlay_postman_values"
+SOURCE_MATCH_INPUT_STRATEGY: InputStrategy = "fill_nulls_only"
+
 
 @dataclass
 class ExpectHint:
