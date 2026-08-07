@@ -44,10 +44,10 @@ export function formatPinnedVersionLine(
   return `v${pinned}`;
 }
 
-/** Flow / wizard card meta: `현재 vN` wording (or legacy unpinned). */
+/** Flow / wizard card meta: compact `vN` (or unpinned). */
 export function formatPinFlowLabel(pinned: number | undefined | null): string {
-  if (pinned == null || pinned <= 0) return "미핀 · 실행 시 라이브 풀";
-  return `현재 v${pinned}`;
+  if (pinned == null || pinned <= 0) return "미핀";
+  return `v${pinned}`;
 }
 
 /** Pool candidate row: latest hist when known. */

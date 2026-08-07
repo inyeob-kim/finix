@@ -28,6 +28,8 @@ export type BindingCanvasNode = {
   kind: BindingCanvasNodeKind;
   label: string;
   subtitle?: string;
+  /** Pinned TC hist label for header trailing edge (`v2`). */
+  versionLabel?: string;
   stepIndex?: number;
   stepKey?: string;
 };
@@ -99,8 +101,9 @@ export function buildBindingCanvasGraph(
       kind: "step",
       // Header: short case id (avoids truncating long titles on the blue bar).
       label: runStepCaseIdLabel(step),
-      // Body: human-readable test title + pinned TC hist version.
-      subtitle: `${desc} · ${pinMeta}`,
+      // Body: human-readable test title.
+      subtitle: desc,
+      versionLabel: pinMeta,
       stepIndex,
       stepKey: step.stepKey,
     });

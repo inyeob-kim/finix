@@ -43,12 +43,15 @@ describe("scenarioBindingCanvas", () => {
         serviceName: "지급",
         ruleId: "PY027-E-001",
         title: "[E] PY027-E-001 · AAPCME0006 · pymntDt 누락",
+        tcHistVersion: 2,
       },
     ];
     const { nodes } = buildBindingCanvasGraph(named, {}, []);
     const stepNode = nodes.find((n) => n.kind === "step");
     expect(stepNode?.label).toBe("PY027-E-001");
     expect(stepNode?.subtitle).toContain("pymntDt");
+    expect(stepNode?.subtitle).not.toContain("v2");
+    expect(stepNode?.versionLabel).toBe("v2");
   });
 
   it("maps startVar inject as edge from Start", () => {

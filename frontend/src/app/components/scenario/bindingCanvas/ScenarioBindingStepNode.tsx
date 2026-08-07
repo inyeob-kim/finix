@@ -64,6 +64,7 @@ export function ScenarioBindingStepNode({
           order={`TC${(node.stepIndex ?? 0) + 1}`}
           title={node.label}
           subtitle={node.subtitle}
+          headerRight={node.versionLabel}
           className="w-full min-w-0 max-w-none"
         />
       </button>

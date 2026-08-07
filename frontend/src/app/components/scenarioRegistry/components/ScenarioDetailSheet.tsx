@@ -656,11 +656,11 @@ export function ScenarioDetailSheet({
                               <FinixFlowStepCard
                                 order={`TC${idx + 1}`}
                                 title={runStepCaseIdLabel(step)}
+                                headerRight={pinMeta}
                                 subtitle={[
                                   runStepShortDescription(step) ||
                                     step.title?.trim() ||
                                     step.serviceCode,
-                                  pinMeta,
                                   linkCount > 0
                                     ? `연결 ${linkCount}`
                                     : null,

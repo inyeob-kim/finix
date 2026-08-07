@@ -176,8 +176,8 @@ describe("poolCaseLiveRef", () => {
     expect(formatPinnedVersionLine(3, 5)).toBe("v3 (최신 v5)");
     expect(formatPinnedVersionLine(3, 3)).toBe("v3");
     expect(formatPinnedVersionLine(undefined, 5)).toBe("미핀");
-    expect(formatPinFlowLabel(2)).toBe("현재 v2");
-    expect(formatPinFlowLabel(undefined)).toBe("미핀 · 실행 시 라이브 풀");
+    expect(formatPinFlowLabel(2)).toBe("v2");
+    expect(formatPinFlowLabel(undefined)).toBe("미핀");
     expect(
       resolveTcPinBadge(
         pick({
