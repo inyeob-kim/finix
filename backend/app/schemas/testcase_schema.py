@@ -25,6 +25,10 @@ class TestCaseRead(BaseModel):
     expected_status: int | None
     expected_body: dict[str, Any]
     created_at: datetime
+    tc_hist_version: int | None = Field(
+        default=None,
+        description="Latest fnx_testcase_hist.version for the current pool row.",
+    )
 
 
 class TestCaseRefV1(BaseModel):
@@ -32,6 +36,11 @@ class TestCaseRefV1(BaseModel):
 
     svc_code: str = Field(..., min_length=1, max_length=64)
     rule_case_id: str = Field(..., min_length=1, max_length=64)
+    tc_hist_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Pinned fnx_testcase_hist.version; omit to pin latest on attach.",
+    )
 
 
 class TestCasePatchV1(BaseModel):
@@ -45,7 +54,11 @@ class TestCasePatchV1(BaseModel):
     expected_body: dict[str, Any] | None = None
 
 
-def testcase_entity_to_read(entity: FnxTestcase) -> TestCaseRead:
+def testcase_entity_to_read(
+    entity: FnxTestcase,
+    *,
+    tc_hist_version: int | None = None,
+) -> TestCaseRead:
     """Map ORM fnx_testcase to API read model."""
     return TestCaseRead(
         inst_cd=entity.inst_cd,
@@ -59,4 +72,5 @@ def testcase_entity_to_read(entity: FnxTestcase) -> TestCaseRead:
         expected_status=entity.expected_status,
         expected_body=loads_json(entity.expected_body_json, {}),
         created_at=entity.created_at,
+        tc_hist_version=tc_hist_version,
     )

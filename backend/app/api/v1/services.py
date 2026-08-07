@@ -82,7 +82,7 @@ async def materialize_test_case_pool(
         yaml_text=payload.yaml_text,
         inst_cd=inst_cd,
     )
-    return [testcase_entity_to_read(r) for r in rows]
+    return await testcase_service.to_reads(rows)
 
 
 @router.post(
@@ -105,7 +105,7 @@ async def materialize_one_rule_case(
         yaml_text=payload.yaml_text,
         inst_cd=inst_cd,
     )
-    return testcase_entity_to_read(row)
+    return await testcase_service.to_read(row)
 
 
 @router.post(

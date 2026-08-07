@@ -87,6 +87,7 @@ export function ScenarioConnectionWizardStep({
           name: s.serviceName,
           title: s.title,
           ruleId: s.ruleId,
+          tcHistVersion: s.tcHistVersion,
         })),
         bindings,
       ),

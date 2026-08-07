@@ -18,6 +18,8 @@ from app.core.exceptions import EntityNotFoundError, InvalidInputError
 from app.models.fnx_rule_doc_current import ServiceRuleCurrent
 from app.models.fnx_rule_doc_hist import ServiceRuleHistory
 from app.schemas.service_rules_schema import (
+    PostmanRulesImportPreflightRequest,
+    PostmanRulesImportPreflightResponse,
     PostmanRulesImportRequest,
     PostmanRulesImportResponse,
     PostmanServiceImportResultRead,
@@ -267,6 +269,34 @@ async def list_rules_registry(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.post(
+    "/import-from-postman/preflight",
+    response_model=PostmanRulesImportPreflightResponse,
+    summary="Parse Postman and list draft conflicts before import",
+)
+async def import_from_postman_preflight(
+    payload: PostmanRulesImportPreflightRequest,
+    service: PostmanRulesImportService = Depends(get_postman_rules_import_service),
+    institutions: InstitutionService = Depends(get_institution_service),
+) -> PostmanRulesImportPreflightResponse:
+    """Env substitute + parse + catalog match + draft presence (no AI / no write)."""
+    inst_cd = await institutions.assert_active(payload.inst_cd)
+    result = await service.preflight_collection(
+        payload.collection,
+        environment=payload.environment,
+        inst_cd=inst_cd,
+    )
+    return PostmanRulesImportPreflightResponse(
+        matched_services=list(result.matched_services),
+        draft_services=list(result.draft_services),
+        unmatched=[
+            PostmanUnmatchedRequestRead(**u.as_dict()) for u in result.unmatched
+        ],
+        request_count=result.request_count,
+        notes=list(result.notes),
     )
 
 

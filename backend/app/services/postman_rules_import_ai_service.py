@@ -16,6 +16,7 @@ from app.domain.postman_rules_plans import (
 )
 from app.domain.yaml_rules_merge import summarize_base_rule
 from app.integrations.llm_client import LlmClient
+from app.core.logger import get_logger
 from app.prompts.postman_rules_create_prompt import (
     build_create_system_prompt,
     build_create_user_prompt,
@@ -24,7 +25,12 @@ from app.prompts.postman_rules_merge_prompt import (
     build_merge_system_prompt,
     build_merge_user_prompt,
 )
+from app.prompts.postman_script_intent_prompt import (
+    build_script_intent_system_prompt,
+    build_script_intent_user_prompt,
+)
 
+logger = get_logger(__name__)
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\n|\n```$", re.MULTILINE)
 
 
@@ -51,6 +57,7 @@ def _candidate_payload(c: PostmanRequestCandidate) -> dict[str, Any]:
         "body": c.body,
         "description": c.description[:500],
         "test_script_excerpt": c.test_script_excerpt[:800],
+        "prerequest_script_excerpt": c.prerequest_script_excerpt[:800],
     }
 
 
@@ -209,3 +216,42 @@ class PostmanRulesImportAiService:
             base_rules=base_rules,
             candidates=[_candidate_payload(c) for c in candidates],
         )
+
+    async def classify_script_intents(
+        self,
+        unknowns: list[dict[str, Any]],
+        *,
+        existing_catalog: list[dict[str, Any]] | None = None,
+        batch_size: int = 12,
+    ) -> list[dict[str, Any]]:
+        """Classify unresolved script set() vars in batches; merge all rows."""
+        if not unknowns:
+            return []
+        size = max(1, int(batch_size))
+        out: list[dict[str, Any]] = []
+        total = len(unknowns)
+        for start in range(0, total, size):
+            chunk = unknowns[start : start + size]
+            try:
+                raw = await self._llm.complete_json(
+                    system_prompt=build_script_intent_system_prompt(),
+                    user_prompt=build_script_intent_user_prompt(
+                        unknowns=chunk,
+                        existing_catalog=existing_catalog,
+                    ),
+                )
+                data = _loads_json_object(raw)
+                rows = data.get("variables")
+                if not isinstance(rows, list):
+                    continue
+                batch_rows = [row for row in rows if isinstance(row, dict)]
+                out.extend(batch_rows)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "postman script intent batch %s-%s/%s failed: %s",
+                    start,
+                    start + len(chunk),
+                    total,
+                    exc,
+                )
+        return out

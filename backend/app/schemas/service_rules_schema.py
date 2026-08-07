@@ -168,10 +168,36 @@ class PostmanRulesImportRequest(BaseModel):
     created_by: str | None = Field(default=None, max_length=128)
 
 
+class PostmanRulesImportPreflightRequest(BaseModel):
+    """Light parse/match only — used before confirming draft overwrite."""
+
+    inst_cd: str = Field(min_length=1, description="기관코드 (instCd)")
+    collection: Any = Field(
+        description="Postman Collection object, single request export, or item list.",
+    )
+    environment: Any | None = Field(
+        default=None,
+        description="Optional Postman Environment export; values override collection variables.",
+    )
+
+
 class PostmanUnmatchedRequestRead(BaseModel):
     name: str
     method: str
     path: str
+
+
+class PostmanRulesImportPreflightResponse(BaseModel):
+    """Parse + service match + which matched services already have a working draft."""
+
+    matched_services: list[str] = Field(default_factory=list)
+    draft_services: list[str] = Field(
+        default_factory=list,
+        description="Subset of matched_services that already have a working draft.",
+    )
+    unmatched: list[PostmanUnmatchedRequestRead] = Field(default_factory=list)
+    request_count: int = 0
+    notes: list[str] = Field(default_factory=list)
 
 
 class PostmanServiceImportResultRead(BaseModel):

@@ -47,7 +47,7 @@ export function poolCaseLiveMessage(status: PoolCaseLiveStatus): string {
     case "empty":
       return "원본 Input이 비어 있습니다. YAML을 채운 뒤 풀을 다시 생성하세요.";
     case "changed":
-      return "원본이 변경되었습니다. 확인 후 다시 실행할 수 있습니다.";
+      return "원본 풀이 최신화되었습니다. 시나리오는 기존 버전을 유지합니다. 최신으로 갱신하려면 버튼을 누르세요.";
     case "no_case_id":
       return "case_id를 확인할 수 없습니다. 풀 테스트케이스를 다시 선택하세요.";
     default:
@@ -106,7 +106,13 @@ export function evaluatePickLiveHealth(
     };
   }
   const pinned = pick.pinnedFingerprint?.trim();
-  if (pinned && pinned !== fingerprint) {
+  const liveVersion = live.tcHistVersion;
+  const pinnedVersion = pick.tcHistVersion;
+  const versionChanged =
+    pinnedVersion != null &&
+    liveVersion != null &&
+    pinnedVersion !== liveVersion;
+  if ((pinned && pinned !== fingerprint) || versionChanged) {
     return {
       status: "changed",
       message: poolCaseLiveMessage("changed"),
@@ -140,34 +146,47 @@ export function rebindPicksToLivePool(
   });
 }
 
-/** First open: pin current live body so later rematerialize can detect changes. */
+/** First open: pin current live body/version so later rematerialize can detect changes. */
 export function hydratePickFingerprints(
   picks: ScenarioRuleTestcaseRef[],
   poolRows: ScenarioRuleTestcaseRef[],
 ): ScenarioRuleTestcaseRef[] {
   return picks.map((pick) => {
-    if (pick.pinnedFingerprint) return pick;
     const live = findLivePoolRow(pick, poolRows);
-    if (!live?.pinnedFingerprint) return pick;
-    if (live.pinnedFingerprint === EMPTY_BODY_FP) return pick;
-    return { ...pick, pinnedFingerprint: live.pinnedFingerprint };
+    let next = pick;
+    if (!pick.pinnedFingerprint) {
+      if (
+        live?.pinnedFingerprint &&
+        live.pinnedFingerprint !== EMPTY_BODY_FP
+      ) {
+        next = { ...next, pinnedFingerprint: live.pinnedFingerprint };
+      }
+    }
+    if (next.tcHistVersion == null && live?.tcHistVersion != null) {
+      next = { ...next, tcHistVersion: live.tcHistVersion };
+    }
+    return next;
   });
 }
 
+/** Explicitly bump the scenario pin to the current live pool version. */
 export function acknowledgePickFingerprint(
   pick: ScenarioRuleTestcaseRef,
   poolRows: ScenarioRuleTestcaseRef[],
 ): ScenarioRuleTestcaseRef {
   const health = evaluatePickLiveHealth(pick, poolRows);
-  if (!health.liveFingerprint || health.status === "missing") {
+  if (health.status === "missing" || health.status === "empty") {
     return pick;
   }
-  if (health.status === "empty") {
-    return pick;
-  }
+  const live = findLivePoolRow(pick, poolRows);
+  if (!live) return pick;
   return {
     ...pick,
-    pinnedFingerprint: health.liveFingerprint,
+    pinnedFingerprint: health.liveFingerprint ?? live.pinnedFingerprint,
+    tcHistVersion: live.tcHistVersion ?? pick.tcHistVersion,
+    title: live.title,
+    description: live.description ?? pick.description,
+    ruleType: live.ruleType ?? pick.ruleType,
   };
 }
 
@@ -177,7 +196,8 @@ export function anyPickBlocksRun(
 ): string | null {
   for (const pick of picks) {
     const health = evaluatePickLiveHealth(pick, poolRows);
-    if (health.status !== "ok") {
+    // "changed" is a soft warning — pinned hist still runs until user refreshes.
+    if (health.status !== "ok" && health.status !== "changed") {
       const label = pick.ruleId ?? pick.title;
       return `${label}: ${health.message}`;
     }
@@ -186,5 +206,5 @@ export function anyPickBlocksRun(
 }
 
 export function isBlockingLiveStatus(status: PoolCaseLiveStatus): boolean {
-  return status !== "ok";
+  return status !== "ok" && status !== "changed";
 }

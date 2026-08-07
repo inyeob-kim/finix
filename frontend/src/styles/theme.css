@@ -190,6 +190,46 @@
   .login-flow-enter {
     animation: login-flow-rise 0.9s ease-out both;
   }
+
+  /* YAML job progress — soft Cursor-like wave on the active step */
+  .finix-job-step-wave {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .finix-job-step-wave::before {
+    content: "";
+    position: absolute;
+    inset: -2px 0;
+    border-radius: 3px;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 35%,
+      color-mix(in oklab, var(--primary) 10%, transparent) 50%,
+      transparent 65%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: finix-job-wave 2.6s ease-in-out infinite;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .finix-job-step-shimmer {
+    background-image: linear-gradient(
+      100deg,
+      var(--muted-foreground) 0%,
+      var(--foreground) 42%,
+      var(--muted-foreground) 84%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: finix-job-shimmer 2.4s ease-in-out infinite;
+  }
 }
 
 @keyframes login-glow-breathe {
@@ -212,5 +252,23 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes finix-job-wave {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes finix-job-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
   }
 }

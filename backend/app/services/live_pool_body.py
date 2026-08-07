@@ -13,14 +13,15 @@ async def apply_live_pool_bodies_to_testcases(
     testcases: list[FnxTestcase],
 ) -> None:
     """
-    Re-fetch each row from ``fnx_testcase`` so a run uses the latest pool body.
+    Re-fetch unpinned rows from ``fnx_testcase`` so a run uses the latest pool body.
 
-    Rows loaded elsewhere in the same request may be stale (e.g. materialized
-    right before running); this guards against that by re-reading the current
-    pool row by natural key. Raises when a pool case is missing or has an
-    empty body. Mutates ``testcases`` in place (replaces stale rows).
+    Rows loaded from ``fnx_testcase_hist`` (pinned via ``scenario_tc_hist_version``)
+    are left unchanged. Raises when an unpinned pool case is missing or has an
+    empty body. Mutates ``testcases`` in place (replaces stale live rows).
     """
     for idx, tc in enumerate(testcases):
+        if getattr(tc, "scenario_tc_hist_version", None) is not None:
+            continue
         live = await tc_repo.get(
             inst_cd=tc.inst_cd,
             svc_code=tc.svc_code,

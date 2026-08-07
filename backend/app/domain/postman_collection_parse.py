@@ -25,6 +25,7 @@ class PostmanRequestCandidate:
     body: dict[str, Any]
     description: str
     test_script_excerpt: str
+    prerequest_script_excerpt: str = ""
 
 
 def _coerce_json_object(parsed: Any) -> dict[str, Any]:
@@ -198,7 +199,8 @@ def _parse_body(request: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _event_script_text(item: dict[str, Any], listen: str) -> str:
+def event_script_text(item: dict[str, Any], listen: str, *, max_len: int = 2000) -> str:
+    """Join Postman ``event[].script.exec`` lines for *listen* (test / prerequest)."""
     events = item.get("event")
     if not isinstance(events, list):
         return ""
@@ -218,7 +220,14 @@ def _event_script_text(item: dict[str, Any], listen: str) -> str:
         elif isinstance(script, str):
             chunks.append(script)
     text = "\n".join(chunks).strip()
-    return text[:2000] if text else ""
+    if not text:
+        return ""
+    return text[:max_len] if max_len > 0 else text
+
+
+def _event_script_text(item: dict[str, Any], listen: str) -> str:
+    """Backward-compatible alias for :func:`event_script_text`."""
+    return event_script_text(item, listen)
 
 
 def _walk_items(
@@ -289,7 +298,8 @@ def parse_collection_requests(payload: Any) -> list[PostmanRequestCandidate]:
                 path=path,
                 body=_parse_body(request),
                 description=description,
-                test_script_excerpt=_event_script_text(item, "test"),
+                test_script_excerpt=event_script_text(item, "test"),
+                prerequest_script_excerpt=event_script_text(item, "prerequest"),
             )
         )
     return candidates

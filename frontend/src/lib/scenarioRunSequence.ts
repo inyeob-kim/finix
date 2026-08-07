@@ -38,6 +38,8 @@ export type ScenarioRunStep = {
   /** YAML case_id e.g. ``PY023-N-001``; also the pool natural key (rule_case_id). */
   ruleId?: string;
   title: string;
+  /** Pinned fnx_testcase_hist.version for scenario freeze. */
+  tcHistVersion?: number;
 };
 
 /** Label for run-step chips (``PY023-N-001`` style). */
@@ -66,6 +68,7 @@ export function buildRunStepsFromPicks(
         p.serviceCode,
       ruleId,
       title,
+      tcHistVersion: p.tcHistVersion,
     };
   });
 }
@@ -76,9 +79,15 @@ export function buildPerStepFromRunSteps(
 ): TestCaseRefDto[][] {
   return steps.map((s) => {
     const ruleCaseId = s.ruleId?.trim();
-    return ruleCaseId
-      ? [{ svc_code: s.serviceCode, rule_case_id: ruleCaseId }]
-      : [];
+    if (!ruleCaseId) return [];
+    const ref: TestCaseRefDto = {
+      svc_code: s.serviceCode,
+      rule_case_id: ruleCaseId,
+    };
+    if (s.tcHistVersion != null && s.tcHistVersion > 0) {
+      ref.tc_hist_version = s.tcHistVersion;
+    }
+    return [ref];
   });
 }
 

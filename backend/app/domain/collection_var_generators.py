@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import hashlib
 import json
 import random
 import re
@@ -47,6 +48,7 @@ _ALLOWED_IMPL_KINDS = frozenset(
     {
         "date_offset",
         "random_digits",
+        "random_birthdate_yyyymmdd",
         "uuid",
         "korean_name",
         "korean_rrn",
@@ -75,6 +77,217 @@ class CatalogGeneratorSpec:
 
 def is_valid_generator_key(key: str) -> bool:
     return bool(_KEY_RE.match((key or "").strip()))
+
+
+_HANGUL_RE = re.compile(r"[가-힣]")
+_CAMEL_RE = re.compile(r"^[a-z]+(?:[A-Z][a-z0-9]+)+$")
+_PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
+_IDENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+def looks_like_var_or_field_name(text: str) -> bool:
+    """True when text looks like a code/variable id, not a business label."""
+    t = (text or "").strip()
+    if not t or _HANGUL_RE.search(t):
+        return False
+    if " " in t or "-" in t:
+        # Spaced English labels like "12-digit random" are ok as labels.
+        return False
+    if _CAMEL_RE.match(t) or _PASCAL_RE.match(t):
+        return True
+    # Bare identifiers (actorId, enName, actor_id) are poor display labels.
+    if _IDENT_RE.match(t):
+        return True
+    return False
+
+
+def key_looks_like_scenario_var(key: str) -> bool:
+    """True when generator key was derived from a Postman/scenario field name."""
+    raw = (key or "").strip()
+    if not raw:
+        return True
+    if raw.lower().startswith("pm_"):
+        return True
+    if _CAMEL_RE.match(raw) or _PASCAL_RE.match(raw):
+        return True
+    low = raw.lower()
+    # Capability-oriented keys keep shape words; bare field ids do not.
+    capability_tokens = (
+        "random",
+        "digit",
+        "date",
+        "list",
+        "pick",
+        "name",
+        "uuid",
+        "today",
+        "birth",
+        "rrn",
+        "offset",
+        "english",
+        "korean",
+        "pakistani",
+        "custom",
+    )
+    if any(tok in low for tok in capability_tokens):
+        return False
+    return True
+
+
+def _looks_like_person_name(value: str) -> bool:
+    t = (value or "").strip()
+    if not t or len(t) > 40:
+        return False
+    if _HANGUL_RE.search(t):
+        return 1 <= len(t) <= 6
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z .'-]{0,38}", t))
+
+
+def _pick_list_is_person_names(values: list[Any]) -> bool:
+    sample = [str(v) for v in values[:8] if str(v).strip()]
+    if len(sample) < 2:
+        return False
+    return all(_looks_like_person_name(v) for v in sample)
+
+
+def _pick_list_is_hangul_names(values: list[Any]) -> bool:
+    sample = [str(v).strip() for v in values[:8] if str(v).strip()]
+    if not sample:
+        return False
+    return all(bool(_HANGUL_RE.search(v)) for v in sample)
+
+
+def default_business_label(
+    impl_kind: str,
+    impl: dict[str, Any] | None = None,
+    *,
+    alias: str = "",
+) -> str:
+    """Human-facing capability name (Korean) for catalog reuse."""
+    kind = (impl_kind or "").strip().lower()
+    p = impl or {}
+    if kind == "random_digits":
+        n = int(p.get("length") or 10)
+        return f"난수 {n}자리"
+    if kind == "random_birthdate_yyyymmdd":
+        lo = int(p.get("min_age") or 18)
+        hi = int(p.get("max_age") or 80)
+        return f"생년월일({lo}~{hi}세, YYYYMMDD)"
+    if kind == "date_offset":
+        unit = str(p.get("unit") or "days")
+        n = int(p.get("n") or 0)
+        unit_ko = {"days": "일", "months": "개월", "years": "년"}.get(unit, unit)
+        fmt = str(p.get("format") or "YYYYMMDD")
+        if n == 0:
+            return f"오늘 날짜({fmt})"
+        direction = "전" if n < 0 else "후"
+        return f"{abs(n)}{unit_ko}{direction} 날짜({fmt})"
+    if kind == "today_yyyymmdd":
+        return "오늘 날짜"
+    if kind == "uuid":
+        return "UUID"
+    if kind == "korean_name":
+        return "한글 이름"
+    if kind == "korean_rrn":
+        return "주민번호"
+    if kind == "pick_from_list":
+        values = p.get("values") if isinstance(p.get("values"), list) else []
+        n = len(values)
+        if _pick_list_is_person_names(values):
+            if _pick_list_is_hangul_names(values):
+                return "한글 이름 목록"
+            return "영문 이름 목록"
+        return f"목록 랜덤 선택({n}개)" if n else "목록 랜덤 선택"
+    return "커스텀 생성기"
+
+
+def default_capability_key(
+    impl_kind: str,
+    impl: dict[str, Any] | None = None,
+    *,
+    alias: str = "",
+) -> str:
+    """Stable snake_case key from capability (not from scenario var names)."""
+    kind = (impl_kind or "").strip().lower()
+    p = impl or {}
+    if kind == "random_digits":
+        n = int(p.get("length") or 10)
+        key = f"random_digits_{n}" if n != 10 else "random_digits"
+        return key if is_valid_generator_key(key) else "random_digits"
+    if kind == "random_birthdate_yyyymmdd":
+        return "birthdate_yyyymmdd"
+    if kind == "date_offset":
+        unit = str(p.get("unit") or "days")
+        n = int(p.get("n") or 0)
+        sign = "minus" if n < 0 else "plus"
+        key = f"date_{sign}_{abs(n)}_{unit}"
+        return key if is_valid_generator_key(key) else "date_offset"
+    if kind in {
+        "today_yyyymmdd",
+        "uuid",
+        "korean_name",
+        "korean_rrn",
+    }:
+        return kind
+    if kind == "pick_from_list":
+        values = p.get("values") if isinstance(p.get("values"), list) else []
+        # Fallback keys only when AI/caller omitted a capability key.
+        if _pick_list_is_person_names(values):
+            keyed = (
+                "korean_name_list"
+                if _pick_list_is_hangul_names(values)
+                else "english_name"
+            )
+            return keyed if is_valid_generator_key(keyed) else "english_name"
+        return "value_list" if is_valid_generator_key("value_list") else "custom_generator"
+    return "custom_generator"
+
+
+def normalize_generator_naming(
+    *,
+    key: str,
+    label: str,
+    impl_kind: str,
+    impl: dict[str, Any] | None = None,
+    alias: str = "",
+) -> tuple[str, str]:
+    """
+    Prefer capability-based key/label over Postman/scenario variable names.
+
+    Returns (key, label).
+    """
+    p = impl or {}
+    kind = (impl_kind or "").strip().lower()
+    cap_key = default_capability_key(kind, p, alias=alias)
+    cap_label = default_business_label(kind, p, alias=alias)
+
+    next_label = (label or "").strip()
+    if not next_label or looks_like_var_or_field_name(next_label) or next_label == key:
+        next_label = cap_label
+    # Upgrade generic "이름 목록 랜덤" style when we can be more specific
+    if kind == "pick_from_list" and next_label.startswith("이름 목록"):
+        next_label = cap_label
+
+    next_key = (key or "").strip().lower()
+    if (
+        not next_key
+        or not is_valid_generator_key(next_key)
+        or key_looks_like_scenario_var(next_key)
+        or next_key.startswith("list_pick_")
+        or re.fullmatch(
+            r"(?:english_name|korean_name|value_list)_[a-f0-9]{4,}",
+            next_key,
+        )
+    ):
+        next_key = cap_key
+    if not is_valid_generator_key(next_key):
+        next_key = cap_key
+    return next_key, next_label[:128]
+
+
+def _stable_list_digest(values: list[str]) -> str:
+    payload = "\0".join(values[:50]).encode("utf-8", errors="ignore")
+    return hashlib.sha1(payload).hexdigest()[:8]
 
 
 def normalize_builtin_id(raw: str | None) -> str | None:
@@ -171,6 +384,26 @@ def _add_years(base: date, years: int) -> date:
     return _add_months(base, years * 12)
 
 
+def resolve_random_birthdate(impl: dict[str, Any]) -> str:
+    """Random YYYYMMDD birth date for ages in [min_age, max_age]."""
+    try:
+        min_age = int(impl.get("min_age") or 18)
+    except (TypeError, ValueError):
+        min_age = 18
+    try:
+        max_age = int(impl.get("max_age") or 80)
+    except (TypeError, ValueError):
+        max_age = 80
+    min_age = max(0, min(120, min_age))
+    max_age = max(min_age, min(120, max_age))
+    today = date.today()
+    latest = _add_years(today, -min_age)
+    earliest = _add_years(today, -max_age)
+    span = max(0, (latest - earliest).days)
+    out = earliest + timedelta(days=random.randint(0, span))
+    return _format_date(out, "YYYYMMDD")
+
+
 def resolve_date_offset(impl: dict[str, Any]) -> str:
     unit = str(impl.get("unit") or "days").lower()
     try:
@@ -213,6 +446,8 @@ def resolve_catalog_spec(spec: CatalogGeneratorSpec) -> str:
     impl = spec.impl or {}
     if kind == "date_offset":
         return resolve_date_offset(impl)
+    if kind == "random_birthdate_yyyymmdd":
+        return resolve_random_birthdate(impl)
     if kind == "random_digits":
         return _random_digits(int(impl.get("length") or 10))
     if kind == "pick_from_list":
@@ -304,6 +539,18 @@ def validate_custom_impl(impl_kind: str, impl: dict[str, Any]) -> dict[str, Any]
         if fmt not in ("YYYYMMDD", "YYYY-MM-DD"):
             fmt = "YYYYMMDD"
         return {"unit": unit, "n": max(-3650, min(3650, n)), "format": fmt}
+    if kind == "random_birthdate_yyyymmdd":
+        try:
+            min_age = int(impl.get("min_age") or 18)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("random_birthdate_yyyymmdd.min_age 가 숫자가 아닙니다.") from exc
+        try:
+            max_age = int(impl.get("max_age") or 80)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("random_birthdate_yyyymmdd.max_age 가 숫자가 아닙니다.") from exc
+        min_age = max(0, min(120, min_age))
+        max_age = max(min_age, min(120, max_age))
+        return {"min_age": min_age, "max_age": max_age}
     if kind == "random_digits":
         try:
             length = int(impl.get("length") or 10)
@@ -342,3 +589,129 @@ def parse_impl_json(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def generator_returns_hint(
+    impl_kind: str,
+    impl: dict[str, Any] | None = None,
+) -> str:
+    """Short description of the runtime return value shape."""
+    kind = (impl_kind or "").strip().lower()
+    p = impl or {}
+    if kind == "random_digits":
+        length = int(p.get("length") or 10)
+        return f"{length}-digit numeric string (0-9 only)"
+    if kind == "uuid":
+        return "UUID string (v4)"
+    if kind == "today_yyyymmdd":
+        return "date string YYYYMMDD (system today)"
+    if kind == "random_birthdate_yyyymmdd":
+        lo = int(p.get("min_age") or 18)
+        hi = int(p.get("max_age") or 80)
+        return f"date string YYYYMMDD (random age {lo}..{hi})"
+    if kind == "korean_name":
+        return "Korean full name string (family+given)"
+    if kind == "korean_rrn":
+        return "synthetic Korean RRN string"
+    if kind == "date_offset":
+        unit = str(p.get("unit") or "days")
+        n = p.get("n", 0)
+        fmt = str(p.get("format") or "YYYYMMDD")
+        return f"date string {fmt} (today {n:+} {unit})"
+    if kind == "pick_from_list":
+        raw = p.get("values")
+        n = len(raw) if isinstance(raw, list) else 0
+        return f"one string chosen from a fixed list ({n} values)"
+    return "string"
+
+
+def build_generator_description(
+    *,
+    impl_kind: str,
+    impl: dict[str, Any] | None = None,
+    purpose: str = "",
+    source: str = "",
+    var_name: str = "",
+) -> str:
+    """
+    Persistable metadata for humans and AI matching.
+
+    Stored in ``description`` (max ~512). Keeps returns / purpose / source
+    in a stable line-oriented shape.
+    """
+    p = impl or {}
+    returns = generator_returns_hint(impl_kind, p)
+    lines = [f"Returns: {returns}."]
+    if purpose.strip():
+        lines.append(f"Purpose: {purpose.strip()}.")
+    kind = (impl_kind or "").strip().lower()
+    if kind == "pick_from_list":
+        values = p.get("values") if isinstance(p.get("values"), list) else []
+        samples = [str(v) for v in values[:5]]
+        if samples:
+            more = f" (+{len(values) - 5} more)" if len(values) > 5 else ""
+            lines.append(f"Samples: {', '.join(samples)}{more}.")
+    if kind == "random_digits":
+        length = int(p.get("length") or 10)
+        lines.append(f"Params: length={length}.")
+    if kind == "random_birthdate_yyyymmdd":
+        lines.append(
+            f"Params: min_age={int(p.get('min_age') or 18)}, "
+            f"max_age={int(p.get('max_age') or 80)}."
+        )
+    if var_name.strip():
+        # Field/var aliases help AI match; never use as the generator display name.
+        lines.append(f"Aliases: `{var_name.strip()}`.")
+    if source.strip():
+        lines.append(f"Source: {source.strip()}.")
+    text = " ".join(lines)
+    return text[:512]
+
+
+def summarize_generator_for_ai(
+    *,
+    key: str,
+    label: str,
+    impl_kind: str | None,
+    impl: dict[str, Any] | None = None,
+    description: str = "",
+    source: str = "shared",
+) -> dict[str, Any]:
+    """Compact catalog card for LLM reuse/create decisions."""
+    kind = (impl_kind or key or "").strip()
+    p = impl or {}
+    returns = generator_returns_hint(kind, p)
+    samples: list[str] = []
+    if kind == "pick_from_list" and isinstance(p.get("values"), list):
+        samples = [str(v) for v in p["values"][:8]]
+    return {
+        "key": key,
+        "label": label,
+        "source": source,
+        "impl_kind": kind,
+        "returns": returns,
+        "description": (description or "").strip()[:400],
+        "samples": samples,
+        # Keep a trimmed impl for length / date params (not huge lists).
+        "impl_summary": (
+            {"length": p.get("length")}
+            if kind == "random_digits"
+            else (
+                {"min_age": p.get("min_age"), "max_age": p.get("max_age")}
+                if kind == "random_birthdate_yyyymmdd"
+                else (
+                    {
+                        "unit": p.get("unit"),
+                        "n": p.get("n"),
+                        "format": p.get("format"),
+                    }
+                    if kind == "date_offset"
+                    else (
+                        {"value_count": len(p.get("values") or [])}
+                        if kind == "pick_from_list"
+                        else {}
+                    )
+                )
+            )
+        ),
+    }

@@ -25,6 +25,10 @@ function mapPoolRow(
     title: row.name,
     description: parsed.shortLabel,
     pinnedFingerprint: fingerprintRequestBody(row.request_body),
+    tcHistVersion:
+      row.tc_hist_version != null && row.tc_hist_version > 0
+        ? row.tc_hist_version
+        : undefined,
   };
 }
 

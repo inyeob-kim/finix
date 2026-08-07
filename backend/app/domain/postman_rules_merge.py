@@ -94,6 +94,7 @@ def reindex_candidates(
             body=c.body,
             description=c.description,
             test_script_excerpt=c.test_script_excerpt,
+            prerequest_script_excerpt=c.prerequest_script_excerpt,
         )
         for i, c in enumerate(candidates)
     ]

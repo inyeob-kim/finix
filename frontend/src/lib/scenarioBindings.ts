@@ -454,6 +454,8 @@ export function buildScenarioStepsWithBindings(
     title?: string;
     /** Natural-key rule_case_id link to the pool testcase for this step. */
     ruleId?: string;
+    /** Pinned fnx_testcase_hist.version. */
+    tcHistVersion?: number;
   }>,
   bindings: StepBindingsByStepKey | StepBindingsByServiceCode | undefined,
 ): Array<{
@@ -464,6 +466,7 @@ export function buildScenarioStepsWithBindings(
   reason: string;
   service_code: string;
   rule_case_id: string | null;
+  tc_hist_version: number | null;
   extracts: BindingExtractSpec[];
   injects: BindingInjectSpec[];
   overrides: BindingOverrideSpec[];
@@ -479,6 +482,8 @@ export function buildScenarioStepsWithBindings(
       reason: `code=${s.code}`,
       service_code: s.code,
       rule_case_id: s.ruleId?.trim() || null,
+      tc_hist_version:
+        s.tcHistVersion != null && s.tcHistVersion > 0 ? s.tcHistVersion : null,
       extracts: cleanRows(cfg.extracts),
       injects: cleanRows(cfg.injects),
       overrides: cleanOverrideRows(cfg.overrides ?? []),

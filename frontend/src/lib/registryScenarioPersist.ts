@@ -1,3 +1,4 @@
+import { ApiError } from "@/api/client";
 import {
   createScenarioShell,
   saveScenarioDefinition,
@@ -17,6 +18,14 @@ import {
   type ScenarioPostmanConfig,
 } from "@/lib/scenarioPostmanVariables";
 
+function isMissingScenarioError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    /Scenario not found/i.test(error.message)
+  );
+}
+
 export async function persistRegistryScenarioToDb(input: {
   title: string;
   prompt?: string;
@@ -35,16 +44,19 @@ export async function persistRegistryScenarioToDb(input: {
   const title = input.title.trim() || "시나리오";
   const prompt = input.prompt?.trim() || title;
   const markSaved = input.markSaved ?? true;
-  const scenarioId =
+  let scenarioId =
     input.existingScenarioId != null && Number.isFinite(input.existingScenarioId)
       ? input.existingScenarioId
-      : (
-          await createScenarioShell({
-            title,
-            prompt,
-            is_saved: markSaved,
-          })
-        ).id;
+      : null;
+  if (scenarioId == null) {
+    scenarioId = (
+      await createScenarioShell({
+        title,
+        prompt,
+        is_saved: markSaved,
+      })
+    ).id;
+  }
   const picks = input.selectedRuleTestcases ?? [];
   const nameByCode = Object.fromEntries(
     input.serviceSequence.map((s) => [s.code, s.name]),
@@ -54,7 +66,7 @@ export async function persistRegistryScenarioToDb(input: {
   const hasPoolPicks = perStep.some((row) => row.length > 0);
   const normalizedPostman = ensurePostmanConfig(input.postmanConfig);
   const postman = postmanConfigToApi(normalizedPostman);
-  await saveScenarioDefinition(scenarioId, {
+  const definition = {
     title,
     prompt,
     steps: buildScenarioStepsWithBindings(
@@ -64,12 +76,29 @@ export async function persistRegistryScenarioToDb(input: {
         name: s.serviceName,
         title: s.title,
         ruleId: s.ruleId,
+        tcHistVersion: s.tcHistVersion,
       })),
       input.stepBindingsByStepKey,
     ),
     postman,
     per_step: hasPoolPicks ? perStep : undefined,
     mark_saved: markSaved,
-  });
+  };
+
+  try {
+    await saveScenarioDefinition(scenarioId, definition);
+  } catch (error) {
+    // Local registry may keep a stale backendScenarioId after DB reset/wipe.
+    if (!isMissingScenarioError(error)) throw error;
+    scenarioId = (
+      await createScenarioShell({
+        title,
+        prompt,
+        is_saved: markSaved,
+      })
+    ).id;
+    await saveScenarioDefinition(scenarioId, definition);
+  }
+
   return { scenarioId, hasAttachedCases: hasPoolPicks };
 }

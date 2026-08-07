@@ -15,7 +15,7 @@ from app.repositories.service_rules_repo import ServiceRulesRepository
 from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
 from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.rules_yaml.loader import load_service_rules
-from app.schemas.testcase_schema import TestCaseRefV1
+from app.schemas.testcase_schema import TestCaseRefV1, TestCaseRead, testcase_entity_to_read
 from app.utils.json_text import dumps_json, loads_json
 from app.utils.scenario_steps_document import (
     dump_steps_document,
@@ -54,6 +54,24 @@ class TestCaseService:
         if self._tc_repo is None:
             raise InvalidInputError("FnxTestcaseRepository가 설정되지 않았습니다.")
         return self._tc_repo
+
+    async def to_read(self, row: FnxTestcase) -> TestCaseRead:
+        """Map pool TC to API DTO, including latest hist version for scenario pinning."""
+        tc_repo = self._require_tc_repo()
+        pin = getattr(row, "scenario_tc_hist_version", None)
+        if isinstance(pin, int) and pin > 0:
+            return testcase_entity_to_read(row, tc_hist_version=pin)
+        hist = await tc_repo.latest_hist(
+            inst_cd=row.inst_cd,
+            svc_code=row.svc_code,
+            rule_case_id=row.rule_case_id,
+        )
+        return testcase_entity_to_read(
+            row, tc_hist_version=hist.version if hist is not None else None
+        )
+
+    async def to_reads(self, rows: list[FnxTestcase]) -> list[TestCaseRead]:
+        return [await self.to_read(row) for row in rows]
 
     @staticmethod
     def _extract_service_code(row: dict[str, Any]) -> str | None:
@@ -544,6 +562,7 @@ class TestCaseService:
 
         inst = require_inst_cd(inst_cd)
         await self._registry.ensure_default_runner_stub()
+        tc_repo = self._require_tc_repo()
         scenario = await self._metadata.get_scenario_by_id(scenario_id)
         if scenario is None:
             raise EntityNotFoundError("Scenario", scenario_id)
@@ -559,13 +578,31 @@ class TestCaseService:
             refs = per_step[step_i]
             row = dict(step) if isinstance(step, dict) else {}
             chosen: FnxTestcase | None = None
+            chosen_pin: int | None = None
             for ref in refs:
-                tc = await self.materialize_one_case(
-                    ref.svc_code,
-                    ref.rule_case_id,
-                    inst_cd=inst,
-                    require_applied=True,
-                )
+                if ref.tc_hist_version is not None:
+                    hist = await tc_repo.get_hist(
+                        inst_cd=inst,
+                        svc_code=ref.svc_code,
+                        rule_case_id=ref.rule_case_id,
+                        version=ref.tc_hist_version,
+                    )
+                    if hist is None:
+                        raise InvalidInputError(
+                            f"스텝 {step_i + 1}: 테스트케이스 버전 "
+                            f"{ref.svc_code}/{ref.rule_case_id} v{ref.tc_hist_version} "
+                            "을 찾을 수 없습니다.",
+                        )
+                    tc = tc_repo.testcase_from_hist(hist)
+                    pin_version = ref.tc_hist_version
+                else:
+                    tc = await self.materialize_one_case(
+                        ref.svc_code,
+                        ref.rule_case_id,
+                        inst_cd=inst,
+                        require_applied=True,
+                    )
+                    pin_version = await tc_repo.ensure_latest_hist_version(tc)
                 body = loads_json(tc.request_body_json, {})
                 if not isinstance(body, dict) or len(body) == 0:
                     raise InvalidInputError(
@@ -574,9 +611,11 @@ class TestCaseService:
                     )
                 if chosen is None:
                     chosen = tc
+                    chosen_pin = pin_version
             if chosen is not None:
                 row["service_code"] = chosen.svc_code
                 row["rule_case_id"] = chosen.rule_case_id
+                row["tc_hist_version"] = chosen_pin
                 resolved.append(chosen)
             updated_steps.append(row)
 
@@ -626,6 +665,7 @@ class TestCaseService:
                 pool_by_service[code] = []
 
         updated_steps: list[Any] = []
+        tc_repo = self._require_tc_repo()
         for row in raw_steps:
             if not isinstance(row, dict):
                 updated_steps.append(row)
@@ -639,6 +679,15 @@ class TestCaseService:
                     pool = pool_by_service.get(code) or []
                     if pool:
                         step["rule_case_id"] = pool[0].rule_case_id
+                cid = step.get("rule_case_id")
+                if isinstance(cid, str) and cid.strip():
+                    live = await tc_repo.get(
+                        inst_cd=inst, svc_code=code, rule_case_id=cid.strip()
+                    )
+                    if live is not None:
+                        step["tc_hist_version"] = (
+                            await tc_repo.ensure_latest_hist_version(live)
+                        )
             updated_steps.append(step)
 
         steps_json = dump_steps_document(updated_steps, postman_cfg)

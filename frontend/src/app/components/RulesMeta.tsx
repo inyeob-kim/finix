@@ -22,13 +22,6 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import {
   Sheet,
   SheetContent,
   SheetFooter,
@@ -117,10 +110,7 @@ import {
   type RulesMetaResumeState,
 } from "@/lib/rulesMetaResume";
 import { useAuthStore } from "../auth/authStore";
-import {
-  FINIX_LARGE_MODAL_CONTENT,
-  FINIX_STANDARD_SHEET_CONTENT,
-} from "@/lib/finixModalLayout";
+import { FINIX_STANDARD_SHEET_CONTENT } from "@/lib/finixModalLayout";
 import { cn } from "./ui/utils";
 
 type SortKey =
@@ -263,7 +253,6 @@ export function RulesMeta() {
   const yamlAiServiceInputRef = useRef<HTMLInputElement>(null);
   const yamlAiJobs = useYamlAiJobStore((s) => s.jobs);
   const startYamlAiJob = useYamlAiJobStore((s) => s.startJob);
-  const dismissYamlAiJob = useYamlAiJobStore((s) => s.dismissJob);
 
   const focusYamlAiServiceSearch = useCallback(() => {
     window.setTimeout(() => {
@@ -499,6 +488,10 @@ export function RulesMeta() {
 
   const registerPoolRefresh = useCallback((refresh: () => Promise<void>) => {
     poolRefreshRef.current = refresh;
+  }, []);
+
+  const handlePoolRowsChange = useCallback((rows: TestCaseReadDto[]) => {
+    setPoolRows(rows);
   }, []);
 
   const openEditorCaseRun = useCallback((caseId: string) => {
@@ -776,16 +769,6 @@ export function RulesMeta() {
     setYamlAiError(null);
   };
 
-  const openJobDraft = (job: YamlAiJob) => {
-    const bundle = job.bundle;
-    if (!bundle) return;
-    dismissYamlAiJob(job.id);
-    const row =
-      registry.find((r) => r.serviceCode === bundle.service_code) ??
-      bundleToRegistryItem(bundle);
-    void openEdit(row, bundle.id);
-  };
-
   const yamlAiSourceLen = yamlAiSource.trim().length;
   const yamlAiSourceReady = yamlAiSourceLen >= YAML_AI_MIN_SOURCE_LENGTH;
 
@@ -810,16 +793,16 @@ export function RulesMeta() {
       bodyClassName="overflow-hidden flex flex-col pt-3"
       actions={
         yamlAiJobs.length > 0 ? (
-          <YamlAiJobBanner onOpenBundle={openJobDraft} />
+          <YamlAiJobBanner />
         ) : undefined
       }
     >
 
         <div className="flex flex-col gap-3 flex-1 min-h-0">
 
-        <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 space-y-2 shrink-0">
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 shrink-0">
           {registryError ? (
-            <div className="rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="mb-2 rounded-sm border border-destructive/30 bg-destructive/5 text-destructive text-sm px-3 py-2 flex flex-wrap items-center justify-between gap-2">
               <span>{registryError}</span>
               <button
                 type="button"
@@ -831,8 +814,8 @@ export function RulesMeta() {
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="relative flex-1 min-w-[min(100%,12rem)]">
+          <div className="flex flex-nowrap items-center gap-2 min-w-0">
+            <div className="relative flex-1 min-w-[8rem] max-w-[18rem]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               <FinixUnderlineInput
                 type="text"
@@ -859,81 +842,82 @@ export function RulesMeta() {
               ) : null}
             </div>
 
-            <FinixField label="정렬" className="min-w-[10rem]">
-              <FinixUnderlineSelect
-                value={sortKey}
-                onChange={(e) => {
-                  setSortKey(e.target.value as SortKey);
-                  setPage(1);
-                }}
-              >
-                <option value="code_asc">서비스 코드 · A→Z</option>
-                <option value="updated_desc">수정일 · 최신순</option>
-                <option value="name_asc">서비스명 · 가나다</option>
-                <option value="rules_desc">규칙 수 · 많은순</option>
-              </FinixUnderlineSelect>
-            </FinixField>
-
-            <FinixField label="상태" className="min-w-[7.5rem]">
-              <FinixUnderlineSelect
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value as typeof statusFilter);
-                  setPage(1);
-                }}
-              >
-                <option value="">전체</option>
-                <option value="active">적용됨</option>
-                <option value="draft">작업 중</option>
-              </FinixUnderlineSelect>
-            </FinixField>
-
-            <FinixField label="소스 버전" className="min-w-[10rem]">
-              <FinixUnderlineSelect
-                value={versionFilter}
-                onChange={(e) => {
-                  setVersionFilter(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">전체</option>
-                {uniqueVersions.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </FinixUnderlineSelect>
-            </FinixField>
-
-            <button
-              type="button"
-              title="목록 새로고침"
-              aria-label="목록 새로고침"
-              disabled={registryLoading}
-              onClick={() => void reloadRegistry()}
-              className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-50 mb-0.5"
+            <FinixUnderlineSelect
+              aria-label="정렬"
+              value={sortKey}
+              onChange={(e) => {
+                setSortKey(e.target.value as SortKey);
+                setPage(1);
+              }}
+              className="h-9 w-[9.5rem] shrink-0 py-1.5 text-xs bg-card"
             >
-              <RotateCw
-                className={`w-4 h-4 ${registryLoading ? "animate-spin" : ""}`}
-              />
-            </button>
+              <option value="code_asc">정렬 · 코드</option>
+              <option value="updated_desc">정렬 · 최신</option>
+              <option value="name_asc">정렬 · 이름</option>
+              <option value="rules_desc">정렬 · 규칙수</option>
+            </FinixUnderlineSelect>
 
-            <FinixPrimaryButton
-              type="button"
-              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0 mb-0.5"
-              onClick={openYamlAiDialog}
+            <FinixUnderlineSelect
+              aria-label="상태"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as typeof statusFilter);
+                setPage(1);
+              }}
+              className="h-9 w-[7rem] shrink-0 py-1.5 text-xs bg-card"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              소스에서 YAML 생성
-            </FinixPrimaryButton>
-            <button
-              type="button"
-              className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0 mb-0.5 inline-flex items-center border border-border bg-background hover:bg-muted"
-              onClick={() => setPostmanImportOpen(true)}
+              <option value="">상태 · 전체</option>
+              <option value="active">상태 · 적용됨</option>
+              <option value="draft">상태 · 작업 중</option>
+            </FinixUnderlineSelect>
+
+            <FinixUnderlineSelect
+              aria-label="소스 버전"
+              value={versionFilter}
+              onChange={(e) => {
+                setVersionFilter(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 w-[8.5rem] shrink-0 py-1.5 text-xs bg-card"
             >
-              <FileDown className="w-3.5 h-3.5" />
-              Postman에서 가져오기
-            </button>
+              <option value="">버전 · 전체</option>
+              {uniqueVersions.map((v) => (
+                <option key={v} value={v}>
+                  버전 · {v}
+                </option>
+              ))}
+            </FinixUnderlineSelect>
+
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <FinixPrimaryButton
+                type="button"
+                className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0"
+                onClick={openYamlAiDialog}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                소스에서 YAML 생성
+              </FinixPrimaryButton>
+              <button
+                type="button"
+                className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0 inline-flex items-center border border-border bg-background hover:bg-muted"
+                onClick={() => setPostmanImportOpen(true)}
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                Postman에서 가져오기
+              </button>
+              <button
+                type="button"
+                title="목록 새로고침"
+                aria-label="목록 새로고침"
+                disabled={registryLoading}
+                onClick={() => void reloadRegistry()}
+                className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-sm border border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                <RotateCw
+                  className={`w-4 h-4 ${registryLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1222,10 +1206,7 @@ export function RulesMeta() {
                     active={activeTab === "testcases"}
                     disabled={editLoading}
                     runningSingleId={runningCaseId}
-                    onRowsChange={(rows) => {
-                      setPoolRows(rows);
-                      void refreshCaseMeta(selected.serviceCode);
-                    }}
+                    onRowsChange={handlePoolRowsChange}
                     registerRefresh={registerPoolRefresh}
                     onRunSessionChange={setRunSession}
                   />
@@ -1443,19 +1424,20 @@ export function RulesMeta() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={yamlAiOpen} onOpenChange={closeYamlAi}>
-        <DialogContent
-          className={FINIX_LARGE_MODAL_CONTENT}
+      <Sheet open={yamlAiOpen} onOpenChange={closeYamlAi}>
+        <SheetContent
+          side="right"
+          className={FINIX_STANDARD_SHEET_CONTENT}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             focusYamlAiServiceSearch();
           }}
         >
-          <DialogHeader className="px-6 pt-6 pb-3 border-b border-border text-left shrink-0">
-            <DialogTitle className="text-lg font-semibold">
+          <SheetHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0 text-left">
+            <SheetTitle className="text-lg font-semibold leading-snug">
               소스에서 YAML 생성
-            </DialogTitle>
-          </DialogHeader>
+            </SheetTitle>
+          </SheetHeader>
 
           <div className="relative flex-1 min-h-0 flex flex-col">
             <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1 min-h-0">
@@ -1599,7 +1581,7 @@ export function RulesMeta() {
             </div>
           </div>
 
-          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20 flex-row justify-end gap-2 shrink-0">
+          <SheetFooter className="px-6 py-4 border-t border-border bg-muted/20 shrink-0 flex-row flex-wrap justify-end gap-2">
             <button
               type="button"
               className="h-10 px-4 rounded-sm border border-border text-sm font-medium hover:bg-muted"
@@ -1618,9 +1600,9 @@ export function RulesMeta() {
               <Sparkles className="w-4 h-4" />
               초안 생성
             </FinixPrimaryButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <RulesMetaHistoryDialog
         item={historyRow}

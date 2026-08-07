@@ -97,11 +97,12 @@ import { ScenarioConnectionWizardStep } from "./scenario/ScenarioConnectionWizar
 import { ScenarioPostmanExportDialogForm } from "./scenario/ScenarioPostmanExportDialogForm";
 import { ScenarioRunDialogForm } from "./scenario/ScenarioRunDialogForm";
 import { ScenarioRunFocusProgress } from "./scenario/ScenarioRunFocusProgress";
+import { FinixProgressSteps } from "./ui/FinixProgressSteps";
 import type { ScenarioStepPostmanPanelHandle } from "./scenario/ScenarioStepPostmanPanel";
 import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
+import { ScenarioDetailSheet } from "./scenarioRegistry/components/ScenarioDetailSheet";
 import { ScenarioListTable } from "./scenarioRegistry/components/ScenarioListTable";
-import { ScenarioPreviewPanel } from "./scenarioRegistry/components/ScenarioPreviewPanel";
 import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
 import { canConfirmFolderDelete } from "./scenarioRegistry/folderDeleteConfirm";
@@ -192,6 +193,10 @@ function mapPersistedTestcaseToRef(
     title: row.name,
     description: parsed.shortLabel,
     pinnedFingerprint: fingerprintRequestBody(row.request_body),
+    tcHistVersion:
+      row.tc_hist_version != null && row.tc_hist_version > 0
+        ? row.tc_hist_version
+        : undefined,
   };
 }
 
@@ -382,15 +387,13 @@ export function ScenarioRegistry() {
     return items.find((x) => x.id === selectedScenarioId) ?? null;
   }, [items, selectedScenarioId]);
 
-  const togglePreviewFor = (id: string) => {
-    setSelectedScenarioId((prev) => {
-      const isSame = prev === id;
-      setPreviewCollapsed((collapsed) => {
-        if (!isSame) return false; // new selection -> open
-        return !collapsed; // same selection -> toggle
-      });
-      return id;
-    });
+  const openDetailFor = (id: string) => {
+    setSelectedScenarioId(id);
+    setPreviewCollapsed(false);
+  };
+
+  const closeDetail = () => {
+    setPreviewCollapsed(true);
   };
 
   useEffect(() => {
@@ -796,6 +799,7 @@ export function ScenarioRegistry() {
   const startEdit = (id: string) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
+    setPreviewCollapsed(true);
     setEditingId(id);
     setTitle(item.title);
     setServicePickerCode("");
@@ -1604,28 +1608,18 @@ export function ScenarioRegistry() {
                   </FinixPrimaryButton>
                 </div>
               </div>
-              <div className="flex flex-col lg:flex-row lg:items-stretch flex-1 min-h-0 overflow-hidden">
-                <div
-                  className={[
-                    "flex-1 min-w-0 overflow-auto",
-                    !previewCollapsed
-                      ? "lg:flex-1 lg:min-w-0 lg:max-h-[min(70vh,800px)]"
-                      : "w-full",
-                  ].join(" ")}
-                >
+              <div className="flex-1 min-h-0 overflow-auto">
                   <ScenarioListTable
                     items={filtered}
                     selectedScenarioId={selectedScenarioId}
-                    previewCollapsed={previewCollapsed}
                     emptyCopy={scenarioListEmptyCopy}
                     actions="history"
                     runningId={runningId}
                     exportingId={exportingId}
                     confirmDeleteScenarioId={confirmDeleteScenarioId}
-                    onSelectRow={togglePreviewFor}
+                    onSelectRow={openDetailFor}
                     onRegister={startCreate}
                     onOpenHistory={() => navigate("/history")}
-                    onEdit={startEdit}
                     onRun={(item) => void openScenarioRunDialog(item)}
                     onExport={openPostmanExportDialog}
                     onRequestDelete={remove}
@@ -1636,13 +1630,6 @@ export function ScenarioRegistry() {
                     onCancelDelete={() => setConfirmDeleteScenarioId(null)}
                   />
                 </div>
-                {!previewCollapsed ? (
-                  <ScenarioPreviewPanel
-                    selectedScenario={selectedScenario}
-                    onClose={() => setPreviewCollapsed(true)}
-                  />
-                ) : null}
-              </div>
             </div>
           </div>
 
@@ -1733,28 +1720,18 @@ export function ScenarioRegistry() {
                       </FinixPrimaryButton>
                     </div>
                   </div>
-                  <div className="flex flex-col lg:flex-row lg:items-stretch flex-1 min-h-0 overflow-hidden">
-                    <div
-                      className={[
-                        "flex-1 min-w-0 overflow-auto",
-                        !previewCollapsed
-                          ? "lg:flex-1 lg:min-w-0 lg:max-h-[min(70vh,800px)]"
-                          : "w-full",
-                      ].join(" ")}
-                    >
+                  <div className="flex-1 min-h-0 overflow-auto">
                       <ScenarioListTable
                         items={filtered}
                         selectedScenarioId={selectedScenarioId}
-                        previewCollapsed={previewCollapsed}
                         emptyCopy={scenarioListEmptyCopy}
                         actions="full"
                         runningId={runningId}
                         exportingId={exportingId}
                         confirmDeleteScenarioId={confirmDeleteScenarioId}
-                        onSelectRow={togglePreviewFor}
+                        onSelectRow={openDetailFor}
                         onRegister={startCreate}
                         onOpenHistory={() => navigate("/history")}
-                        onEdit={startEdit}
                         onRun={(item) => void openScenarioRunDialog(item)}
                         onExport={openPostmanExportDialog}
                         onRequestDelete={remove}
@@ -1765,14 +1742,6 @@ export function ScenarioRegistry() {
                         onCancelDelete={() => setConfirmDeleteScenarioId(null)}
                       />
                     </div>
-
-                    {!previewCollapsed ? (
-                      <ScenarioPreviewPanel
-                        selectedScenario={selectedScenario}
-                        onClose={() => setPreviewCollapsed(true)}
-                      />
-                    ) : null}
-                  </div>
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -1780,6 +1749,23 @@ export function ScenarioRegistry() {
         </div>
 
         </div>
+
+      <ScenarioDetailSheet
+        open={!previewCollapsed && !!selectedScenario}
+        scenario={selectedScenario}
+        folderLabel={
+          selectedScenario
+            ? getFolderLabel(folderOptions, selectedScenario.folderId)
+            : null
+        }
+        onOpenChange={(next) => {
+          if (!next) closeDetail();
+        }}
+        onEdit={(id) => {
+          closeDetail();
+          startEdit(id);
+        }}
+      />
 
       <Sheet
         open={open}
@@ -2512,18 +2498,38 @@ export function ScenarioRegistry() {
             />
           ) : null}
 
-          {collectionRunLoading ? (
-            <div className="py-6">
-              <FinixLoading
-                size="md"
-                center
-                label={
-                  collectionRunProgress
-                    ? `시나리오 ${collectionRunProgress.done}/${collectionRunProgress.total} 실행 중…`
-                    : "실행 중…"
-                }
-              />
-            </div>
+          {collectionRunLoading && collectionRunProgress ? (
+            <FinixProgressSteps
+              steps={Array.from(
+                { length: Math.max(collectionRunProgress.total, 1) },
+                (_, i) => ({
+                  id: `collection-scen-${i}`,
+                  label: `시나리오 ${i + 1}`,
+                }),
+              )}
+              currentIndex={Math.min(
+                collectionRunProgress.done,
+                Math.max(collectionRunProgress.total - 1, 0),
+              )}
+              status="running"
+              progress={Math.round(
+                ((collectionRunProgress.done + 0.35) /
+                  Math.max(collectionRunProgress.total, 1)) *
+                  100,
+              )}
+              metaLeft={`시나리오 ${Math.min(collectionRunProgress.done + 1, collectionRunProgress.total)} / ${collectionRunProgress.total}`}
+              metaRight="진행 중"
+              className="py-1"
+            />
+          ) : collectionRunLoading ? (
+            <FinixProgressSteps
+              steps={[{ id: "collection-run", label: "컬렉션 실행" }]}
+              currentIndex={0}
+              status="running"
+              metaLeft="컬렉션"
+              metaRight="진행 중"
+              className="py-1"
+            />
           ) : collectionRunError ? (
             <p className="text-sm text-destructive">{collectionRunError}</p>
           ) : null}

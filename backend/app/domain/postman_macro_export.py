@@ -11,9 +11,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.dynamic_macro_resolver import (
+from app.domain.finix_macro_grammar import (
+    GENERATOR_FN_TO_BUILTIN as _GENERATOR_FN_TO_BUILTIN,
     MACRO_FIND_RE,
-    _GENERATOR_FN_TO_BUILTIN,
     parse_macro,
 )
 from app.domain.postman_generator_scripts import _script_for_generator

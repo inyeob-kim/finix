@@ -168,10 +168,13 @@ def substitute_plain_vars_in_tree(
 def prepare_collection_for_import(
     collection: Any,
     environment: Any | None = None,
+    *,
+    extra_var_overrides: dict[str, str] | None = None,
 ) -> SubstituteResult:
     """
     Copy *collection*, apply Collection + Environment vars, return substituted doc.
 
+    *extra_var_overrides* win over Environment/Collection (e.g. script→Finix macros).
     Does not mutate the caller's object.
     """
     kind = classify_postman_json(collection)
@@ -185,6 +188,8 @@ def prepare_collection_for_import(
         return SubstituteResult(document=doc, resolved_count=0, unresolved_keys=())
 
     var_map = build_var_map_for_import(collection, environment)
+    if extra_var_overrides:
+        var_map = {**var_map, **extra_var_overrides}
     doc = copy.deepcopy(collection)
     if not var_map:
         return SubstituteResult(document=doc, resolved_count=0, unresolved_keys=())

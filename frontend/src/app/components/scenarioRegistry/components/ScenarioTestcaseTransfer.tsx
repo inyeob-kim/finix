@@ -105,7 +105,7 @@ function parseDragPayload(
 
 function TestcasePickRow({
   row,
-  onClick,
+  onDoubleClick,
   variant,
   index,
   onReorder,
@@ -116,7 +116,7 @@ function TestcasePickRow({
   onAcknowledge,
 }: {
   row: ScenarioRuleTestcaseRef;
-  onClick: () => void;
+  onDoubleClick: () => void;
   variant: "pool" | "selected";
   index?: number;
   onReorder?: (dragIndex: number, hoverIndex: number) => void;
@@ -135,6 +135,8 @@ function TestcasePickRow({
     duplicateTotal > 1;
   const warn =
     variant === "selected" && health && isBlockingLiveStatus(health.status);
+  const showChanged =
+    variant === "selected" && health?.status === "changed";
 
   return (
     <li
@@ -169,7 +171,9 @@ function TestcasePickRow({
             ? "border-transparent hover:border-border hover:bg-muted/50"
             : warn
               ? "border-destructive/40 bg-destructive/[0.04]"
-              : "border-border bg-background hover:bg-muted/40",
+              : showChanged
+                ? "border-amber-500/40 bg-amber-500/[0.04]"
+                : "border-border bg-background hover:bg-muted/40",
         )}
       >
         <button
@@ -185,7 +189,7 @@ function TestcasePickRow({
             }
             e.dataTransfer.effectAllowed = "move";
           }}
-          onClick={onClick}
+          onDoubleClick={onDoubleClick}
           className="w-full text-left"
         >
           <div className="flex items-center gap-1">
@@ -223,7 +227,7 @@ function TestcasePickRow({
                   includeCount > 0 ? (
                     <span
                       className="rounded-sm border border-border px-1 py-0.5 text-[9px] tabular-nums text-muted-foreground"
-                      title="시나리오에 포함된 횟수 · 다시 클릭하면 추가"
+                      title="시나리오에 포함된 횟수 · 더블클릭하면 추가"
                     >
                       {includeCount}
                     </span>
@@ -243,9 +247,14 @@ function TestcasePickRow({
             </div>
           </div>
         </button>
-        {warn ? (
+        {warn || showChanged ? (
           <div className="mt-1.5 flex items-start justify-between gap-2 pl-5">
-            <p className="text-[10px] text-destructive leading-snug">
+            <p
+              className={cn(
+                "text-[10px] leading-snug",
+                warn ? "text-destructive" : "text-amber-700 dark:text-amber-300",
+              )}
+            >
               {health?.message}
             </p>
             {health?.status === "changed" && onAcknowledge ? (
@@ -258,7 +267,7 @@ function TestcasePickRow({
                 }}
               >
                 <Check className="w-3 h-3" />
-                확인
+                최신으로 갱신
               </button>
             ) : null}
           </div>
@@ -378,14 +387,14 @@ export function ScenarioTestcaseTransfer({
                   row={r}
                   variant="pool"
                   includeCount={includeCounts.get(scenarioPickSourceKey(r)) ?? 0}
-                  onClick={() => onAdd(r)}
+                  onDoubleClick={() => onAdd(r)}
                 />
               ))}
             </ul>
           )}
         </div>
         <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-          클릭·드래그로 포함(같은 TC 여러 번 가능) · 가운데 버튼은 아직 없는
+          더블클릭·드래그로 포함(같은 TC 여러 번 가능) · 가운데 버튼은 아직 없는
           케이스만 일괄 추가
         </p>
       </div>
@@ -460,7 +469,7 @@ export function ScenarioTestcaseTransfer({
         <div className="flex-1 overflow-y-auto p-2 min-h-0">
           {selectedRulePicks.length === 0 ? (
             <p className="text-sm text-muted-foreground px-2 py-6 text-center">
-              왼쪽에서 선택하거나 가운데 「N만 / E만 / 전체」를 누르세요.
+              왼쪽에서 더블클릭하거나 가운데 「N만 / E만 / 전체」를 누르세요.
             </p>
           ) : (
             <ul className="space-y-1">
@@ -476,7 +485,7 @@ export function ScenarioTestcaseTransfer({
                     occurrence={scenarioPickOccurrence(selectedRulePicks, index)}
                     duplicateTotal={duplicateTotal}
                     onReorder={onReorder}
-                    onClick={() => onRemove(r.id)}
+                    onDoubleClick={() => onRemove(r.id)}
                     health={pickHealthById?.[r.id]}
                     onAcknowledge={
                       onAcknowledgePick
@@ -490,7 +499,7 @@ export function ScenarioTestcaseTransfer({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground px-3 py-2 border-t border-border">
-          드래그로 순서 변경 · 클릭·왼쪽으로 드래그해 제외
+          드래그로 순서 변경 · 더블클릭·왼쪽으로 드래그해 제외
         </p>
       </div>
     </div>

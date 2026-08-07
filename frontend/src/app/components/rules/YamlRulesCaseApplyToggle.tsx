@@ -1,4 +1,3 @@
-import { CheckCircle2 } from "lucide-react";
 import type { ServiceRuleCaseMetaDto } from "@/api/types";
 import { cn } from "../ui/utils";
 
@@ -51,15 +50,17 @@ export function YamlRulesCaseApplyToggle({
         onToggle?.(caseId);
       }}
       className={cn(
-        "shrink-0 px-2 text-muted-foreground hover:text-primary disabled:opacity-40",
-        (isApplied || toggling) && "text-primary",
+        "mr-2 shrink-0 h-6 px-1.5 rounded-sm text-[10px] font-medium leading-none",
+        "inline-flex items-center justify-center transition-colors",
+        "disabled:opacity-40 disabled:pointer-events-none",
+        isApplied
+          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+          : "border border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary",
+        toggling && "animate-pulse",
         className,
       )}
     >
-      <CheckCircle2
-        className={cn("size-3.5", toggling && "animate-pulse")}
-        fill={isApplied ? "currentColor" : "none"}
-      />
+      확정
     </button>
   );
 }

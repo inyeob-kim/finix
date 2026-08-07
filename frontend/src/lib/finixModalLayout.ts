@@ -32,6 +32,16 @@ export const FINIX_LARGE_MODAL_WITH_RAIL_CONTENT =
 export const FINIX_LARGE_MODAL_SCROLL_CONTENT =
   `w-full max-h-[92vh] overflow-y-auto ${FINIX_STANDARD_PANEL_WIDTH}`;
 
+/**
+ * Compact centered dialog — file drop / short forms (not full editor panels).
+ * Uses !important so DialogContent defaults (`w-full` / `sm:max-w-lg`) cannot win.
+ */
+export const FINIX_COMPACT_MODAL_SIZE =
+  "!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] h-auto max-h-[min(40rem,90vh)] sm:!max-w-[min(32rem,calc(100vw-2rem))]";
+
+export const FINIX_COMPACT_MODAL_CONTENT =
+  `flex flex-col gap-0 !p-0 overflow-hidden ${FINIX_COMPACT_MODAL_SIZE}`;
+
 /** YAML 케이스 목록 사이드바 — 시트/rail 열림과 무관하게 고정 폭. */
 export const FINIX_YAML_CASE_SIDEBAR_WIDTH = "w-full sm:w-[24rem] shrink-0";
 

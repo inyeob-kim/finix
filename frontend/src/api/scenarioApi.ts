@@ -39,9 +39,10 @@ export async function createScenarioShell(body: {
 }
 
 export async function getScenario(scenarioId: number): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(`${PREFIX}/${scenarioId}`, {
-    method: "GET",
-  });
+  return apiRequest<ScenarioReadDto>(
+    withInstCdQuery(`${PREFIX}/${scenarioId}`),
+    { method: "GET" },
+  );
 }
 
 export async function patchScenario(
@@ -52,20 +53,26 @@ export async function patchScenario(
     steps?: ScenarioStepDto[] | null;
   },
 ): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(`${PREFIX}/${scenarioId}`, {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  });
+  return apiRequest<ScenarioReadDto>(
+    withInstCdQuery(`${PREFIX}/${scenarioId}`),
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function attachTestCasesToScenario(
   scenarioId: number,
   perStep: TestCaseRefDto[][],
 ): Promise<TestCaseReadDto[]> {
-  return apiRequest(`${PREFIX}/${scenarioId}/attach-test-cases`, {
-    method: "POST",
-    body: JSON.stringify({ per_step: perStep }),
-  });
+  return apiRequest(
+    withInstCdQuery(`${PREFIX}/${scenarioId}/attach-test-cases`),
+    {
+      method: "POST",
+      body: JSON.stringify({ per_step: perStep }),
+    },
+  );
 }
 
 export async function saveScenarioDefinition(
@@ -79,21 +86,23 @@ export async function saveScenarioDefinition(
     mark_saved?: boolean;
   },
 ): Promise<ScenarioReadDto> {
-  return apiRequest<ScenarioReadDto>(`${PREFIX}/${scenarioId}/save-definition`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return apiRequest<ScenarioReadDto>(
+    withInstCdQuery(`${PREFIX}/${scenarioId}/save-definition`),
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function resolveScenarioPreview(
   scenarioId: number,
   simulateResponses = true,
 ): Promise<ScenarioResolvePreviewDto> {
-  const q = new URLSearchParams({
-    simulate_responses: String(simulateResponses),
-  });
+  const path = withInstCdQuery(`${PREFIX}/${scenarioId}/resolve-preview`);
+  const sep = path.includes("?") ? "&" : "?";
   return apiRequest<ScenarioResolvePreviewDto>(
-    `${PREFIX}/${scenarioId}/resolve-preview?${q.toString()}`,
+    `${path}${sep}simulate_responses=${String(simulateResponses)}`,
     { method: "POST" },
   );
 }
@@ -129,11 +138,13 @@ export async function fetchScenarioPostmanCollectionBlob(
   resolved = true,
   native = true,
 ): Promise<Blob> {
+  const path = withInstCdQuery(`${PREFIX}/${scenarioId}/export/postman`);
+  const sep = path.includes("?") ? "&" : "?";
   const q = new URLSearchParams({
     resolved: String(resolved),
     native: String(native),
   });
-  return fetchBlob(`${PREFIX}/${scenarioId}/export/postman?${q.toString()}`);
+  return fetchBlob(`${path}${sep}${q.toString()}`);
 }
 
 export function downloadBlobAsFile(blob: Blob, downloadName: string): void {

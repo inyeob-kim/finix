@@ -27,6 +27,8 @@ export type ScenarioRuleTestcaseRef = {
    * Used to detect live pool changes (not a body snapshot).
    */
   pinnedFingerprint?: string;
+  /** Pinned fnx_testcase_hist.version; scenario runs this snapshot until refreshed. */
+  tcHistVersion?: number;
 };
 
 export type ScenarioRegistryFolder = {

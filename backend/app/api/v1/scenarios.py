@@ -122,7 +122,7 @@ async def list_test_cases_for_scenario(
 ) -> list[TestCaseRead]:
     """Return HTTP test cases linked to the scenario."""
     rows = await testcase_service.list_for_scenario(scenario_id, inst_cd=inst_cd)
-    return [testcase_entity_to_read(r) for r in rows]
+    return await testcase_service.to_reads(rows)
 
 
 class TestCaseGenerateRequest(BaseModel):
@@ -144,7 +144,7 @@ async def generate_test_cases_for_scenario(
     rows = await testcase_service.generate_all_for_scenario(
         scenario_id, instruction=payload.instruction, inst_cd=inst_cd
     )
-    return [testcase_entity_to_read(r) for r in rows]
+    return await testcase_service.to_reads(rows)
 
 
 @router.post(
@@ -296,7 +296,7 @@ async def attach_test_cases_to_scenario(
         per_step=payload.per_step,
         inst_cd=inst_cd,
     )
-    return [testcase_entity_to_read(r) for r in rows]
+    return await testcase_service.to_reads(rows)
 
 
 @router.get("/{scenario_id}", response_model=ScenarioRead, summary="Get scenario")

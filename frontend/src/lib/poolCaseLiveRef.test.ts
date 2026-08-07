@@ -90,9 +90,33 @@ describe("poolCaseLiveRef", () => {
       }),
     ];
     expect(evaluatePickLiveHealth(selected, changedPool).status).toBe("changed");
-    expect(anyPickBlocksRun([selected], changedPool)).toContain("변경");
+    expect(anyPickBlocksRun([selected], changedPool)).toBeNull();
     const acked = acknowledgePickFingerprint(selected, changedPool);
     expect(evaluatePickLiveHealth(acked, changedPool).status).toBe("ok");
+  });
+
+  it("acknowledge bumps tcHistVersion to live", () => {
+    const selected = pick({
+      id: "p1",
+      serviceCode: "CU008",
+      ruleId: "CU008-N-001",
+      title: "x",
+      pinnedFingerprint: fpA,
+      tcHistVersion: 1,
+    });
+    const changedPool = [
+      pick({
+        id: "tc-1",
+        serviceCode: "CU008",
+        ruleId: "CU008-N-001",
+        title: "[N] CU008-N-001 · ok",
+        pinnedFingerprint: fpB,
+        tcHistVersion: 2,
+      }),
+    ];
+    const acked = acknowledgePickFingerprint(selected, changedPool);
+    expect(acked.tcHistVersion).toBe(2);
+    expect(acked.pinnedFingerprint).toBe(fpB);
   });
 
   it("hydrates missing fingerprint from live pool", () => {

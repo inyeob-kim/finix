@@ -11,10 +11,13 @@ from app.core.exceptions import InvalidInputError
 from app.domain.collection_var_generators import (
     BUILTIN_META,
     CatalogGeneratorSpec,
+    build_generator_description,
     is_valid_generator_key,
+    normalize_generator_naming,
     parse_impl_json,
     resolve_catalog_spec,
     resolve_start_var_value,
+    summarize_generator_for_ai,
     validate_custom_impl,
 )
 from app.integrations.llm_client import LlmClient
@@ -117,12 +120,63 @@ class CollectionVarGeneratorService:
         return (await self.list_for_ui()).items
 
     @staticmethod
+    def _catalog_cards(
+        items: list[CollectionVarGeneratorRead],
+    ) -> list[dict[str, Any]]:
+        return [
+            summarize_generator_for_ai(
+                key=it.key,
+                label=it.label,
+                impl_kind=it.impl_kind,
+                impl=it.impl,
+                description=it.description or it.hint or "",
+                source=it.source,
+            )
+            for it in items
+        ]
+
+    @staticmethod
     def _catalog_lines(items: list[CollectionVarGeneratorRead]) -> str:
         lines: list[str] = []
         for it in items:
             kind = it.impl_kind or it.key
-            lines.append(f"- key={it.key} label={it.label} kind={kind} source={it.source}")
+            desc = (it.description or it.hint or "").replace("\n", " ").strip()
+            desc_bit = f" desc={desc[:160]}" if desc else ""
+            lines.append(
+                f"- key={it.key} label={it.label} kind={kind} "
+                f"source={it.source}{desc_bit}"
+            )
         return "\n".join(lines)
+
+    @staticmethod
+    def _ensure_rich_description(
+        *,
+        description: str,
+        impl_kind: str,
+        impl: dict[str, Any],
+        label: str,
+        user_prompt: str = "",
+        source: str = "user_ai",
+    ) -> str:
+        """Prefer AI text; always keep Returns/Purpose metadata for later matching."""
+        raw = (description or "").strip()
+        if raw and "Returns:" in raw:
+            return raw[:512]
+        purpose = raw or label or (user_prompt or "")[:120]
+        built = build_generator_description(
+            impl_kind=impl_kind,
+            impl=impl,
+            purpose=purpose,
+            source=source,
+        )
+        if raw and "Returns:" not in raw:
+            # Keep AI Korean blurb, prefix structured returns.
+            returns_line = built.split(" Purpose:")[0] if " Purpose:" in built else built
+            merged = f"{returns_line} Purpose: {raw}."
+            if "Source:" not in merged:
+                merged = f"{merged} Source: {source}."
+            return merged[:512]
+        return built
 
     async def preview(
         self,
@@ -223,6 +277,7 @@ class CollectionVarGeneratorService:
         data: dict[str, Any] | None,
         *,
         source: str,
+        user_prompt: str = "",
     ) -> CollectionVarGeneratorDraftRead | None:
         if not isinstance(data, dict):
             return None
@@ -245,6 +300,20 @@ class CollectionVarGeneratorService:
         sample = resolve_catalog_spec(
             CatalogGeneratorSpec(key=key, impl_kind=impl_kind, impl=impl),
         )
+        key, label = normalize_generator_naming(
+            key=key,
+            label=label,
+            impl_kind=impl_kind,
+            impl=impl,
+        )
+        description = self._ensure_rich_description(
+            description=description,
+            impl_kind=impl_kind,
+            impl=impl,
+            label=label,
+            user_prompt=user_prompt,
+            source="user_ai" if source == "llm" else "heuristic",
+        )
         return CollectionVarGeneratorDraftRead(
             key=key,
             label=label,
@@ -264,7 +333,7 @@ class CollectionVarGeneratorService:
         assert self._llm is not None
         raw = await self._llm.complete_json(
             system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_user_prompt(prompt, self._catalog_lines(existing)),
+            user_prompt=build_user_prompt(prompt, self._catalog_cards(existing)),
         )
         data = json.loads(_strip_json_fences(raw))
         if not isinstance(data, dict):
@@ -282,7 +351,11 @@ class CollectionVarGeneratorService:
 
         parsed: CollectionVarGeneratorDraftRead | None = None
         try:
-            parsed = self._parse_draft_block(draft_block if isinstance(draft_block, dict) else None, source="llm")
+            parsed = self._parse_draft_block(
+                draft_block if isinstance(draft_block, dict) else None,
+                source="llm",
+                user_prompt=prompt,
+            )
         except InvalidInputError:
             if not recommendations:
                 raise
@@ -423,7 +496,14 @@ class CollectionVarGeneratorService:
             return CollectionVarGeneratorDraftRead(
                 key=key,
                 label=label,
-                description=prompt[:200],
+                description=self._ensure_rich_description(
+                    description=prompt[:200],
+                    impl_kind="pick_from_list",
+                    impl=impl,
+                    label=label,
+                    user_prompt=prompt,
+                    source="heuristic",
+                ),
                 impl_kind="pick_from_list",
                 impl=impl,
                 sample_preview=sample,
@@ -462,7 +542,14 @@ class CollectionVarGeneratorService:
             return CollectionVarGeneratorDraftRead(
                 key="today_yyyymmdd_alias",
                 label="오늘 날짜",
-                description=prompt[:120],
+                description=self._ensure_rich_description(
+                    description=prompt[:120],
+                    impl_kind="today_yyyymmdd",
+                    impl=impl,
+                    label="오늘 날짜",
+                    user_prompt=prompt,
+                    source="heuristic",
+                ),
                 impl_kind="today_yyyymmdd",
                 impl=impl,
                 sample_preview=sample,
@@ -494,7 +581,14 @@ class CollectionVarGeneratorService:
         return CollectionVarGeneratorDraftRead(
             key=key,
             label=label,
-            description=prompt[:200],
+            description=self._ensure_rich_description(
+                description=prompt[:200],
+                impl_kind="date_offset",
+                impl=impl,
+                label=label,
+                user_prompt=prompt,
+                source="heuristic",
+            ),
             impl_kind="date_offset",
             impl=impl,
             sample_preview=sample,
@@ -506,7 +600,17 @@ class CollectionVarGeneratorService:
         self,
         body: CollectionVarGeneratorCreateRequest,
     ) -> CollectionVarGeneratorRead:
-        key = body.key.strip().lower()
+        try:
+            impl = validate_custom_impl(body.impl_kind, body.impl)
+        except ValueError as exc:
+            raise InvalidInputError(str(exc)) from exc
+
+        key, label = normalize_generator_naming(
+            key=(body.key or "").strip().lower(),
+            label=(body.label or "").strip(),
+            impl_kind=body.impl_kind.strip().lower(),
+            impl=impl,
+        )
         if not is_valid_generator_key(key):
             raise InvalidInputError("key는 영문 소문자/숫자/_ 만 가능합니다.")
         if key in {k for k, _, _ in BUILTIN_META}:
@@ -514,14 +618,19 @@ class CollectionVarGeneratorService:
         existing = await self._repo.get_by_key(key)
         if existing is not None and existing.status == "active":
             raise InvalidInputError(f"이미 존재하는 생성기입니다: {key}")
-        try:
-            impl = validate_custom_impl(body.impl_kind, body.impl)
-        except ValueError as exc:
-            raise InvalidInputError(str(exc)) from exc
+
+        description = self._ensure_rich_description(
+            description=(body.description or "").strip(),
+            impl_kind=body.impl_kind.strip().lower(),
+            impl=impl,
+            label=label,
+            user_prompt=(body.prompt or "").strip(),
+            source="user_ai",
+        )
 
         if existing is not None:
-            existing.label = body.label.strip()
-            existing.description = (body.description or "").strip()
+            existing.label = label
+            existing.description = description
             existing.prompt = (body.prompt or "").strip()
             existing.impl_kind = body.impl_kind.strip().lower()
             existing.impl_json = json.dumps(impl, ensure_ascii=False)
@@ -548,8 +657,8 @@ class CollectionVarGeneratorService:
 
         row = CollectionVarGenerator(
             key=key,
-            label=body.label.strip(),
-            description=(body.description or "").strip(),
+            label=label,
+            description=description,
             prompt=(body.prompt or "").strip(),
             impl_kind=body.impl_kind.strip().lower(),
             impl_json=json.dumps(impl, ensure_ascii=False),
@@ -594,12 +703,35 @@ class CollectionVarGeneratorService:
 
         if body.label is not None:
             row.label = body.label.strip()
-        if body.description is not None:
-            row.description = body.description.strip()
         if body.prompt is not None:
             row.prompt = body.prompt.strip()
         row.impl_kind = next_kind
         row.impl_json = json.dumps(next_impl, ensure_ascii=False)
+        _, normalized_label = normalize_generator_naming(
+            key=row.key,
+            label=row.label,
+            impl_kind=next_kind,
+            impl=next_impl,
+        )
+        row.label = normalized_label
+        if body.description is not None:
+            row.description = self._ensure_rich_description(
+                description=body.description.strip(),
+                impl_kind=next_kind,
+                impl=next_impl,
+                label=row.label,
+                user_prompt=row.prompt or "",
+                source="user_ai",
+            )
+        elif "Returns:" not in (row.description or ""):
+            row.description = self._ensure_rich_description(
+                description=row.description or "",
+                impl_kind=next_kind,
+                impl=next_impl,
+                label=row.label,
+                user_prompt=row.prompt or "",
+                source="user_ai",
+            )
         await self._repo.save(row)
         logger.info("collection_var_generator updated key=%s kind=%s", k, next_kind)
         return CollectionVarGeneratorRead(

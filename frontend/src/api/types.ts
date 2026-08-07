@@ -24,6 +24,8 @@ export interface ScenarioStepDto {
   service_code?: string | null;
   /** Natural-key link to fnx_testcase (paired with service_code + inst_cd). */
   rule_case_id?: string | null;
+  /** Pinned fnx_testcase_hist.version for this step. */
+  tc_hist_version?: number | null;
   extracts?: ScenarioBindingExtractDto[];
   injects?: ScenarioBindingInjectDto[];
   overrides?: ScenarioBindingOverrideDto[];
@@ -33,6 +35,8 @@ export interface ScenarioStepDto {
 export interface TestCaseRefDto {
   svc_code: string;
   rule_case_id: string;
+  /** Pinned hist version; omit to pin latest on attach. */
+  tc_hist_version?: number | null;
 }
 
 export interface PostmanCollectionConfigDto {
@@ -199,6 +203,8 @@ export interface TestCaseReadDto {
   expected_status: number | null;
   expected_body: Record<string, unknown>;
   created_at: string;
+  /** Latest fnx_testcase_hist.version for the current pool row. */
+  tc_hist_version?: number | null;
 }
 
 export interface ExecutionStepDto {

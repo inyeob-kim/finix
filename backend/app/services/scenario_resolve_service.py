@@ -71,6 +71,20 @@ class ScenarioResolveService:
         ordered: list[FnxTestcase] = []
         for refs in per_step:
             for ref in refs:
+                if ref.tc_hist_version is not None:
+                    hist = await self._tc_repo.get_hist(
+                        inst_cd=inst,
+                        svc_code=ref.svc_code,
+                        rule_case_id=ref.rule_case_id,
+                        version=ref.tc_hist_version,
+                    )
+                    if hist is None:
+                        raise EntityNotFoundError(
+                            "TestCaseHist",
+                            f"{ref.svc_code}/{ref.rule_case_id}@{ref.tc_hist_version}",
+                        )
+                    ordered.append(self._tc_repo.testcase_from_hist(hist))
+                    continue
                 tc = await self._tc_repo.get(
                     inst_cd=inst, svc_code=ref.svc_code, rule_case_id=ref.rule_case_id
                 )

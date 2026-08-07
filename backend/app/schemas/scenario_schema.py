@@ -31,6 +31,11 @@ class ScenarioStepRead(BaseModel):
         default=None,
         description="Natural-key link to fnx_testcase (with service_code + inst_cd).",
     )
+    tc_hist_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Pinned fnx_testcase_hist.version for this step (scenario freeze).",
+    )
     extracts: list[ExtractSpec] = Field(
         default_factory=list,
         description="After this step runs, copy fields from response body into scenario context.",

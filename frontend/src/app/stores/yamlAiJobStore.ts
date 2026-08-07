@@ -24,7 +24,15 @@ export type YamlAiJobStageId =
 
 export type YamlAiJobStage = {
   id: YamlAiJobStageId;
+  /** Short step title (shown in the agent-style list). */
   label: string;
+  /** One-line narration under the title while this step is current. */
+  detail?: string;
+};
+
+export type YamlAiJobLogLine = {
+  id: string;
+  text: string;
 };
 
 export type YamlAiJob = {
@@ -44,6 +52,8 @@ export type YamlAiJob = {
   startedAt: number;
   stages: YamlAiJobStage[];
   stageIndex: number;
+  /** Activity lines shown after finish via "로그 보기". */
+  log: YamlAiJobLogLine[];
   /** 0–100 visual progress while running / finished */
   progress: number;
   useDataPool: boolean;
@@ -89,29 +99,77 @@ export function buildYamlAiJobStages(payload: {
   use_swagger?: boolean;
 }): YamlAiJobStage[] {
   const stages: YamlAiJobStage[] = [
-    { id: "catalog", label: "카탈로그 확인 중" },
+    {
+      id: "catalog",
+      label: "카탈로그 확인",
+      detail: "서비스 메타와 DTO 뼈대를 확인합니다.",
+    },
   ];
   if (payload.use_data_pool) {
-    stages.push({ id: "data_pool", label: "Data Pool 참조 중" });
+    stages.push({
+      id: "data_pool",
+      label: "Data Pool 참조",
+      detail: "샘플 필드 힌트를 가져옵니다.",
+    });
   }
   if (payload.use_swagger) {
-    stages.push({ id: "swagger", label: "Swagger 참조 중" });
+    stages.push({
+      id: "swagger",
+      label: "Swagger 참조",
+      detail: "OpenAPI 연산 힌트를 가져옵니다.",
+    });
   }
   stages.push(
-    { id: "llm", label: "소스 분석·YAML 생성 중" },
-    { id: "validate", label: "기존 규칙 merge·검증 중" },
-    { id: "save", label: "작업본 저장 중" },
+    {
+      id: "llm",
+      label: "소스 분석",
+      detail: "소스를 읽고 YAML 초안을 구성합니다.",
+    },
+    {
+      id: "validate",
+      label: "규칙 merge",
+      detail: "기존 규칙과 맞춰 검증합니다.",
+    },
+    {
+      id: "save",
+      label: "작업본 저장",
+      detail: "드래프트를 저장합니다.",
+    },
   );
   return stages;
 }
 
 export function buildPostmanImportJobStages(): YamlAiJobStage[] {
   return [
-    { id: "parse", label: "Collection 파싱 중" },
-    { id: "match", label: "서비스 매칭 중" },
-    { id: "llm", label: "AI 플랜 생성 중" },
-    { id: "save", label: "작업본 저장 중" },
+    {
+      id: "parse",
+      label: "Collection 파싱",
+      detail: "요청·폴더·변수를 읽고 정리합니다.",
+    },
+    {
+      id: "match",
+      label: "서비스 매칭",
+      detail: "요청 path를 CBS 카탈로그와 맞춥니다.",
+    },
+    {
+      id: "llm",
+      label: "케이스 계획",
+      detail: "N/E 케이스와 merge/create 플랜을 잡습니다.",
+    },
+    {
+      id: "save",
+      label: "작업본 반영",
+      detail: "서비스별 YAML 작업본을 저장합니다.",
+    },
   ];
+}
+
+function newLogId(): string {
+  return `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function logLine(text: string): YamlAiJobLogLine {
+  return { id: newLogId(), text };
 }
 
 function clearStageTimer(id: string) {
@@ -144,6 +202,7 @@ function needsOverwriteConfirm(err: unknown): boolean {
 type YamlAiJobStoreInternal = YamlAiJobState & {
   advanceRunningStage: (id: string) => void;
   patchJob: (id: string, patch: Partial<YamlAiJob>) => void;
+  appendLog: (id: string, text: string) => void;
   runPostmanImport: (
     id: string,
     payload: PostmanImportJobStartPayload,
@@ -159,6 +218,15 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     }));
   },
 
+  appendLog: (id, text) => {
+    const line = logLine(text);
+    set((s) => ({
+      jobs: s.jobs.map((j) =>
+        j.id === id ? { ...j, log: [...j.log, line] } : j,
+      ),
+    }));
+  },
+
   advanceRunningStage: (id) => {
     const job = get().jobs.find((j) => j.id === id);
     if (!job || job.status !== "running") return;
@@ -169,7 +237,27 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     if (job.stageIndex < holdAt) {
       const next = job.stageIndex + 1;
       const progress = Math.round(((next + 0.35) / job.stages.length) * 72);
-      get().patchJob(id, { stageIndex: next, progress });
+      const prevStage = job.stages[job.stageIndex];
+      const nextStage = job.stages[next];
+      const extra: YamlAiJobLogLine[] = [];
+      if (prevStage) extra.push(logLine(`${prevStage.label} 완료.`));
+      if (nextStage) {
+        extra.push(
+          logLine(nextStage.detail?.trim() || `${nextStage.label} 진행 중…`),
+        );
+      }
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === id
+            ? {
+                ...j,
+                stageIndex: next,
+                progress,
+                log: [...j.log, ...extra],
+              }
+            : j,
+        ),
+      }));
       scheduleStageTick(id, next === holdAt ? 1600 : 1100);
       return;
     }
@@ -186,6 +274,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     const id = newJobId("yaml-ai");
     const serviceCode = payload.serviceCode.trim();
     const stages = buildYamlAiJobStages(payload);
+    const first = stages[0];
     const job: YamlAiJob = {
       id,
       kind: "source",
@@ -197,6 +286,10 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       progress: 8,
       useDataPool: Boolean(payload.use_data_pool),
       useSwagger: Boolean(payload.use_swagger),
+      log: [
+        logLine(`${serviceCode} 소스에서 YAML 초안을 만들기 시작합니다.`),
+        logLine(first?.detail?.trim() || `${first?.label ?? "작업"} 진행 중…`),
+      ],
     };
     set((s) => ({ jobs: [job, ...s.jobs] }));
     scheduleStageTick(id, 900);
@@ -216,16 +309,31 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
         const stagesNow = get().jobs.find((j) => j.id === id)?.stages ?? stages;
         const validateIdx = stagesNow.findIndex((s) => s.id === "validate");
         const saveIdx = stagesNow.findIndex((s) => s.id === "save");
+        const llmIdx = stagesNow.findIndex((s) => s.id === "llm");
+        const llmStage = llmIdx >= 0 ? stagesNow[llmIdx] : null;
+        if (llmStage) get().appendLog(id, `${llmStage.label} 완료.`);
+        const validateStage =
+          validateIdx >= 0 ? stagesNow[validateIdx] : null;
         get().patchJob(id, {
           stageIndex: validateIdx >= 0 ? validateIdx : stagesNow.length - 2,
           progress: 94,
         });
+        get().appendLog(
+          id,
+          validateStage?.detail?.trim() || "기존 규칙과 맞춰 검증합니다.",
+        );
         await new Promise((r) => window.setTimeout(r, 280));
         if (!get().jobs.some((j) => j.id === id)) return;
+        if (validateStage) get().appendLog(id, `${validateStage.label} 완료.`);
+        const saveStage = saveIdx >= 0 ? stagesNow[saveIdx] : null;
         get().patchJob(id, {
           stageIndex: saveIdx >= 0 ? saveIdx : stagesNow.length - 1,
           progress: 98,
         });
+        get().appendLog(
+          id,
+          saveStage?.detail?.trim() || "드래프트를 저장합니다.",
+        );
         await new Promise((r) => window.setTimeout(r, 220));
         if (!get().jobs.some((j) => j.id === id)) return;
         set((s) => ({
@@ -238,6 +346,10 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
                   error: undefined,
                   stageIndex: j.stages.length - 1,
                   progress: 100,
+                  log: [
+                    ...j.log,
+                    logLine(`작업본 저장 완료 · v${bundle.version ?? "—"}.`),
+                  ],
                 }
               : j,
           ),
@@ -250,7 +362,12 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
         set((s) => ({
           jobs: s.jobs.map((j) =>
             j.id === id
-              ? { ...j, status: "error" as const, error: message }
+              ? {
+                  ...j,
+                  status: "error" as const,
+                  error: message,
+                  log: [...j.log, logLine(message)],
+                }
               : j,
           ),
         }));
@@ -271,10 +388,20 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       });
       if (!get().jobs.some((j) => j.id === id)) return;
       clearStageTimer(id);
+      const prev = get().jobs.find((j) => j.id === id);
+      if (prev && prev.stageIndex < stages.length - 1) {
+        const cur = prev.stages[prev.stageIndex];
+        if (cur) get().appendLog(id, `${cur.label} 완료.`);
+      }
+      const saveStage = stages[stages.length - 1];
       get().patchJob(id, {
         stageIndex: stages.length - 1,
         progress: 96,
       });
+      get().appendLog(
+        id,
+        saveStage?.detail?.trim() || "서비스별 YAML 작업본을 저장합니다.",
+      );
       await new Promise((r) => window.setTimeout(r, 220));
       if (!get().jobs.some((j) => j.id === id)) return;
 
@@ -296,6 +423,35 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
             ? result.services[0].service_code
             : `Postman (${result.services.length})`;
 
+      const summary: YamlAiJobLogLine[] = [];
+      if (result.services.length === 0) {
+        summary.push(
+          logLine("매칭된 서비스가 없어 작업본을 만들지 않았습니다."),
+        );
+      } else {
+        summary.push(
+          logLine(
+            `작업본 ${result.services.length}개 갱신` +
+              (result.unmatched.length > 0
+                ? ` · 미매칭 ${result.unmatched.length}건`
+                : "") +
+              ".",
+          ),
+        );
+        const codes = result.services.map((s) => s.service_code).slice(0, 8);
+        summary.push(
+          logLine(
+            codes.join(", ") +
+              (result.services.length > 8
+                ? ` 외 ${result.services.length - 8}개`
+                : ""),
+          ),
+        );
+      }
+      for (const note of result.notes ?? []) {
+        if (note.trim()) summary.push(logLine(note.trim()));
+      }
+
       set((s) => ({
         jobs: s.jobs.map((j) =>
           j.id === id
@@ -309,6 +465,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
                 error: undefined,
                 stageIndex: j.stages.length - 1,
                 progress: 100,
+                log: [...j.log, ...summary],
               }
             : j,
         ),
@@ -317,6 +474,8 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       if (!get().jobs.some((j) => j.id === id)) return;
       clearStageTimer(id);
       if (!payload.overwrite_draft && needsOverwriteConfirm(e)) {
+        const msg =
+          "일부 서비스에 작업본이 있습니다. 덮어쓰려면 다시 실행하세요.";
         set((s) => ({
           jobs: s.jobs.map((j) =>
             j.id === id
@@ -324,8 +483,8 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
                   ...j,
                   status: "error" as const,
                   needsOverwrite: true,
-                  error:
-                    "일부 서비스에 작업본이 있습니다. 덮어쓰려면 다시 실행하세요.",
+                  error: msg,
+                  log: [...j.log, logLine(msg)],
                 }
               : j,
           ),
@@ -344,6 +503,7 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
                 status: "error" as const,
                 needsOverwrite: false,
                 error: message,
+                log: [...j.log, logLine(message)],
               }
             : j,
         ),
@@ -354,10 +514,11 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
   startPostmanJob: (payload) => {
     const id = newJobId("postman");
     const stages = buildPostmanImportJobStages();
+    const fileLabel = payload.fileName?.trim() || "Postman";
     const job: YamlAiJob = {
       id,
       kind: "postman",
-      serviceCode: payload.fileName?.trim() || "Postman",
+      serviceCode: fileLabel,
       status: "running",
       startedAt: Date.now(),
       stages,
@@ -370,6 +531,14 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
       postmanFileName: payload.fileName ?? null,
       postmanEnvironmentFileName: payload.environmentFileName ?? null,
       needsOverwrite: false,
+      log: [
+        logLine(
+          payload.overwrite_draft
+            ? `${fileLabel} 가져오기를 다시 시작합니다 (작업본 덮어쓰기).`
+            : `${fileLabel} 가져오기를 시작합니다.`,
+        ),
+        logLine(stages[0]?.detail?.trim() || "Collection을 파싱합니다."),
+      ],
     };
     set((s) => ({ jobs: [job, ...s.jobs] }));
     scheduleStageTick(id, 900);
@@ -384,16 +553,28 @@ export const useYamlAiJobStore = create<YamlAiJobStoreInternal>((set, get) => ({
     }
     clearStageTimer(id);
     const stages = buildPostmanImportJobStages();
-    get().patchJob(id, {
-      status: "running",
-      error: undefined,
-      needsOverwrite: false,
-      stageIndex: 0,
-      progress: 8,
-      stages,
-      bundle: undefined,
-      postmanResult: undefined,
-    });
+    set((s) => ({
+      jobs: s.jobs.map((j) =>
+        j.id === id
+          ? {
+              ...j,
+              status: "running" as const,
+              error: undefined,
+              needsOverwrite: false,
+              stageIndex: 0,
+              progress: 8,
+              stages,
+              bundle: undefined,
+              postmanResult: undefined,
+              log: [
+                ...j.log,
+                logLine("작업본 덮어쓰기로 다시 가져옵니다."),
+                logLine(stages[0]?.detail?.trim() || "Collection을 파싱합니다."),
+              ],
+            }
+          : j,
+      ),
+    }));
     scheduleStageTick(id, 900);
     void get().runPostmanImport(id, {
       collection: job.postmanCollection,

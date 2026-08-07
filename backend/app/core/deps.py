@@ -25,6 +25,9 @@ from app.repositories.fnx_rule_case_repo import FnxRuleCaseRepository
 from app.repositories.fnx_testcase_repo import FnxTestcaseRepository
 from app.repositories.institution_repo import InstitutionRepository
 from app.services.collection_var_generator_service import CollectionVarGeneratorService
+from app.services.collection_var_generator_rag_service import (
+    CollectionVarGeneratorRagService,
+)
 from app.services.execution_service import ExecutionService
 from app.services.institution_service import InstitutionService
 from app.services.log_ingest_service import LogIngestService
@@ -325,11 +328,43 @@ def get_postman_rules_import_ai_service(
     return PostmanRulesImportAiService(llm=llm)
 
 
+async def get_collection_var_generator_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[CollectionVarGeneratorRepository, None]:
+    yield CollectionVarGeneratorRepository(session)
+
+
+def get_collection_var_generator_service(
+    repo: CollectionVarGeneratorRepository = Depends(
+        get_collection_var_generator_repository,
+    ),
+    llm: LlmClient | None = Depends(get_llm_client),
+) -> CollectionVarGeneratorService:
+    return CollectionVarGeneratorService(repo=repo, llm=llm)
+
+
+def get_collection_var_generator_rag_service(
+    embedding_llm: LlmClient | None = Depends(get_embedding_llm_client),
+) -> CollectionVarGeneratorRagService:
+    """In-memory catalog RAG for Postman script → generator mapping."""
+    settings = get_settings()
+    return CollectionVarGeneratorRagService(
+        embedding_llm=embedding_llm,
+        embedding_model=settings.llm_embedding_model,
+    )
+
+
 def get_postman_rules_import_service(
     rules_service: ServiceRulesService = Depends(get_service_rules_service),
     catalog_repo: ServiceCatalogRepository = Depends(get_service_catalog_repository),
     ai: PostmanRulesImportAiService | None = Depends(
         get_postman_rules_import_ai_service
+    ),
+    generators: CollectionVarGeneratorService = Depends(
+        get_collection_var_generator_service
+    ),
+    generator_rag: CollectionVarGeneratorRagService = Depends(
+        get_collection_var_generator_rag_service
     ),
 ) -> PostmanRulesImportService:
     """Build Postman → YAML draft import orchestrator."""
@@ -337,6 +372,8 @@ def get_postman_rules_import_service(
         rules=rules_service,
         catalog=catalog_repo,
         ai=ai,
+        generators=generators,
+        generator_rag=generator_rag,
     )
 
 
@@ -393,20 +430,6 @@ def get_scenario_bindings_ai_service(
         llm=llm,
     )
 
-
-async def get_collection_var_generator_repository(
-    session: AsyncSession = Depends(get_async_session),
-) -> AsyncGenerator[CollectionVarGeneratorRepository, None]:
-    yield CollectionVarGeneratorRepository(session)
-
-
-def get_collection_var_generator_service(
-    repo: CollectionVarGeneratorRepository = Depends(
-        get_collection_var_generator_repository,
-    ),
-    llm: LlmClient | None = Depends(get_llm_client),
-) -> CollectionVarGeneratorService:
-    return CollectionVarGeneratorService(repo=repo, llm=llm)
 
 
 def get_execution_service(

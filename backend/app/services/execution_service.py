@@ -537,7 +537,10 @@ class ExecutionService:
                 inst_cd=tc.inst_cd or inst,
                 svc_code=tc.svc_code,
                 rule_case_id=tc.rule_case_id,
-                tc_hist_version=tc.rule_case_hist_version,
+                tc_hist_version=(
+                    getattr(tc, "scenario_tc_hist_version", None)
+                    or tc.rule_case_hist_version
+                ),
             )
             yield {
                 "type": "step_finished",

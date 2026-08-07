@@ -357,6 +357,33 @@ export interface PostmanRulesImportResultDto {
   notes?: string[];
 }
 
+export interface PostmanRulesImportPreflightDto {
+  matched_services: string[];
+  draft_services: string[];
+  unmatched: PostmanUnmatchedRequestDto[];
+  request_count: number;
+  notes?: string[];
+}
+
+/** Light parse/match — list draft conflicts before starting the import job. */
+export async function preflightServiceRulesFromPostman(payload: {
+  collection: unknown;
+  environment?: unknown | null;
+  instCd?: string | null;
+}): Promise<PostmanRulesImportPreflightDto> {
+  return apiRequest<PostmanRulesImportPreflightDto>(
+    "/api/v1/service-rules/import-from-postman/preflight",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        inst_cd: getRequiredInstCd(payload.instCd),
+        collection: payload.collection,
+        environment: payload.environment ?? null,
+      }),
+    },
+  );
+}
+
 /** Upsert YAML drafts from Postman Collection or single Request JSON. */
 export async function importServiceRulesFromPostman(payload: {
   collection: unknown;

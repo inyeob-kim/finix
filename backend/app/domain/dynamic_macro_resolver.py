@@ -21,8 +21,6 @@ Scenario builtin ids map to YAML tokens:
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.domain.collection_var_generators import (
@@ -34,111 +32,24 @@ from app.domain.collection_var_generators import (
     resolve_date_offset,
     resolve_generator,
 )
+from app.domain.finix_macro_grammar import (
+    GENERATOR_FN_TO_BUILTIN as _GENERATOR_FN_TO_BUILTIN,
+    MACRO_FIND_RE,
+    MACRO_FULL_RE,
+    ParsedMacro,
+    find_macros,
+    finix_context_token,
+    finix_token_for_builtin_id,
+    is_macro_string,
+    looks_like_finix_macro,
+    parse_macro,
+)
 from app.domain.postman_default_headers import fcc_tx_date_today
 
-_NAME_PARTS = frozenset({"family", "given", "middle", "full"})
 _NAME_GENERATOR_FNS = frozenset({"name", "korean_name"})
-
-# Full token match (entire string is a macro).
-MACRO_FULL_RE = re.compile(
-    r"^\{\{\s*"
-    r"(?:"
-    r"pool\.(?P<pool_field>[A-Za-z_][\w.]*)"
-    r"|\$date\.(?P<date_fn>today|addYears|addDays|addMonths)\((?P<date_arg>-?\d*)\)"
-    r"|\$generator\.(?P<gen_fn>[A-Za-z_][\w]*)"
-    r"(?:\.(?P<gen_part>family|given|middle|full))?\(\)"
-    r"|context\.(?P<ctx_var>[A-Za-z_][\w]*)"
-    r")"
-    r"\s*\}\}$"
-)
-
-# Find macros embedded in longer strings.
-MACRO_FIND_RE = re.compile(
-    r"\{\{\s*"
-    r"(?:"
-    r"pool\.[A-Za-z_][\w.]*"
-    r"|\$date\.(?:today|addYears|addDays|addMonths)\(-?\d*\)"
-    r"|\$generator\.[A-Za-z_][\w]*(?:\.(?:family|given|middle|full))?\(\)"
-    r"|context\.[A-Za-z_][\w]*"
-    r")"
-    r"\s*\}\}"
-)
-
-# Only Finix dynamic macros (not Postman {{custId}} placeholders).
-_OUR_MACRO_PREFIX_RE = re.compile(
-    r"^\{\{\s*(?:pool\.|\$date\.|\$generator\.|context\.)"
-)
-
-# YAML $generator.fn() → collection-var builtin id
-_GENERATOR_FN_TO_BUILTIN: dict[str, str] = {
-    "ssn": "korean_rrn",
-    "name": "korean_name",
-    "uuid": "uuid",
-    "random_digits": "random_digits",
-    "korean_rrn": "korean_rrn",
-    "korean_name": "korean_name",
-}
-
 _NAME_PARTS_CACHE_KEY = "korean_name_parts"
 
-
-@dataclass(frozen=True, slots=True)
-class ParsedMacro:
-    kind: str  # pool | date | generator | context
-    raw: str
-    field: str | None = None
-    fn: str | None = None
-    arg: int | None = None
-    part: str | None = None  # name.family / name.given / …
-
-
 MissingPolicy = Literal["raise", "keep"]
-
-
-def is_macro_string(value: Any) -> bool:
-    if not isinstance(value, str):
-        return False
-    return bool(MACRO_FULL_RE.match(value.strip()))
-
-
-def looks_like_finix_macro(value: Any) -> bool:
-    """True when a string claims to be a Finix dynamic macro (not bare {{var}})."""
-    if not isinstance(value, str):
-        return False
-    return bool(_OUR_MACRO_PREFIX_RE.match(value.strip()))
-
-
-def parse_macro(value: str) -> ParsedMacro | None:
-    """Parse a whole-string macro; None if not a recognized macro."""
-    raw = (value or "").strip()
-    m = MACRO_FULL_RE.match(raw)
-    if not m:
-        return None
-    if m.group("pool_field"):
-        return ParsedMacro(kind="pool", raw=raw, field=m.group("pool_field"))
-    if m.group("date_fn"):
-        fn = m.group("date_fn")
-        arg_raw = m.group("date_arg") or ""
-        if fn == "today":
-            arg = None
-        else:
-            arg = int(arg_raw) if arg_raw not in ("",) else 0
-        return ParsedMacro(kind="date", raw=raw, fn=fn, arg=arg)
-    if m.group("gen_fn"):
-        fn = m.group("gen_fn")
-        part = m.group("gen_part")
-        if part and fn not in _NAME_GENERATOR_FNS:
-            return None
-        if part and part not in _NAME_PARTS:
-            return None
-        return ParsedMacro(kind="generator", raw=raw, fn=fn, part=part)
-    if m.group("ctx_var"):
-        return ParsedMacro(kind="context", raw=raw, field=m.group("ctx_var"))
-    return None
-
-
-def find_macros(text: str) -> list[str]:
-    return MACRO_FIND_RE.findall(text or "")
 
 
 def validate_macro_or_raise(value: str) -> ParsedMacro:
@@ -176,12 +87,22 @@ def validate_input_macros(
             for i, item in enumerate(node):
                 walk(item, f"{node_path}[{i}]")
             return
-        if not looks_like_finix_macro(node):
+        if not isinstance(node, str):
             return
-        try:
-            validate_macro_or_raise(str(node).strip())
-        except ValueError as exc:
-            errors.append(f"{node_path}: {exc}")
+        text = node
+        if is_macro_string(text):
+            try:
+                validate_macro_or_raise(text.strip())
+            except ValueError as exc:
+                errors.append(f"{node_path}: {exc}")
+            return
+        if not looks_like_finix_macro(text):
+            return
+        for piece in find_macros(text):
+            try:
+                validate_macro_or_raise(piece)
+            except ValueError as exc:
+                errors.append(f"{node_path}: {exc}")
 
     walk(data, path)
     return errors
@@ -220,20 +141,31 @@ def _resolve_generator(
     resolve_cache: dict[str, Any] | None,
 ) -> str:
     fn = (parsed.fn or "").strip()
+    cache_key = f"generator:{fn}:{parsed.part or ''}"
+    if resolve_cache is not None and cache_key in resolve_cache:
+        cached = resolve_cache[cache_key]
+        if isinstance(cached, str):
+            return cached
+
     if fn in _NAME_GENERATOR_FNS:
         parts = _korean_name_parts_from_cache(resolve_cache)
-        return korean_name_part(parts, parsed.part)
-    builtin = _GENERATOR_FN_TO_BUILTIN.get(fn)
-    if builtin:
-        return resolve_generator(builtin)
-    if catalog and fn in catalog:
-        return resolve_catalog_spec(catalog[fn])
-    # Unknown catalog key — still try as builtin id spelling
-    from_builtin = resolve_generator(fn)
-    if from_builtin:
-        return from_builtin
-    raise KeyError(f"generator.{fn} 를 찾을 수 없습니다.")
+        out = korean_name_part(parts, parsed.part)
+    else:
+        builtin = _GENERATOR_FN_TO_BUILTIN.get(fn)
+        if builtin:
+            out = resolve_generator(builtin)
+        elif catalog and fn in catalog:
+            out = resolve_catalog_spec(catalog[fn])
+        else:
+            from_builtin = resolve_generator(fn)
+            if from_builtin:
+                out = from_builtin
+            else:
+                raise KeyError(f"generator.{fn} 를 찾을 수 없습니다.")
 
+    if resolve_cache is not None:
+        resolve_cache[cache_key] = out
+    return out
 
 def evaluate_macro(
     value: str,
@@ -301,26 +233,36 @@ def resolve_value(
     path: str = "",
     resolve_cache: dict[str, Any] | None = None,
 ) -> Any:
-    """Resolve a single input value when it is a full-string macro."""
-    if not (isinstance(value, str) and is_macro_string(value)):
+    """Resolve Finix macros in a value (full-string or inline mixed)."""
+    if not isinstance(value, str):
         return value
-    try:
-        return evaluate_macro(
-            value,
-            context=context,
-            pool_fields=pool_fields,
-            catalog=catalog,
-            on_missing="raise",
-            resolve_cache=resolve_cache,
-        )
-    except KeyError as exc:
-        if on_missing == "keep":
-            if warnings is not None:
-                label = path or "input"
-                warnings.append(f"{label}: {exc.args[0] if exc.args else exc}")
-            return value
-        raise
 
+    def _eval_one(token: str) -> str:
+        try:
+            out = evaluate_macro(
+                token,
+                context=context,
+                pool_fields=pool_fields,
+                catalog=catalog,
+                on_missing="raise",
+                resolve_cache=resolve_cache,
+            )
+            return str(out)
+        except KeyError as exc:
+            if on_missing == "keep":
+                if warnings is not None:
+                    label = path or "input"
+                    warnings.append(f"{label}: {exc.args[0] if exc.args else exc}")
+                return token
+            raise
+
+    if is_macro_string(value):
+        return _eval_one(value.strip())
+
+    if not MACRO_FIND_RE.search(value):
+        return value
+
+    return MACRO_FIND_RE.sub(lambda m: _eval_one(m.group(0)), value)
 
 def resolve_mapping(
     data: dict[str, Any],

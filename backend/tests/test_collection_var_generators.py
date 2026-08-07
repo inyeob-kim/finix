@@ -18,6 +18,50 @@ from app.schemas.collection_var_generator_schema import (
 from app.services.collection_var_generator_service import CollectionVarGeneratorService
 
 
+def test_normalize_generator_naming_rejects_var_labels():
+    from app.domain.collection_var_generators import normalize_generator_naming
+
+    key, label = normalize_generator_naming(
+        key="actorId",
+        label="actorId",
+        impl_kind="random_digits",
+        impl={"length": 12},
+    )
+    assert key == "random_digits_12"
+    assert label == "난수 12자리"
+
+    names = ["James", "Maria", "Omar", "Linda", "Robert", "Susan"]
+    key2, label2 = normalize_generator_naming(
+        key="english_name_78f7b6",
+        label="enName",
+        impl_kind="pick_from_list",
+        impl={"values": names},
+        alias="firstNames",
+    )
+    assert key2 == "english_name"
+    assert "영문" in label2
+
+    key3, label3 = normalize_generator_naming(
+        key="list_pick_deadbeef",
+        label="이름 목록 랜덤(30개)",
+        impl_kind="pick_from_list",
+        impl={"values": names},
+        alias="lastNames",
+    )
+    assert key3 == "english_name"
+    assert "영문" in label3
+
+    # Explicit AI/capability keys are kept.
+    key4, label4 = normalize_generator_naming(
+        key="english_first_name",
+        label="영문 이름(이름)",
+        impl_kind="pick_from_list",
+        impl={"values": names},
+    )
+    assert key4 == "english_first_name"
+    assert "영문" in label4
+
+
 def test_date_offset_months():
     impl = validate_custom_impl(
         "date_offset",

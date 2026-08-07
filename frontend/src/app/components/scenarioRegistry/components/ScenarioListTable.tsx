@@ -1,4 +1,4 @@
-import { BarChart3, Download, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { BarChart3, Download, Play, Plus, Trash2 } from "lucide-react";
 import {
   canExportRegistryScenarioPostman,
   registryScenarioPostmanExportBlockReason,
@@ -33,7 +33,6 @@ export type ScenarioListEmptyCopy = {
 type ScenarioListTableProps = {
   items: ScenarioRegistryItem[];
   selectedScenarioId: string | null;
-  previewCollapsed: boolean;
   emptyCopy: ScenarioListEmptyCopy;
   actions: "history" | "full";
   runningId: string | null;
@@ -42,7 +41,6 @@ type ScenarioListTableProps = {
   onSelectRow: (id: string) => void;
   onRegister: () => void;
   onOpenHistory: () => void;
-  onEdit: (id: string) => void;
   onRun: (item: ScenarioRegistryItem) => void;
   onExport: (item: ScenarioRegistryItem) => void;
   onRequestDelete: (id: string) => void;
@@ -54,7 +52,6 @@ type ScenarioListTableProps = {
 export function ScenarioListTable({
   items,
   selectedScenarioId,
-  previewCollapsed,
   emptyCopy,
   actions,
   runningId,
@@ -63,7 +60,6 @@ export function ScenarioListTable({
   onSelectRow,
   onRegister,
   onOpenHistory,
-  onEdit,
   onRun,
   onExport,
   onRequestDelete,
@@ -87,7 +83,7 @@ export function ScenarioListTable({
           <FinixDataTableHead>수정자</FinixDataTableHead>
           <FinixDataTableHead
             className={
-              actions === "full" ? "w-[160px] text-left" : "w-[72px] text-right"
+              actions === "full" ? "w-[128px] text-left" : "w-[72px] text-right"
             }
           >
             작업
@@ -127,7 +123,6 @@ export function ScenarioListTable({
         ) : (
           items.map((item) => {
             const isSelected = item.id === selectedScenarioId;
-            const rowActive = isSelected && !previewCollapsed;
             const tcCount = item.selectedRuleTestcases?.length ?? 0;
             const saveStatus = resolveScenarioSaveStatus(item);
             return (
@@ -135,8 +130,7 @@ export function ScenarioListTable({
                 key={item.id}
                 interactive
                 className={cn(
-                  rowActive && "bg-primary/5 border-l-2 border-l-primary",
-                  isSelected && !rowActive && "bg-muted/50",
+                  isSelected && "bg-primary/5 border-l-2 border-l-primary",
                 )}
                 onClick={() => onSelectRow(item.id)}
               >
@@ -188,17 +182,6 @@ export function ScenarioListTable({
                     </button>
                   ) : (
                     <div className="inline-flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEdit(item.id);
-                        }}
-                        className={FINIX_DATA_TABLE_GHOST_BTN_CLASS}
-                        title="편집"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
                       <button
                         type="button"
                         onClick={(e) => {

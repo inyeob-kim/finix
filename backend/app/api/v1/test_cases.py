@@ -42,7 +42,7 @@ async def list_test_cases_by_service_v1(
         inst_cd=inst_cd,
         scenario_eligible=scenario_eligible,
     )
-    return [testcase_entity_to_read(r) for r in rows]
+    return await service.to_reads(rows)
 
 
 @router.get(
@@ -58,7 +58,7 @@ async def get_test_case_v1(
 ) -> TestCaseRead:
     """Return one HTTP test case by natural key."""
     entity = await service.get_testcase(inst_cd, svc_code, rule_case_id)
-    return testcase_entity_to_read(entity)
+    return await service.to_read(entity)
 
 
 @router.patch(
@@ -85,7 +85,7 @@ async def patch_test_case_v1(
         expected_status=payload.expected_status,
         expected_body=payload.expected_body,
     )
-    return testcase_entity_to_read(entity)
+    return await service.to_read(entity)
 
 
 @router.post(

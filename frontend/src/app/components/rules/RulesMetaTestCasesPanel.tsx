@@ -12,7 +12,7 @@ import {
 } from "@/lib/materializedTestCaseMeta";
 import type { RulesMetaRunSession } from "./RulesMetaTestCaseRunDialog";
 import { Download, Play, RefreshCw, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmPopover } from "../scenarioRegistry/components/ConfirmPopover";
 import { FinixPrimaryButton } from "../ui/finix-button";
@@ -71,21 +71,23 @@ export function RulesMetaTestCasesPanel({
 
   const code = serviceCode.trim();
   const hasActiveYaml = activeBundleVersion != null;
+  const onRowsChangeRef = useRef(onRowsChange);
+  onRowsChangeRef.current = onRowsChange;
 
   const loadTestCases = useCallback(async () => {
     if (!code) {
       setRows([]);
-      onRowsChange?.([]);
+      onRowsChangeRef.current?.([]);
       return;
     }
     setListLoading(true);
     try {
       const listed = await listTestCasesByServiceCode(code, 500);
       setRows(listed);
-      onRowsChange?.(listed);
+      onRowsChangeRef.current?.(listed);
     } catch (e) {
       setRows([]);
-      onRowsChange?.([]);
+      onRowsChangeRef.current?.([]);
       toast.error(
         e instanceof ApiError
           ? e.message
@@ -94,7 +96,7 @@ export function RulesMetaTestCasesPanel({
     } finally {
       setListLoading(false);
     }
-  }, [code, onRowsChange]);
+  }, [code]);
 
   useEffect(() => {
     registerRefresh?.(loadTestCases);
@@ -136,12 +138,12 @@ export function RulesMetaTestCasesPanel({
       });
       toast.success(`풀에 ${created.length}건을 일괄 생성했습니다.`);
       setRows(created);
-      onRowsChange?.(created);
+      onRowsChangeRef.current?.(created);
       try {
         const listed = await listTestCasesByServiceCode(code, 500);
         if (listed.length > 0) {
           setRows(listed);
-          onRowsChange?.(listed);
+          onRowsChangeRef.current?.(listed);
         }
       } catch {
         // Keep `created` rows if refresh fails.

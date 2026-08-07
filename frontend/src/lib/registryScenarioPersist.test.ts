@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/api/client";
 import { persistRegistryScenarioToDb } from "@/lib/registryScenarioPersist";
 import * as scenarioApi from "@/api/scenarioApi";
 import { emptyPostmanConfig } from "@/lib/scenarioPostmanVariables";
@@ -87,6 +88,29 @@ describe("persistRegistryScenarioToDb", () => {
     expect(result.scenarioId).toBe(99);
     expect(vi.mocked(scenarioApi.saveScenarioDefinition).mock.calls[0][0]).toBe(
       99,
+    );
+  });
+
+  it("recreates a shell when existingScenarioId is missing on the server", async () => {
+    vi.mocked(scenarioApi.createScenarioShell).mockClear();
+    vi.mocked(scenarioApi.createScenarioShell).mockResolvedValue({ id: 101 } as never);
+    vi.mocked(scenarioApi.saveScenarioDefinition)
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError(404, "Scenario not found: 80"))
+      .mockResolvedValueOnce(undefined as never);
+
+    const result = await persistRegistryScenarioToDb({
+      title: "복구",
+      serviceSequence: [{ code: "SVC1", name: "서비스1" }],
+      postmanConfig: emptyPostmanConfig(),
+      existingScenarioId: 80,
+      markSaved: false,
+    });
+
+    expect(scenarioApi.createScenarioShell).toHaveBeenCalledTimes(1);
+    expect(result.scenarioId).toBe(101);
+    expect(vi.mocked(scenarioApi.saveScenarioDefinition).mock.calls[1][0]).toBe(
+      101,
     );
   });
 });
