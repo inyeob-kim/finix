@@ -103,7 +103,6 @@ import { FinixProgressSteps } from "./ui/FinixProgressSteps";
 import type { ScenarioStepPostmanPanelHandle } from "./scenario/ScenarioStepPostmanPanel";
 import { FolderDeleteAlertDialog } from "./scenarioRegistry/components/FolderDeleteAlertDialog";
 import { FolderTreeList } from "./scenarioRegistry/components/FolderTreeList";
-import { ScenarioDetailSheet } from "./scenarioRegistry/components/ScenarioDetailSheet";
 import { ScenarioListTable } from "./scenarioRegistry/components/ScenarioListTable";
 import { ScenarioTestcaseTransfer } from "./scenarioRegistry/components/ScenarioTestcaseTransfer";
 import { ServiceRow } from "./scenarioRegistry/components/ServiceRow";
@@ -443,20 +442,6 @@ export function ScenarioRegistry() {
     }
   }, [scenarioWizardStep]);
 
-  const selectedScenario = useMemo(() => {
-    if (!selectedScenarioId) return null;
-    return items.find((x) => x.id === selectedScenarioId) ?? null;
-  }, [items, selectedScenarioId]);
-
-  const openDetailFor = (id: string) => {
-    setSelectedScenarioId(id);
-    setPreviewCollapsed(false);
-  };
-
-  const closeDetail = () => {
-    setPreviewCollapsed(true);
-  };
-
   useEffect(() => {
     const loaded = loadRegistryState(updatedBy);
     const uiSession = loadRegistryUiSession();
@@ -473,7 +458,8 @@ export function ScenarioRegistry() {
     if (uiSession) {
       setQuery(uiSession.query);
       setTagFilter(uiSession.tagFilter);
-      setPreviewCollapsed(uiSession.previewCollapsed);
+      // Detail sheet removed: always keep preview collapsed.
+      setPreviewCollapsed(true);
       const scenarioStillExists = repaired.scenarios.some(
         (s) => s.id === uiSession.selectedScenarioId,
       );
@@ -860,6 +846,7 @@ export function ScenarioRegistry() {
   const startEdit = (id: string) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
+    setSelectedScenarioId(id);
     setPreviewCollapsed(true);
     setEditingId(id);
     setTitle(item.title);
@@ -1692,7 +1679,7 @@ export function ScenarioRegistry() {
                     runningId={runningId}
                     exportingId={exportingId}
                     confirmDeleteScenarioId={confirmDeleteScenarioId}
-                    onSelectRow={openDetailFor}
+                    onSelectRow={startEdit}
                     onRegister={startCreate}
                     onOpenHistory={() => navigate("/history")}
                     onRun={(item) => void openScenarioRunDialog(item)}
@@ -1804,7 +1791,7 @@ export function ScenarioRegistry() {
                         runningId={runningId}
                         exportingId={exportingId}
                         confirmDeleteScenarioId={confirmDeleteScenarioId}
-                        onSelectRow={openDetailFor}
+                        onSelectRow={startEdit}
                         onRegister={startCreate}
                         onOpenHistory={() => navigate("/history")}
                         onRun={(item) => void openScenarioRunDialog(item)}
@@ -1824,23 +1811,6 @@ export function ScenarioRegistry() {
         </div>
 
         </div>
-
-      <ScenarioDetailSheet
-        open={!previewCollapsed && !!selectedScenario}
-        scenario={selectedScenario}
-        folderLabel={
-          selectedScenario
-            ? getFolderLabel(folderOptions, selectedScenario.folderId)
-            : null
-        }
-        onOpenChange={(next) => {
-          if (!next) closeDetail();
-        }}
-        onEdit={(id) => {
-          closeDetail();
-          startEdit(id);
-        }}
-      />
 
       <Sheet
         open={open}

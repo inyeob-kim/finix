@@ -871,8 +871,8 @@ export function RulesMeta() {
             </div>
           ) : null}
 
-          <div className="flex flex-nowrap items-center gap-2 min-w-0">
-            <div className="relative flex-1 min-w-[8rem] max-w-[18rem]">
+          <div className="flex flex-wrap items-end gap-6 min-w-0">
+            <div className="relative min-w-[min(18rem,100%)] flex-1 max-w-[22rem]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               <FinixUnderlineInput
                 type="text"
@@ -882,7 +882,7 @@ export function RulesMeta() {
                   setPage(1);
                 }}
                 placeholder="코드, 이름 검색"
-                className="h-9 pl-9 pr-9 bg-card"
+                className="h-10 pl-10 pr-9 bg-card"
               />
               {query ? (
                 <button
@@ -899,53 +899,56 @@ export function RulesMeta() {
               ) : null}
             </div>
 
-            <FinixUnderlineSelect
-              aria-label="정렬"
-              value={sortKey}
-              onChange={(e) => {
-                setSortKey(e.target.value as SortKey);
-                setPage(1);
-              }}
-              className="h-9 w-[9.5rem] shrink-0 py-1.5 text-xs bg-card"
-            >
-              <option value="code_asc">정렬 · 코드</option>
-              <option value="updated_desc">정렬 · 최신</option>
-              <option value="name_asc">정렬 · 이름</option>
-              <option value="rules_desc">정렬 · 규칙수</option>
-            </FinixUnderlineSelect>
+            <FinixField label="정렬" className="min-w-[8.5rem]">
+              <FinixUnderlineSelect
+                aria-label="정렬"
+                value={sortKey}
+                onChange={(e) => {
+                  setSortKey(e.target.value as SortKey);
+                  setPage(1);
+                }}
+              >
+                <option value="code_asc">코드</option>
+                <option value="updated_desc">최신</option>
+                <option value="name_asc">이름</option>
+                <option value="rules_desc">규칙수</option>
+              </FinixUnderlineSelect>
+            </FinixField>
 
-            <FinixUnderlineSelect
-              aria-label="상태"
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value as typeof statusFilter);
-                setPage(1);
-              }}
-              className="h-9 w-[7rem] shrink-0 py-1.5 text-xs bg-card"
-            >
-              <option value="">상태 · 전체</option>
-              <option value="active">상태 · 적용됨</option>
-              <option value="draft">상태 · 작업 중</option>
-            </FinixUnderlineSelect>
+            <FinixField label="상태" className="min-w-[7.5rem]">
+              <FinixUnderlineSelect
+                aria-label="상태"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as typeof statusFilter);
+                  setPage(1);
+                }}
+              >
+                <option value="">전체</option>
+                <option value="active">적용됨</option>
+                <option value="draft">작업 중</option>
+              </FinixUnderlineSelect>
+            </FinixField>
 
-            <FinixUnderlineSelect
-              aria-label="소스 버전"
-              value={versionFilter}
-              onChange={(e) => {
-                setVersionFilter(e.target.value);
-                setPage(1);
-              }}
-              className="h-9 w-[8.5rem] shrink-0 py-1.5 text-xs bg-card"
-            >
-              <option value="">버전 · 전체</option>
-              {uniqueVersions.map((v) => (
-                <option key={v} value={v}>
-                  버전 · {v}
-                </option>
-              ))}
-            </FinixUnderlineSelect>
+            <FinixField label="버전" className="min-w-[8.5rem]">
+              <FinixUnderlineSelect
+                aria-label="소스 버전"
+                value={versionFilter}
+                onChange={(e) => {
+                  setVersionFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">전체</option>
+                {uniqueVersions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </FinixUnderlineSelect>
+            </FinixField>
 
-            <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="ml-auto flex items-center gap-2 shrink-0 pb-0.5">
               <FinixPrimaryButton
                 type="button"
                 className="h-9 px-3 text-xs rounded-sm w-auto gap-1.5 shrink-0"
